@@ -8,6 +8,7 @@
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
 ctx.imageSmoothingEnabled=false;
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 
 // ---------- 画布适配 ----------
 function fitScreen(){
