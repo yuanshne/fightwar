@@ -1,5 +1,6 @@
 // v3 Boss战+技能系统工作流（预置脚本，v2 合入后由主 agent 以 path 启动）
-// 分工：GLM-5.3 设计师想方法 → GLM-5.3-Flash 四队施工 → 门禁终验
+// 启动时必须传 subagent_model=account:zai-start-plan/GLM-5.3-Flash（施工四队走 Flash 额度）！
+// 分工：GLM-5.3 设计师想方法($high 档省额度) → GLM-5.3-Flash 四队施工 → 门禁终验
 // 输入：docs/specs/2026-10-24-v3-boss-brief.md（设计输入书，含边界与 YAGNI 清单）
 
 interface WorkOrderRef {
@@ -42,7 +43,7 @@ artifact.board('v3progress', {
 phase('GLM-5.3 设计师产出设计与施工工单');
 log('设计师先读 v2 合入后的真实代码，再产出 Boss 战设计与四份算法级工单');
 const designer = agent('Boss战设计师', {
-  model: 'account:zai-start-plan/GLM-5.3',
+  model: 'account:zai-start-plan/GLM-5.3$high',
   system:
     '你是资深动作游戏设计师+技术策划。设计必须落在既有代码现实上：先读 ' + BRIEF +
     '、docs/CONTRACT.md、以及 v2 合入后的 engine.js/ui.js/art.js/levels.js 与 tools/gate.js，' +
