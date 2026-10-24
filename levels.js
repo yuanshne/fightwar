@@ -320,6 +320,28 @@ const LEVELS=[
     g.set(21,1,'W');                  // +史莱姆：守阶梯口的塔顶哨兵
     g.set(15,1,'P');
     return g;}},
+
+// ---------- L7 BOSS：星核巨兽竞技场（横向 60×16，上下平台躲冲击波） ----------
+{ name:'7 · BOSS·星核巨兽', theme:'boss', par:150, boss:true,
+  hint:'BOSS 战：U 星陨 · I 护盾 · O 流星连斩(连击≥8)；跳跃或登台躲冲击波',
+  w:60,h:16,
+  build(g){const H=g.h-1;   // H=15；主地板顶=行13
+    // 走线：出生→检查点→中央高台/两翼平台躲避循环→木箱连击补给→击败 Boss
+    g.ground(0,59,13);                       // 主地板（行13..15 实心，全场无坠落死）
+    g.set(2,12,'@');                         // 出生点（支撑 (2,13) ✓）
+    g.set(6,12,'c');                         // 检查点：Boss 战存档（死亡回此，HP 回满）
+    g.plat(4,8,9);   g.coins(5,7,8);         // 左平台+币（躲波位①）
+    g.plat(14,17,8); g.set(15,7,'B');        // 中左平台+木箱①
+    // 施工修正(v3)：中央高台 7→6、弧币 6→5（两处成对改）。原 plat(26,31,7) 与两侧
+    //   木箱顶 B(15,7)/B(43,7) 同处行7，行7 可站立分段 [15]/[26-31]/[43] 间隙 10/11 格，
+    //   实测 validateLevels 报 2 处 error（违背工单 H3 门禁全绿）；上移一行后行7 仅余
+    //   两木箱分段（间隙27>14 落 warn），行6 高台为单一分段，仍是全场最高躲波位。
+    g.plat(26,31,6); g.coinArc(28,5,5);      // 中央高台+弧币（最高躲波位，吃弹幕风险换安全）
+    g.plat(42,45,8); g.set(43,7,'B');        // 中右平台+木箱②
+    g.plat(50,55,9); g.coins(51,54,8);       // 右平台+币（Boss 上空，开局风险位）
+    g.set(9,12,'B'); g.set(38,12,'B'); g.set(47,12,'B');  // 地面木箱③④⑤（B 计 5 ≥4）
+    g.set(52,12,'X');                        // Boss 锚点：中心 x=52*16+8=840，落地脚 y=208
+    return g;}},
 ];
 
 // ---------- 几何断言（尽力而为的静态检查；误报优于漏报，但不得误报正常设计） ----------
@@ -329,6 +351,7 @@ function validateLevels(){
   const errs=[],warns=[];
   for(let li=0;li<LEVELS.length;li++){
     const meta=LEVELS[li];
+    const isBoss=!!meta.boss; // v3：BOSS 关豁免终点 P 断言（胜利由 Boss 死亡触发，goal=null 时引擎终点判定自动跳过）
     if(!meta.build)continue;
     const g=new LG(meta.w,meta.h);
     meta.build(g);
@@ -352,7 +375,8 @@ function validateLevels(){
         if(!sup)errs.push('L'+(li+1)+' 木箱('+x+','+y+')下方无支撑(悬空)');}
     }
     if(nAt!==1)errs.push('L'+(li+1)+' 出生点数量='+nAt+'(应为1)');
-    if(nP!==1)errs.push('L'+(li+1)+' 终点数量='+nP+'(应为1)');
+    if(!isBoss && nP!==1)errs.push('L'+(li+1)+' 终点数量='+nP+'(应为1)');
+    if(isBoss && nP!==0)errs.push('L'+(li+1)+' BOSS关不应设终点P(胜利由Boss死亡触发)');
     if(nB<4)errs.push('L'+(li+1)+' 木箱B数量='+nB+'(应≥4)');   // v2 断言：每关 B≥4
     // 2) 同行可站立面之间的间隙
     for(let y=0;y<h;y++){
@@ -411,5 +435,5 @@ function validateLevels(){
       }
   }
   if(errs.length)return{ok:false,msg:'失败 '+errs.length+' 处: '+errs.slice(0,5).join('; ')};
-  return{ok:true,msg:'六关断言全部通过'+(warns.length?('; 警告'+warns.length+'处(宽间隙按支线处理)'):'')};
+  return{ok:true,msg:'七关断言全部通过'+(warns.length?('; 警告'+warns.length+'处(宽间隙按支线处理)'):'')};
 }

@@ -15,6 +15,16 @@
        命中 'B' 砖→碎+1 金币、斩碎炮弹）、冲刺（K/Shift：冷却 0.8s、0.18s vx=±260 免摩擦、
        重力减半）、连击（击杀/碎砖 2s 窗口累计 game.combo，断档清零）；
      - 'B' 可碎木箱砖入 solid/电锯轨道语义、内含金币计入 totalCoin（P3 关卡侧配套）。
+   v3 增量（docs/specs/2026-10-24-v3-boss-design.md，引擎工单 docs/workorders/engine.md）：
+     - 玩家 HP 系统：hp:5 / invT 无敌帧 / shieldT 护盾 / castT 施法姿态；
+       _engHurtPlayer 统一 HP 伤害入口（敌人接触/炮弹/冲击波/Boss 接触 → -1），
+       尖刺/熔岩/电锯/挤压/坠落保持 killPlayer 即死（护盾不挡即死物）；
+     - Boss 星核巨兽：'X' 锚点解析 → _engMkBoss，_engUpdateBoss 十二态状态机
+       （dormant/intro/idle/windup/leapAir/barrageFire/chargeRun/stagger/summonCast/
+       novaCast/recover/enrage/dying/dead），_engBossHurt 唯一承伤入口（五态免伤）；
+     - 三技能（U 星陨 8s / I 护盾 12s / O 连斩 20s+连击8）+ meteor/wave/drop 实体循环；
+     - 击杀统一入口 _engKillEnemy（30% 掉回复心）；sfx 新事件
+       'roar','meteor','shield','ult','heart','hurt','bosshit'（只 push 不发声）。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -30,7 +40,8 @@ const _engEps = 0.01;             // 内部：AABB 右/下缘取整前的回退�
 const _engDecorFallback = {       // 内部：THEMES 桩（门禁环境）无 decor 字段时的兜底装饰表
   grass: ['bush', 'flower', 'mushroom'], cave: ['crystal', 'mushroom'],
   sky: ['cloudpot', 'flower'], factory: ['gear', 'chain'],
-  lava: ['torch', 'skull'], tower: ['torch', 'crystal']
+  lava: ['torch', 'skull'], tower: ['torch', 'crystal'],
+  boss: ['crystal', 'torch', 'skull'] // v3：星核虚空复用既有 decor 类型（设计 §0）
 };
 function _engClamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function _engSign(v) { return v < 0 ? -1 : v > 0 ? 1 : 0; }
@@ -80,6 +91,9 @@ const _engDashGrav = 0.5; // 内部：冲刺期间重力倍率（减半）
 const _engHitStop = 0.06; // 内部：攻击命中敌人的全局冻结时长（s）
 const _engComboWin = 2;   // 内部：连击计数窗口（s）
 
+/* ==================== v3 Boss/技能常量（内部） ==================== */
+const _engBossActDist = 176; // 内部：Boss 激活半径（px，玩家中心距 Boss 中心，设计 §2）
+
 /* ==================== Level 关卡解析（契约导出） ==================== */
 class Level {
   constructor(idx) {
@@ -104,7 +118,7 @@ class Level {
     this.coins = []; this.enemies = []; this.plats = []; this.saws = [];
     this.cannons = []; this.springs = []; this.levers = []; this.checkpoints = [];
     this.crumbles = new Map(); this.doors = new Map();
-    this.spawn = { x: 32, y: 32 }; this.goal = null;
+    this.spawn = { x: 32, y: 32 }; this.goal = null; this.bossSpawn = null; // v3：Boss 锚点
     let brickN = 0; // v2 P3：'B' 可碎木箱砖计数（每箱内含 1 金币，计入 totalCoin）
     for (let y = 0; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
@@ -140,6 +154,7 @@ class Level {
           case 'C': this.crumbles.set(x + ',' + y, { x: x, y: y, state: 0, t: 0, dy: 0, dvy: 0 }); break; // 0稳 1抖 2落 3无
           case 'D': this.doors.set(x + ',' + y, { x: x, y: y }); break;
           case 'B': brickN++; break; // v2 P3：木箱砖是实心瓦片（留在网格），仅攻击可碎（碎于 _engResolveAttack）
+          case 'X': this.bossSpawn = { x: px + 8, y: py }; this.tiles[y][x] = '.'; break; // v3：Boss 锚点（不入 SOLIDISH/STAND，solid() 无需改）
         }
       }
     }
@@ -241,10 +256,19 @@ const game = {
   bullets: [], parts: [], sfxQueue: [],
   respawnAt: null, clearT: 0,
   // v2 P1：input 新增 attack/dash 边沿与持键（ui 写入，engine 只读并消费边沿）
-  input: { left: 0, right: 0, jump: 0, jumpHit: 0, attack: 0, attackHit: 0, dash: 0, dashHit: 0 },
+  // v3：追加技能边沿 skillUHit/skillIHit/skillOHit（ui 写、engine 消费并清零，同 attackHit/dashHit）
+  input: { left: 0, right: 0, jump: 0, jumpHit: 0, attack: 0, attackHit: 0, dash: 0, dashHit: 0,
+           skillUHit: 0, skillIHit: 0, skillOHit: 0 },
   paused: false, tick: 0,
   combo: 0, comboT: 0,   // v2 P1：连击计数 / 窗口剩余（断档清零）
-  hitStop: 0             // v2 P1：攻击命中的全局冻结计时（>0 时世界暂停推进）
+  hitStop: 0,            // v2 P1：攻击命中的全局冻结计时（>0 时世界暂停推进）
+  // v3：Boss 战与技能系统（沿 v2 先例扩展字段，不新增顶层全局符号）
+  boss: null,            // Boss 实体（loadLevel 按 L.bossSpawn 创建，L1-L6 恒 null）
+  drops: [],             // 掉落回复心（击杀 30% 概率）
+  meteors: [],           // 星陨术流星
+  waves: [],             // Boss 落地冲击波
+  skills: { u: 0, i: 0, o: 0 }, // 三技能 CD 剩余秒（U/I/O）
+  flashT: 0              // 流星连斩白屏剩余（s）
 };
 
 /* ==================== 关卡装载 / 出生 / 死亡 / 通关 ==================== */
@@ -255,6 +279,7 @@ function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 +
     dead: false, deadT: 0, standOn: null, landT: 0,
     atkCd: 0, atkT: 0,     // v2 P1：攻击冷却剩余 / 判定框剩余存在时间
     dashCd: 0, dashT: 0, dashDir: 1, // v2 P1：冲刺冷却剩余 / 持续剩余 / 方向
+    hp: 5, invT: 0, shieldT: 0, castT: 0, // v3：心形 HP / 受伤无敌剩余 / 护盾剩余 / 施法姿态剩余
     jumpCut: false, prevJump: 0 // v2.6：松手截断只作用于普通跳；prevJump 记录跳键上一帧状态
   };
 }
@@ -270,6 +295,10 @@ function loadLevel(idx, keepStats) {
   game.player = _engMkPlayer(L.spawn.x, L.spawn.y);
   game.cam.x = _engClamp(L.spawn.x + 5 - _engVW / 2, 0, Math.max(0, L.w * _engTile - _engVW));
   game.cam.y = _engClamp(L.spawn.y + 7 - _engVH / 2, 0, Math.max(0, L.h * _engTile - _engVH));
+  // v3：Boss 创建 + 新实体/技能字段复位（工单 A「loadLevel 末尾」）
+  game.boss = L.bossSpawn ? _engMkBoss(L.bossSpawn.x, L.bossSpawn.y) : null;
+  game.drops = []; game.meteors = []; game.waves = []; game.flashT = 0;
+  game.skills = { u: 0, i: 0, o: 0 };
 }
 
 function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复位、子弹清空；钥匙/门/开关/已收金币保持
@@ -279,11 +308,17 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.vx = 0; p.vy = 0; p.dead = false; p.deadT = 0;
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
   p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; // v2 P1：动作状态复位
+  p.hp = 5; p.invT = 1.5; p.shieldT = 0; p.castT = 0; // v3：HP 回满 + 1.5s 出生保护；技能 CD 保留计时（设计 §5）
   p.jumpCut = false; p.prevJump = 0;
   // v2 P1：清输入锁存——死亡期间残留的边沿不得在复活后的缓冲窗口内自动触发
   game.input.jumpHit = 0; game.input.attackHit = 0; game.input.dashHit = 0;
+  game.input.skillUHit = 0; game.input.skillIHit = 0; game.input.skillOHit = 0; // v3：技能边沿同惯例清零
   game.hitStop = 0;
-  game.bullets = [];
+  game.bullets = []; game.waves = []; game.meteors = []; // v3：弹幕/波/陨石清空（drops 保留自然过期）
+  // v3：Boss 重置——HP/阶段保留，状态回 idle（若存在且非 dormant/dead，工单 B）
+  if (game.boss && game.boss.state !== 'dormant' && game.boss.state !== 'dead') {
+    game.boss.state = 'idle'; game.boss.t = 0; game.boss.vx = 0; game.boss.vy = 0;
+  }
   for (const e of L.enemies) {
     e.dead = 0;
     if (e.type === 'bat') { e.x = e.ax; e.y = e.ay; }
@@ -317,6 +352,243 @@ function levelClear() {
   // 星级/解锁/存档由 ui 层负责，engine 不碰 localStorage
 }
 
+/* ==================== v3：HP 伤害 / Boss AI / 技能（内部） ==================== */
+
+function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（工单 B；即死物不走这里）
+  const p = game.player;
+  if (!p || p.dead || game.state !== 'play') return false;
+  if (p.invT > 0 || p.shieldT > 0) return false;   // 无敌帧/护盾：伤害与击退全免
+  p.hp--; p.invT = 1.0;
+  p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * 160;   // 击退方向=离伤害源
+  p.vy = -140; p.dashT = 0; p.atkT = 0;
+  game.shake = Math.max(game.shake, 5);
+  game.sfxQueue.push('hurt');
+  _engAddParts(p.x + 5, p.y + 7, 10, '#f85858', 90, 200);
+  if (p.hp <= 0) killPlayer();                     // 复用 v2 死亡序列
+  return true;
+}
+
+function _engKillEnemy(e) { // 内部：击杀统一入口（踩踏/攻击/星陨/连斩共用；30% 掉回复心，设计 §5）
+  e.dead = 0.01;
+  if (Math.random() < 0.30) game.drops.push({ x: e.x + 2, y: e.y - 4, w: 8, h: 8, vy: -120, life: 6 });
+}
+
+function _engOnScreen(e) { // 内部：实体矩形是否在视口内（连斩「屏内普通敌全灭」判定用）
+  return e.x + e.w > game.cam.x && e.x < game.cam.x + _engVW &&
+         e.y + e.h > game.cam.y && e.y < game.cam.y + _engVH;
+}
+
+function _engMkBoss(cx, py) { // 内部：Boss 实体（cx=锚点中心x, py=锚点行顶）
+  return {
+    x: cx - 26,
+    // 【工单偏离·已裁决】伪代码 `y: py` 为笔误——那会把 52×48 命中框嵌入主地板 32px，
+    // 与 engine.md A 节「落地脚底 y=208」及设计 §1「脚底站在地面瓦片顶」/§6「落地脚 y=208」矛盾。
+    // 按「落地脚底=锚点下一行的地板顶面」实现：y=(锚点行+1)*16-h（不硬编码，随锚点行推导；L7 即 13*16-48=160）。
+    y: py + _engTile - 48,
+    w: 52, h: 48, vx: 0, vy: 0, face: -1,
+    hp: 60, maxHp: 60, phase: 1,
+    state: 'dormant', t: 0,          // t：当前状态已累计秒数
+    next: '', lastPattern: '', pickN: 0,
+    flashT: 0, chargeDir: 1, chargeFrom: 0, landX: 0, fireN: 0
+  };
+}
+
+function _engBossDur(name, phase) { // 内部：前摇表(秒)，P2 ×0.85（设计 §3）
+  const T = { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55 };
+  return T[name] * (phase === 2 ? 0.85 : 1);
+}
+
+function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不用随机）
+  const p = game.player, bcx = b.x + b.w / 2, adx = Math.abs(p.x + p.w / 2 - bcx);
+  let pool = adx <= 200 ? ['charge', 'leap', 'summon', 'charge'] : ['barrage', 'charge', 'leap', 'barrage'];
+  if (b.phase === 2) pool = pool.concat(['nova']);
+  const alive = game.level.enemies.filter(function (e) { return !(e.dead > 0); }).length;
+  if (alive >= 2) pool = pool.filter(function (n) { return n !== 'summon'; });
+  pool = pool.filter(function (n) { return n !== b.lastPattern; });
+  if (!pool.length) pool = ['barrage'];
+  b.next = pool[b.pickN++ % pool.length]; b.lastPattern = b.next;
+  b.state = 'windup'; b.t = 0;
+}
+
+function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤）
+  const b = game.boss;
+  if (!b || b.state === 'dormant' || b.state === 'intro' || b.state === 'enrage'
+        || b.state === 'dying' || b.state === 'dead') return false;
+  b.hp -= dmg; b.flashT = 0.12;
+  game.hitStop = Math.max(game.hitStop, 0.06);      // 复用 v2 hit-stop
+  game.shake = Math.max(game.shake, 3);
+  game.sfxQueue.push('bosshit');
+  if (b.hp <= 0) { b.hp = 0; b.state = 'dying'; b.t = 0;
+    game.bullets = []; game.waves = []; game.shake = 10; return true; } // 死亡优先：大伤害一刀斩不得被狂暴吸收卡 1 血
+  if (b.hp <= 30 && b.phase === 1) { b.phase = 2; b.state = 'enrage'; b.t = 0;
+    game.sfxQueue.push('roar'); game.shake = 6; return true; }
+  return true;
+}
+
+function _engBossPhysX(dt, b) { // 内部：Boss X 轴解算（撞墙返回 true）——沿用玩家先X后Y惯例
+  b.x += b.vx * dt;
+  const y0 = Math.floor(b.y / _engTile), y1 = Math.floor((b.y + b.h - _engEps) / _engTile);
+  if (b.vx > 0) { const tx = Math.floor((b.x + b.w - _engEps) / _engTile);
+    for (let ty = y0; ty <= y1; ty++) if (game.level.solid(tx, ty, game.switchState)) { b.x = tx * _engTile - b.w; return true; } }
+  else if (b.vx < 0) { const tx = Math.floor(b.x / _engTile);
+    for (let ty = y0; ty <= y1; ty++) if (game.level.solid(tx, ty, game.switchState)) { b.x = (tx + 1) * _engTile; return true; } }
+  return false;
+}
+
+function _engBossNovaRing(b, deg) { // 内部：nova 8 向放射弹（第二环 deg=22.5 转角）
+  const bcx = b.x + b.w / 2, bcy = b.y + 20;
+  for (let i = 0; i < 8; i++) { const a = (i * 45 + deg) * Math.PI / 180;
+    game.bullets.push({ x: bcx - 4, y: bcy - 4, w: 8, h: 8,
+      vx: Math.cos(a) * 100, vy: Math.sin(a) * 100, star: true }); }
+}
+
+function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计时单位秒=帧÷60）
+  const b = game.boss; if (!b) return;
+  const L = game.level, p = game.player;
+  b.flashT -= dt; b.t += dt;
+  const pcx = p.x + p.w / 2, bcx = b.x + b.w / 2;
+
+  switch (b.state) {
+  case 'dormant':                                // 沉睡：无物理（出生即按锚点落地，见 _engMkBoss）
+    if (Math.abs(pcx - bcx) < _engBossActDist) {
+      b.state = 'intro'; b.t = 0; game.sfxQueue.push('roar'); game.shake = 4;
+    } break;
+
+  case 'intro':
+    if (b.t >= 1.8) { b.state = 'idle'; b.t = 0; } break;   // 演出期无敌（_engBossHurt 已挡）
+
+  case 'idle': {
+    b.face = pcx < bcx ? -1 : 1;
+    if (Math.abs(pcx - bcx) > 140) b.vx = b.face * (b.phase === 2 ? 25 : 20); // 缓步逼近
+    else b.vx = 0;
+    _engBossPhysX(dt, b);
+    if (b.t >= (b.phase === 2 ? 0.45 : 0.6)) _engBossPick(b);
+    break; }
+
+  case 'windup':
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    if (b.next === 'leap') { if (b.t >= _engBossDur('leap', b.phase)) { // 起跳参数在前摇结束瞬间取
+        b.landX = _engClamp(pcx, bcx - 300, bcx + 300);
+        const T = 0.9; b.vx = (b.landX - bcx) / T; b.vy = -675;         // g=1500 对称抛物线
+        b.state = 'leapAir'; b.t = 0; } }
+    else if (b.next === 'charge') { if (b.t >= _engBossDur('charge', b.phase)) {
+        b.chargeDir = pcx < bcx ? -1 : 1; b.chargeFrom = b.x;
+        b.state = 'chargeRun'; b.t = 0; game.sfxQueue.push('roar'); } }
+    else if (b.next === 'barrage') { if (b.t >= _engBossDur('barrage', b.phase)) {
+        b.state = 'barrageFire'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'summon') { if (b.t >= _engBossDur('summon', b.phase)) {
+        b.state = 'summonCast'; b.t = 0;
+        for (const s of [-40, 40]) L.enemies.push({ type: 'slime',     // 双史莱姆（复用 W 实体结构）
+          x: bcx + s - 6, y: b.y + b.h - 10, w: 12, h: 10, vx: s < 0 ? -28 : 28, vy: 0,
+          hx: bcx + s - 6, hy: b.y + b.h - 10, dead: 0, t: 0, grounded: false }); } }
+    else if (b.next === 'nova') { if (b.t >= _engBossDur('nova', b.phase)) {
+        b.state = 'novaCast'; b.t = 0; b.fireN = 0; } }
+    break;
+
+  case 'leapAir': {
+    _engBossPhysX(dt, b);                       // X：可能撞侧墙（跳过横向就贴墙滑）
+    b.vy = Math.min(b.vy + 1500 * dt, 520); b.y += b.vy * dt;  // 落速上限 520（非玩家 360）
+    if (b.vy > 0) { const ty = Math.floor((b.y + b.h - _engEps) / _engTile);
+      const x0 = Math.floor(b.x / _engTile), x1 = Math.floor((b.x + b.w - _engEps) / _engTile);
+      for (let tx = x0; tx <= x1; tx++) if (L.solid(tx, ty, game.switchState)) {
+        b.y = ty * _engTile - b.h; b.vx = 0; b.vy = 0;
+        game.shake = 6; game.sfxQueue.push('roar');
+        _engAddParts(bcx, b.y + b.h, 16, '#a890f8', 100, 300);
+        for (const d of [-1, 1]) game.waves.push({ x: bcx + d * 20, y: b.y + b.h - 10,
+          w: 12, h: 10, vx: d * (b.phase === 2 ? 115 : 90), life: 1.2 });   // 双向贴地冲击波
+        b.state = 'recover'; b.t = 0; break; } }
+    break; }
+
+  case 'barrageFire': {                          // 3 轮×2 发，每轮间隔 0.15s
+    b.face = pcx < bcx ? -1 : 1;
+    const want = Math.floor(b.t / 0.15);
+    while (b.fireN < want && b.fireN < 3) {
+      for (const off of [-8, 8]) {
+        const ang = Math.atan2((p.y + p.h / 2) - (b.y + 18), pcx - (bcx)) + off * Math.PI / 180;
+        game.bullets.push({ x: bcx - 4, y: b.y + 14, w: 8, h: 8,
+          vx: Math.cos(ang) * 130, vy: Math.sin(ang) * 130, star: true }); // star=true: ui 画星弹
+      }
+      game.sfxQueue.push('shot'); b.fireN++;
+    }
+    if (b.fireN >= 3 && b.t >= 0.45) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'chargeRun': {
+    b.vx = b.chargeDir * (b.phase === 2 ? 290 : 230);
+    const hitWall = _engBossPhysX(dt, b);
+    if (hitWall) { b.vx = 0; b.state = 'stagger'; b.t = 0;
+      game.shake = 8; game.sfxQueue.push('roar');
+      _engAddParts(b.x + (b.chargeDir > 0 ? b.w : 0), b.y + b.h / 2, 14, '#c8b8e8', 110, 250); }
+    else if (b.t >= 1.5 || Math.abs(b.x - b.chargeFrom) >= 320) { b.vx = 0; b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'stagger':   if (b.t >= 1.5) { b.state = 'recover'; b.t = 0; } break; // 输出窗口
+
+  case 'summonCast': if (b.t >= 0.30) { b.state = 'recover'; b.t = 0; } break;
+
+  case 'novaCast': {                              // 0.55s 蓄 + 双环(第二环 t=0.95)
+    if (b.fireN === 0 && b.t >= 0.55) { _engBossNovaRing(b, 0);   b.fireN = 1; game.sfxQueue.push('shot'); }
+    if (b.fireN === 1 && b.t >= 0.95) { _engBossNovaRing(b, 22.5); b.fireN = 2; game.sfxQueue.push('shot'); }
+    if (b.fireN === 2 && b.t >= 1.2) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'recover':  b.vx = 0;
+    // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
+    if (b.t >= (({ leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6 })[b.next] || 0.5))
+      { b.state = 'idle'; b.t = 0; }
+    break;
+
+  case 'enrage':   b.vx = 0; if (b.t >= 1.2) { b.state = 'idle'; b.t = 0; } break;
+
+  case 'dying': {
+    b.vx = 0; b.y += 6 * dt;                      // 慢速下沉
+    if ((b.t * 18 | 0) !== ((b.t - dt) * 18 | 0)) {         // 每 ~3.3 帧一圈爆炸粒子
+      _engAddParts(bcx + (Math.random() * 44 - 22), b.y + Math.random() * 40, 10,
+        ['#f8d048', '#f86020', '#48d8e8'][((b.t * 10) | 0) % 3], 110, 60);
+      game.shake = Math.max(game.shake, 4);
+    }
+    if (b.t >= 2.2) { b.state = 'dead'; levelClear(); }  // 复用 v2 通关（含彩带粒子）
+    break; }
+  }
+
+  /* 接触伤害（除休眠/演出/死亡态）：吃玩家无敌帧（工单 C 伪代码口径） */
+  if (b.state !== 'dormant' && b.state !== 'intro' && b.state !== 'dying' && b.state !== 'dead'
+      && !p.dead && _engAabb(b, p)) _engHurtPlayer(bcx);
+}
+
+function _engSkillTargetX(p) { // 内部：星陨目标 x——Boss 中心 / 200px 内最近敌 / 面向 44px（设计 §4）
+  if (game.boss && game.boss.state !== 'dormant' && game.boss.state !== 'dead'
+      && game.boss.state !== 'dying') return game.boss.x + game.boss.w / 2;
+  let best = null, bd = 200;
+  for (const e of game.level.enemies) if (!(e.dead > 0)) {
+    const d = Math.abs(e.x - p.x); if (d < bd) { bd = d; best = e; } }
+  return best ? best.x + 6 : p.x + 5 + p.face * 44;
+}
+
+function _engUpdateSkills(dt) { // 内部：三技能 U/I/O（边沿消费 + CD 门控；由 _engUpdatePlayer 调用）
+  const p = game.player, S = game.skills, inp = game.input;
+  if (inp.skillUHit) { inp.skillUHit = 0;
+    if (S.u <= 0 && !p.dead) { S.u = 8; p.castT = 0.25; game.sfxQueue.push('meteor');
+      const tx = _engSkillTargetX(p);               // Boss中心 / 200px内最近敌 / 面向44px
+      game.meteors.push({ x: tx - 24, y: -16, vy: 300, w: 10, h: 14, delay: 0    });
+      game.meteors.push({ x: tx - 5,  y: -16, vy: 300, w: 10, h: 14, delay: 0.25 });
+      game.meteors.push({ x: tx + 14, y: -16, vy: 300, w: 10, h: 14, delay: 0.50 }); } }
+  if (inp.skillIHit) { inp.skillIHit = 0;
+    if (S.i <= 0 && !p.dead) { S.i = 12; p.shieldT = 3.0; game.sfxQueue.push('shield');
+      _engAddParts(p.x + 5, p.y + 7, 12, '#f8d048', 70, 0); } }
+  if (inp.skillOHit) { inp.skillOHit = 0;
+    if (S.o <= 0 && game.combo >= 8 && !p.dead) { S.o = 20;
+      game.combo = 0; game.comboT = 0;              // 消耗连击
+      game.hitStop = Math.max(game.hitStop, 0.12); game.flashT = 0.15; game.shake = 8;
+      game.sfxQueue.push('ult');
+      if (game.boss) _engBossHurt(5);
+      const L = game.level;                          // 屏内普通敌全灭（走 _engKillEnemy 统一掉落）
+      for (const e of L.enemies) if (!(e.dead > 0) && _engOnScreen(e)) _engKillEnemy(e);
+      for (const bl of game.bullets) _engAddParts(bl.x + 4, bl.y + 4, 3, '#f8d048', 60, 100);
+      game.bullets = [];                             // 清全部弹幕
+    } }
+}
+
 /* ==================== 内部判定辅助（内部） ==================== */
 function _engPlayerInSolid(L) { // 内部：玩家矩形是否与实心瓦片重叠（平台挤压致死判定用）
   const p = game.player;
@@ -344,9 +616,20 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1）——身�
   const box = { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
   // 敌人：攻击击杀与踩踏等价（史莱姆/蝙蝠均可），但玩家不弹跳；命中→hit-stop 全局冻结
   let hitEnemy = false;
+  // v3：Boss 承伤——命中 +2 连击（设计 §4 连斩充能口径；免伤态 _engBossHurt 返回 false 不计数）
+  if (game.boss) {
+    if (_engAabb(box, game.boss) && _engBossHurt(1)) { _engAddCombo(); _engAddCombo(); hitEnemy = true; }
+  }
+  // v3：Boss 落地冲击波可斩碎（+1 连击，设计 §3）
+  for (let i = game.waves.length - 1; i >= 0; i--) {
+    if (_engAabb(box, game.waves[i])) {
+      _engAddParts(game.waves[i].x + 6, game.waves[i].y + 5, 6, '#48d8e8', 70, 200);
+      game.waves.splice(i, 1); _engAddCombo(); game.sfxQueue.push('break');
+    }
+  }
   for (const e of L.enemies) {
     if (e.dead > 0 || !_engAabb(box, e)) continue;
-    e.dead = 0.01;
+    _engKillEnemy(e); // v3：击杀统一入口（30% 掉回复心），表现与 v2 一致
     hitEnemy = true;
     _engAddParts(e.x + 6, e.y + 4, 12, e.type === 'bat' ? '#8858c8' : '#58c848', 90, 250);
     _engAddCombo();
@@ -384,6 +667,7 @@ function _engUpdatePlayer(dt, L, p) {
 
   /* ---- v2 P1：攻击 / 冲刺（边沿消费 + 冷却门控） ---- */
   p.atkCd -= dt; p.dashCd -= dt; p.atkT -= dt; p.dashT -= dt;
+  p.invT -= dt; p.shieldT -= dt; p.castT -= dt; // v3：无敌/护盾/施法计时（与其他计时器并列）
   if (game.input.attackHit) {
     game.input.attackHit = 0; // 消费边沿（空挥也进入冷却，防止按住刷判定）
     if (p.atkCd <= 0) {
@@ -400,6 +684,9 @@ function _engUpdatePlayer(dt, L, p) {
       _engAddParts(p.x + 5 - p.dashDir * 6, p.y + 7, 6, '#48d8e8', 60, 0);
     }
   }
+
+  /* ---- v3：技能 U/I/O（边沿消费 + CD/连击门控，结构同攻击/冲刺块） ---- */
+  _engUpdateSkills(dt);
 
   // 站立地面材质：冰面低摩擦 / 传送带推力（脚下一行瓦片）
   let onIce = false, convL = false, convR = false;
@@ -691,10 +978,11 @@ function updateWorld(dt) {
   }
   game.bullets = game.bullets.filter(function (b) {
     b.x += b.vx * dt;
+    b.y += (b.vy || 0) * dt; // v3：Boss 星弹带 vy（大炮弹 vy 未定义 → +0，轨迹不变，设计 §3）
     const tx = Math.floor((b.x + 4) / _engTile), ty = Math.floor((b.y + 3) / _engTile);
     if (L.solid(tx, ty, game.switchState)) { _engAddParts(b.x + 4, b.y + 3, 4, '#f8b020', 50, 150); return false; }
-    if (!p.dead && _engAabb(b, p)) { killPlayer(); return false; }
-    return b.x > -20 && b.x < L.w * _engTile + 20;
+    if (!p.dead && _engAabb(b, p)) { _engHurtPlayer(b.x + 4); return false; } // v3：炮弹/Boss 弹 → HP 伤害（原即死）
+    return b.x > -20 && b.x < L.w * _engTile + 20 && b.y > -20 && b.y < L.h * _engTile + 20; // v3：出界追加 y
   });
 
   /* ⑨ 敌人 AI + 踩踏判定（契约算法 4） */
@@ -729,18 +1017,49 @@ function updateWorld(dt) {
       if (Math.abs(e.x - e.ax) > e.rng) e.vx = -_engSign(e.x - e.ax) * Math.abs(e.vx);
       e.y = e.ay + Math.sin(e.t * 2.2) * 7;
     }
-    // 踩踏：p.vy>60 且玩家脚底深入敌体 <9px → 踩死反弹；否则玩家死
+    // 踩踏：p.vy>60 且玩家脚底深入敌体 <9px → 踩死反弹；否则 HP 伤害（v3：原即死）
     if (!p.dead && _engAabb(p, e)) {
       if (p.vy > 60 && p.y + p.h - e.y < 9) {
-        e.dead = 0.01;
+        _engKillEnemy(e); // v3：击杀统一入口（30% 掉回复心），其余表现不变
         p.vy = -250; p.jumpCut = false; // 踩踏弹跳不吃松手截断
         game.shake = Math.max(game.shake, 3); // v2 P1：击杀震屏 3
         _engAddCombo();                        // v2 P1：击杀计入连击
         game.sfxQueue.push('stomp');
         _engAddParts(e.x + 6, e.y + 4, 10, e.type === 'bat' ? '#8858c8' : '#58c848', 70, 250);
-      } else killPlayer();
+      } else _engHurtPlayer(e.x + e.w / 2); // v3：接触伤害走 HP 入口（受击无敌内免疫，含击退）
     }
   }
+
+  /* ⑨′ Boss AI（v3）：状态机推进 + Boss 接触伤害（dormant/intro/dying/dead 免接触） */
+  _engUpdateBoss(dt);
+
+  /* ⑨″ Boss 战实体（v3）：陨石 / 冲击波 / 掉落心 */
+  for (let i = game.meteors.length - 1; i >= 0; i--) { const m = game.meteors[i];
+    if (m.delay > 0) { m.delay -= dt; continue; }
+    m.y += m.vy * dt;
+    let boom = m.y > L.h * _engTile + 20;
+    if (game.boss && _engAabb(m, game.boss)) { _engBossHurt(1); _engAddCombo(); boom = true; }
+    if (!boom) for (const e of L.enemies)
+      if (!(e.dead > 0) && _engAabb(m, e)) { _engKillEnemy(e); boom = true; break; }
+    if (!boom) { // 撞实心地面/砸碎 B 砖（AoE 24×24）
+      _engRectTiles(L, m.x - 7, m.y + 8, 24, 10, function (tx, ty, ch) {
+        if (ch === '#' || ch === 'I' || ch === 'B') { if (ch === 'B') { L.tiles[ty][tx] = '.'; game.coins++; _engAddCombo(); }
+          boom = true; } }); }
+    if (boom) { game.meteors.splice(i, 1); game.shake = Math.max(game.shake, 3);
+      game.sfxQueue.push('meteor'); _engAddParts(m.x + 5, m.y + 10, 12, '#f8d048', 110, 250); } }
+  for (let i = game.waves.length - 1; i >= 0; i--) { const w = game.waves[i];
+    w.x += w.vx * dt; w.life -= dt;
+    const ahead = Math.floor((w.x + (w.vx > 0 ? w.w : 0)) / _engTile), wy = Math.floor((w.y + 5) / _engTile);
+    if (w.life <= 0 || L.solid(ahead, wy, game.switchState)) { game.waves.splice(i, 1); continue; }
+    if (!p.dead && _engAabb(w, p)) { _engHurtPlayer(w.x + 6); game.waves.splice(i, 1); } }
+  for (let i = game.drops.length - 1; i >= 0; i--) { const d = game.drops[i];
+    d.vy = Math.min((d.vy || 0) + 1200 * dt, 360); d.y += d.vy * dt; d.life -= dt;
+    const ty = Math.floor((d.y + d.h) / _engTile), tx = Math.floor((d.x + 4) / _engTile);
+    if (L.solid(tx, ty, game.switchState)) { d.y = ty * _engTile - d.h; d.vy = 0; }
+    if (d.life <= 0) { game.drops.splice(i, 1); continue; }
+    if (!p.dead && _engAabb(d, p)) { game.drops.splice(i, 1);
+      p.hp = Math.min(5, p.hp + 1); game.sfxQueue.push('heart');
+      _engAddParts(d.x + 4, d.y + 4, 8, '#f85888', 60, 80); } }
 
   /* ⑩ 玩家物理（含死亡冻结计时、弹簧、平台吸附、攻击/冲刺） */
   _engUpdatePlayer(dt, L, p);
@@ -779,4 +1098,10 @@ function updateWorld(dt) {
   game.cam.y += (cty2 - game.cam.y) * 0.12;
   game.cam.x = _engClamp(game.cam.x, 0, Math.max(0, L.w * _engTile - _engVW));
   game.cam.y = _engClamp(game.cam.y, 0, Math.max(0, L.h * _engTile - _engVH));
+
+  /* ⑬′ v3：技能三 CD 递减 / 连斩白屏递减 */
+  game.skills.u = Math.max(0, game.skills.u - dt);
+  game.skills.i = Math.max(0, game.skills.i - dt);
+  game.skills.o = Math.max(0, game.skills.o - dt);
+  if (game.flashT > 0) { game.flashT -= dt; if (game.flashT < 0) game.flashT = 0; }
 }

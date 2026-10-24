@@ -3,7 +3,7 @@
  * ------------------------------------------------------------
  * 职责（契约第 4 节）：
  *   1. SPR                精灵画布字典（buildSprites() 填充，幂等）
- *   2. THEMES             六主题配色（grass/cave/sky/factory/lava/tower）
+ *   2. THEMES             七主题配色（grass/cave/sky/factory/lava/tower + v3 boss）
  *   3. buildSprites()     字符像素网格 → 离屏 canvas 精灵
  *   4. buildThemeArt(key) 程序化 16×16 瓦片 + 装饰物 + 512×224 可平铺视差背景
  *   5. drawPixelText()    3×5 像素字体
@@ -24,6 +24,15 @@
  *      远景剪影 + 中景合成层（明度取远/近之间，区分空气感）+ 静态氛围点
  *      （grass 飘尘 / cave 萤光 / sky 飞鸟 / factory 烟柱 / lava 火星 /
  *      tower 星月晕）；near = 近景剪影。动画帧支持留给 ui v3。
+ * —— v3 Boss 战+技能系统（规格书 2026-10-24-v3-boss-design.md，工单 docs/workorders/art.md）——
+ *   A. THEMES 第 7 主题 boss（星核虚空），通用瓦片自动继承配色，装饰全复用既有类型；
+ *   B. makeBG boss 分支：深空渐变 4 阶+星点+行星弧+漂浮碎石+环形能量带+祭坛石柱；
+ *   C. SPR.boss 星核巨兽部件字典：身体 64×48 程序化行跨画法×2 帧（常态/狂暴）、手臂 20×16、
+ *      下颚 20×8×2、眼 12×10×3、瞳孔 4×4、星核 12×12×2；白剪影 bossWhite{body,arm,jaw}；
+ *   D. 特效 meteor[2]/waveFx[2]/bossBullet[2]、heartFull/heartEmpty、图标 skU/skI/skO；
+ *   E. 施法金色姿态 heroAttackGold(+L)。
+ *   【预算授权（工单 art.md 即授权依据）】v2.5 已到 80KB 上限（79,589 字节）；v3 增量 ≤20KB、
+ *   总量上限 100KB。Boss 身体/手臂用行跨坐标程序化画法（非全字面网格），字面网格均经行长校验。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -611,6 +620,328 @@ const _SPRING_C = [ // 弹簧·压缩态（12×8）
   '.kqqkkkkqqk.',
   '............'];
 
+/* ==================== v3 Boss 素材：星核巨兽 + 技能特效（art 工单 §C/§D/§E） ====================
+ * 帧清单（ui 工单对表）：boss.body/bodyRage 64×48×2（帧2 呼吸下压 1px）；boss.arm/armRage
+ * 20×16×1（+flipSprite=右臂）；boss.jaw/jawRage 20×8×2（闭/开）；boss.eye/eyeRage/eyeDizzy
+ * 12×10×1；boss.pupil 4×4×1（±2px 追踪玩家）；boss.core 12×12×2（6 帧/秒闪烁，狂暴加倍）；
+ * bossWhite.{body,arm,jaw} 受击白闪覆盖。姿态由 ui 的部件偏移/换帧驱动（≥5 组）。 */
+const _P_BOSS = {          // 内部：星核巨兽常态调色板（描边=深渊紫，非纯黑）
+  k: '#181232',  // 描边（深渊紫）
+  S: '#3a2c62',  // 壳基色
+  L: '#54407e',  // 壳受光（左上）
+  D: '#241a42',  // 壳阴影（右下）
+  C: '#f8d048',  // 星核金
+  c: '#a87f18',  // 星核暗金
+  W: '#fff8c8',  // 核心高光 / 骨爪
+  e: '#38e8f8',  // 眼白（星辉青）
+  E: '#f84848',  // 狂暴红
+  b: '#c8b8e8',  // 腹甲亮（身体程序化用）
+  m: '#28204a',  // 口腔暗
+  t: '#f8a030'   // 裂纹橙光
+};
+const _P_BOSS_RAGE = {     // 内部：狂暴换装——同键换色，网格零改动
+  k: '#200a18', S: '#5a2038', L: '#7a3048', D: '#3a1424',
+  C: '#f86030', c: '#a82810', W: '#ffd8c8', e: '#f84848', E: '#f8a030',
+  b: '#d8a8b0', m: '#380c18', t: '#f8d048'
+};
+const _P_EYE = { k: '#181232', e: '#38e8f8', w: '#e8fcff' };      // 内部：眼（星辉青）
+const _P_EYE_RAGE = { k: '#200a18', E: '#f84848', w: '#ffd8c8' }; // 内部：狂暴眼/晕眩眼
+const _P_PUPIL = { k: '#181232', p: '#0c1430' };                  // 内部：瞳孔
+const _P_CORE2 = { k: '#181232', C: '#c89010', c: '#a87f18', W: '#f8d048' }; // 内部：星核帧2（降一档）
+
+/* —— 字面网格（art 工单 §C2，已逐行校验长度与字符集）—— */
+const _BOSS_EYE = [ // 眼 12×10
+  '...kkkkkk...',
+  '..keeeeeek..',
+  '.keeeeeeeek.',
+  '.keewweeeek.',
+  'keeeeeeeeeek',
+  'keeeeeeeeeek',
+  '.keeeeeeeek.',
+  '.keeeeeeeek.',
+  '..keeeeeek..',
+  '...kkkkkk...'];
+const _BOSS_EYE_RAGE = [ // 狂暴眼 12×10（_P_EYE_RAGE）
+  '...kkkkkk...',
+  '..kEEEEEEk..',
+  '.kEEEEEEEEk.',
+  '.kEEwwEEEEk.',
+  'kEEEEEEEEEEk',
+  'kEEEEEEEEEEk',
+  '.kEEEEEEEEk.',
+  '.kEEEEEEEEk.',
+  '..kEEEEEEk..',
+  '...kkkkkk...'];
+const _BOSS_EYE_DIZZY = [ // 晕眩眼 12×10（X 眼，stagger/dying 用，_P_EYE_RAGE）
+  '...kkkkkk...',
+  '..kkkkkkkk..',
+  '.kkEEEEEEkk.',
+  '.kEEk..kEEk.',
+  'kEEk....kEEk',
+  'kEEk....kEEk',
+  '.kEEk..kEEk.',
+  '.kkEEEEEEkk.',
+  '..kkkkkkkk..',
+  '...kkkkkk...'];
+const _BOSS_PUPIL = ['.kk.', 'kppk', 'kppk', '.kk.']; // 瞳孔 4×4（ui 按 Boss→玩家方向 ±2px 偏移）
+const _BOSS_JAW_C = [ // 下颚·闭合 20×8
+  '....kkkkkkkkkkkk....',
+  '...kSSSSSSSSSSSSk...',
+  '..kSLLSLLSLLSLLSSk..',
+  '..kSSSSSSSSSSSSSSk..',
+  '..kmmmmmmmmmmmmmmk..',
+  '...kSSSSSSSSSSSSk...',
+  '....kDDDDDDDDDDk....',
+  '.....kkkkkkkkkk.....'];
+const _BOSS_JAW_O = [ // 下颚·张开 20×8（獠牙 W ×6）
+  '....kkkkkkkkkkkk....',
+  '...kSSSSSSSSSSSSk...',
+  '..kSWWmmmmmmmmWWSk..',
+  '..kmmmmmmmmmmmmmmk..',
+  '..kmWmWmWmWmWmWmmk..',
+  '..kmmmmmmmmmmmmmmk..',
+  '...kDDDDDDDDDDDDk...',
+  '.....kkkkkkkkkk.....'];
+const _BOSS_CORE1 = [ // 星核 12×12 帧1（亮）；帧2 = 同网格 + _P_CORE2（降一档）
+  '............',
+  '.....kk.....',
+  '....kCCk....',
+  '...kcWWCk...',
+  '..kcWWWWck..',
+  '.kcWWWWWWck.',
+  'kcWWWWWWWWck',
+  '.kcWWWWWWck.',
+  '..kcWWWWck..',
+  '...kcCCck...',
+  '....kCCk....',
+  '.....kk.....'];
+
+/* —— 身体/手臂：程序化行跨画法（预算授权：非全字面网格，art 工单 §C3/§C4）—— */
+function _buildBossBody(pal) { // 内部：星核巨兽身体 64×48（十步；rage 版追加裂纹并换装）
+  const W = 64, H = 48;
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const set = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  // ① 上壳椭圆：中心 (32,16) rx=30 ry=14，y∈2..30（记录每列顶缘供 ⑧ 受光带）
+  const shellTop = new Array(W).fill(-1);
+  for (let y = 2; y <= 30; y++) {
+    const t = (y - 16) / 14;
+    const hw = Math.round(30 * Math.sqrt(Math.max(0, 1 - t * t)));
+    if (hw < 1) continue;
+    for (let x = 32 - hw; x <= 31 + hw; x++) { G[y][x] = 'S'; if (shellTop[x] < 0) shellTop[x] = y; }
+  }
+  // ② 下腹：y∈28..35 x∈[8,55]、y∈36..43 x∈[12,51] 填 b；y=32/36/40 画 D 肋线 1px 横贯腹甲
+  for (let y = 28; y <= 35; y++) for (let x = 8; x <= 55; x++) G[y][x] = 'b';
+  for (let y = 36; y <= 43; y++) for (let x = 12; x <= 51; x++) G[y][x] = 'b';
+  for (let x = 8; x <= 55; x++) G[32][x] = 'D';
+  for (let x = 12; x <= 51; x++) { G[36][x] = 'D'; G[40][x] = 'D'; }
+  // ③ 腿桩：y∈44..47 填 S 于 x∈[16,25] 与 x∈[38,47]，y=47 一行 D
+  for (let y = 44; y <= 47; y++) {
+    for (let x = 16; x <= 25; x++) G[y][x] = 'S';
+    for (let x = 38; x <= 47; x++) G[y][x] = 'S';
+  }
+  for (let x = 16; x <= 25; x++) G[47][x] = 'D';
+  for (let x = 38; x <= 47; x++) G[47][x] = 'D';
+  // ④ 背脊刺：x∈{14,26,32,38,50} 底宽 3 高 3（顶 1px → 3px → 再一行并入壳缘），受光 L
+  [14, 26, 32, 38, 50].forEach(function (cx) {
+    set(cx, 2, 'L');
+    for (let x = cx - 1; x <= cx + 1; x++) { set(x, 3, 'L'); set(x, 4, 'L'); }
+  });
+  // ⑤ 裂纹 t（rage 版追加 (18,10)(19,11)）
+  [[20, 7], [21, 8], [22, 8], [23, 9], [41, 6], [42, 7], [43, 8], [32, 4], [32, 5]]
+    .concat(pal === _P_BOSS_RAGE ? [[18, 10], [19, 11]] : [])
+    .forEach(function (p) { set(p[0], p[1], 't'); });
+  // ⑥ 核心插座：x∈[26,37] y∈[22,31] 填 m（SPR.boss.core 覆盖在 (26,20)）
+  for (let y = 22; y <= 31; y++) for (let x = 26; x <= 37; x++) G[y][x] = 'm';
+  // ⑦ 眼窝底：x∈[14,25]∪[39,50] y∈[12,21] 填 D（eye 覆盖在 (14,12)/(38,12)）
+  for (let y = 12; y <= 21; y++) {
+    for (let x = 14; x <= 25; x++) G[y][x] = 'D';
+    for (let x = 39; x <= 50; x++) G[y][x] = 'D';
+  }
+  // ⑧ 明暗：受光带 L = 每列壳顶缘 topY..topY+3 且 x<32（只覆盖壳基色 S，保住裂纹/插座），
+  //     带缘 1px 棋盘过渡；阴影带 D = 椭圆右下缘 2px（x>32 且 y>16 的壳缘），带缘 1px 棋盘过渡
+  for (let x = 0; x < 32; x++) {
+    const top = shellTop[x];
+    if (top < 0) continue;
+    for (let y = top; y <= top + 3; y++) if (get(x, y) === 'S') set(x, y, 'L');
+    if (get(x, top + 4) === 'S' && ((x + top + 4) & 1) === 0) set(x, top + 4, 'L');
+  }
+  for (let y = 17; y <= 30; y++) {
+    let xr = -1;
+    for (let x = W - 1; x > 32; x--) {
+      const ch = get(x, y);
+      if (ch === 'S' || ch === 'L') { xr = x; break; }
+    }
+    if (xr < 0) continue;
+    set(xr, y, 'D');
+    if (get(xr - 1, y) === 'S' || get(xr - 1, y) === 'L') set(xr - 1, y, 'D');
+    if (get(xr - 2, y) === 'S' && ((xr + y) & 1) === 0) set(xr - 2, y, 'D');
+  }
+  // ⑨ 描边：①..④ 填充像素（S/L/D/b；D 亦含 ②肋线/③腿底/⑦眼窝——均居中不受影响），
+  //     4 邻为空者改 k（⑤⑥⑦ 的 t/m 不参与描边）
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const ch = G[y][x];
+    if (ch !== 'S' && ch !== 'L' && ch !== 'D' && ch !== 'b') continue;
+    if (get(x - 1, y) === '.' || get(x + 1, y) === '.' || get(x, y - 1) === '.' || get(x, y + 1) === '.') set(x, y, 'k');
+  }
+  // ⑩ 输出：字符网格 → canvas（调色板映射）
+  const c = _makeCanvas(W, H), g = c.getContext('2d');
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const ch = G[y][x];
+    if (ch !== '.' && pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x, y, 1, 1); }
+  }
+  return c;
+}
+const _BOSS_ARM_SPANS = [ // 内部：手臂行跨表（xL..xR，负数=空行）——art 工单 §C4
+  [6, 13], [5, 14], [5, 14], [5, 14], [6, 13], [7, 12], [7, 12], [7, 12],
+  [7, 12], [6, 13], [5, 15], [5, 15], [5, 15], [6, 14], [7, 13], [-1, -1]
+];
+function _buildBossArm(pal) { // 内部：星核巨兽手臂 20×16（行跨程序化；水平翻转即右臂）
+  const W = 20, H = 16;
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  for (let y = 0; y < H; y++) { // 主体 S（行跨表）
+    const s = _BOSS_ARM_SPANS[y];
+    if (s[0] < 0) continue;
+    for (let x = s[0]; x <= s[1]; x++) G[y][x] = 'S';
+  }
+  for (let y = 1; y <= 2; y++) { // y1..y2 的 xL..xL+3 画 L 高光
+    const s = _BOSS_ARM_SPANS[y];
+    for (let x = s[0]; x <= s[0] + 3; x++) G[y][x] = 'L';
+  }
+  for (let y = 8; y <= 11; y++) { // y8..y11 的 xR-3..xR 画 D
+    const s = _BOSS_ARM_SPANS[y];
+    for (let x = s[1] - 3; x <= s[1]; x++) G[y][x] = 'D';
+  }
+  (function () { // 拳部（y9..y13 宽段）底部 y13 画 D 1px
+    const s = _BOSS_ARM_SPANS[13];
+    for (let x = s[0]; x <= s[1]; x++) G[13][x] = 'D';
+  })();
+  [7, 10, 13].forEach(function (x) { // 爪尖 W：y14..15 在 x∈{7,10,13} 各画 2px 竖条
+    G[14][x] = 'W'; G[15][x] = 'W';
+  });
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { // 描边同 §C3⑨：填充像素 4 邻空 → k
+    if (G[y][x] === '.') continue;
+    if (get(x - 1, y) === '.' || get(x + 1, y) === '.' || get(x, y - 1) === '.' || get(x, y + 1) === '.') G[y][x] = 'k';
+  }
+  const c = _makeCanvas(W, H), g = c.getContext('2d');
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const ch = G[y][x];
+    if (ch !== '.' && pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x, y, 1, 1); }
+  }
+  return c;
+}
+function _bossBreath(src) { // 内部：呼吸帧——整体下压 1px（§C3⑩ drawImage 4 参压缩）
+  const c = _makeCanvas(src.width, src.height), g = c.getContext('2d');
+  g.drawImage(src, 0, 1, src.width, src.height - 1);
+  return c;
+}
+function _whiteVariant(spr) { // 内部：白剪影（受击 0.12s 覆盖；source-atop 保住透明区）
+  const c = _makeCanvas(spr.width, spr.height), g = c.getContext('2d');
+  g.drawImage(spr, 0, 0);
+  g.globalCompositeOperation = 'source-atop';
+  g.globalAlpha = 0.85;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, spr.width, spr.height);
+  return c;
+}
+
+/* —— 技能与战斗特效（art 工单 §D；连斩全屏斩/护盾泡泡/nova 环/彩带归 ui 程序化，不预置）—— */
+const _P_METEOR = { k: '#181232', y: '#f8d048', o: '#f8a020', w: '#fff8c8', t: '#f88030' }; // 流星+尾焰
+const _METEOR_F1 = [ // 流星帧1 10×12（帧2 = 帧1 上移 1px + 顶点 (4,0) 画 w 1px）
+  '....kk....',
+  '...kyyk...',
+  '..kywwyk..',
+  '.kyywwyyk.',
+  'kyyyyyyook',
+  '.kyoyyok..',
+  '..kyyk.t..',
+  '...kk..tt.',
+  '......tt..',
+  '.....tt...',
+  '....tt....',
+  '...tt.....'];
+const _P_WAVE = { k: '#181232', c: '#48d8e8', C: '#1898a8', w: '#e8fcff' };   // 冲击波帧1
+const _P_WAVE2 = { k: '#181232', c: '#48d8e8', C: '#e8fcff', w: '#1898a8' }; // 帧2：同网格 w↔C 互换
+const _WAVE_F1 = [ // 冲击波帧1 16×12（左行用 flipSprite）
+  '................',
+  '................',
+  '..........kk....',
+  '.........kcwk...',
+  '....kk...kccck..',
+  '...kcck..kccCk..',
+  '..kcccckkcCCCk..',
+  '.kccCCCCCCCCk...',
+  '.kcCCwCCCCCCk...',
+  '..kkkkkkkkkkk...',
+  '................',
+  '................'];
+const _P_BSTAR = { k: '#181232', y: '#f8d048', o: '#f8a020', w: '#fff8c8' }; // Boss 星弹
+const _BSTAR_F1 = [ // 星弹帧1 8×7（帧2 = flipSprite(帧1)，自旋感）
+  '...kk...',
+  '..kwyk..',
+  '.kwyyyk.',
+  'kyyyyyok',
+  '.kyoyok.',
+  '..kook..',
+  '...kk...'];
+const _P_HEART = { k: '#3a1020', r: '#f85888', R: '#c82858', w: '#ffd8e8' };  // 回复心
+const _P_HEART_E = { k: '#3a1020', r: '#3a2a3a', R: '#2a2028', w: '#4a3a4a' }; // 空心：同网格换暗色
+const _HEART_F = [ // 心 8×8（工单网格 7 行，按规格表/设计文档 §5「8×8」顶部补 1 空行）
+  '........',
+  '.kk..kk.',
+  'krrkkrrk',
+  'krwrrrrk',
+  'krrrrrrk',
+  '.krrrrk.',
+  '..krrk..',
+  '...kk...'];
+const _P_SKU = { k: '#7a4a10', y: '#f8d020', o: '#f8a020', w: '#fff8c8' };   // skU 星陨
+const _SK_U = [
+  '.....kk.....',
+  '....kyyk....',
+  '...kywyyk...',
+  '..kyywwyyk..',
+  '.kyywwwwwyk.',
+  'kyyywwwwwyyk',
+  '.kyoowwwwyk.',
+  '..kooooook..',
+  '...kooook...',
+  '....kook....',
+  '.....kk.....',
+  '............'];
+const _P_SKI = { k: '#7a4a10', y: '#f8d048', Y: '#c89010', w: '#fff8c8' };   // skI 护盾
+const _SK_I = [
+  '.kkkkkkkkkk.',
+  '.kyyyyyyyyk.',
+  '.kywwyyyyYk.',
+  '.kywyyyyYYk.',
+  '.kyyyyyyYYk.',
+  '.kyyyyyYYYk.',
+  '..kyyyyYYk..',
+  '..kyyyYYYk..',
+  '...kyyYYk...',
+  '....kYYk....',
+  '.....kk.....',
+  '............'];
+const _P_SKO = { k: '#181232', w: '#ffffff', c: '#48d8e8', C: '#1898a8' };   // skO 连斩
+const _SK_O = [
+  '.........kk.',
+  '........kwwk',
+  '.......kwwck',
+  '......kwwck.',
+  '.....kwwck..',
+  '....kwwck...',
+  '...kwwck....',
+  '..kwwck.....',
+  '.kwcck......',
+  '.kkck.......',
+  '..kk........',
+  '............'];
+const _P_HERO_GOLD = Object.assign({}, _P_HERO, { b: '#f8d048', B: '#c89010', W: '#fff8c8' }); // 内部：施法金（蓝主体换金，围巾橙金系保留）
+
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
@@ -771,12 +1102,55 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     g.fillStyle = '#ffffff'; g.fillRect(4, (f ? 2 : 6), 1, 1); // 镜面点
     return c;
   });
+  // —— v3：施法金色姿态（蓝主体换金；围巾橙金系保留，art 工单 §E）——
+  SPR.heroAttackGold = _makeSprite(_H_ATTACK, _P_HERO_GOLD);
+  SPR.heroAttackGoldL = flipSprite(SPR.heroAttackGold);
+  // —— v3：星核巨兽部件字典（art 工单 §C5；姿态由 ui 偏移/换帧驱动）——
+  const bossBody1 = _buildBossBody(_P_BOSS), bossBodyR1 = _buildBossBody(_P_BOSS_RAGE);
+  SPR.boss = {
+    body: [bossBody1, _bossBreath(bossBody1)],            // 64×48 ×2（帧2 呼吸）
+    bodyRage: [bossBodyR1, _bossBreath(bossBodyR1)],      // 狂暴换装 ×2 同法
+    arm: _buildBossArm(_P_BOSS),                          // 20×16（+翻转=右臂）
+    armRage: _buildBossArm(_P_BOSS_RAGE),
+    jaw: [_makeSprite(_BOSS_JAW_C, _P_BOSS), _makeSprite(_BOSS_JAW_O, _P_BOSS)],      // 闭/开
+    jawRage: [_makeSprite(_BOSS_JAW_C, _P_BOSS_RAGE), _makeSprite(_BOSS_JAW_O, _P_BOSS_RAGE)],
+    eye: _makeSprite(_BOSS_EYE, _P_EYE),                  // 12×10
+    eyeRage: _makeSprite(_BOSS_EYE_RAGE, _P_EYE_RAGE),
+    eyeDizzy: _makeSprite(_BOSS_EYE_DIZZY, _P_EYE_RAGE),
+    pupil: _makeSprite(_BOSS_PUPIL, _P_PUPIL),            // 4×4 ±2px 追踪
+    core: [_makeSprite(_BOSS_CORE1, _P_BOSS), _makeSprite(_BOSS_CORE1, _P_CORE2)] // 12×12 ×2
+  };
+  // 受击白闪变体：body / arm / 开口 jawO 三张白剪影（§C5）
+  SPR.bossWhite = {
+    body: _whiteVariant(SPR.boss.body[0]),
+    arm: _whiteVariant(SPR.boss.arm),
+    jaw: _whiteVariant(SPR.boss.jaw[1])
+  };
+  // —— v3：技能与战斗特效（art 工单 §D）——
+  SPR.meteor = (function () { // U 星陨流星 10×12：帧2 = 帧1 上移 1px + 顶点 (4,0) 白高光
+    const f1 = _makeSprite(_METEOR_F1, _P_METEOR);
+    const f2 = _makeCanvas(f1.width, f1.height), g = f2.getContext('2d');
+    g.drawImage(f1, 0, -1);
+    g.fillStyle = _P_METEOR.w; g.fillRect(4, 0, 1, 1);
+    return [f1, f2];
+  })();
+  SPR.waveFx = [_makeSprite(_WAVE_F1, _P_WAVE), _makeSprite(_WAVE_F1, _P_WAVE2)]; // Boss 冲击波：帧2 换调色板 w↔C
+  SPR.bossBullet = (function () { // Boss 弹幕星弹 8×7：帧2 = 翻转（自旋感）
+    const f1 = _makeSprite(_BSTAR_F1, _P_BSTAR);
+    return [f1, flipSprite(f1)];
+  })();
+  SPR.heartFull = _makeSprite(_HEART_F, _P_HEART);      // HP/掉落回复心 8×8
+  SPR.heartEmpty = _makeSprite(_HEART_F, _P_HEART_E);   // 空心：同网格换暗色
+  SPR.skU = _makeSprite(_SK_U, _P_SKU);                 // 技能栏图标 12×12
+  SPR.skI = _makeSprite(_SK_I, _P_SKI);
+  SPR.skO = _makeSprite(_SK_O, _P_SKO);
   return SPR;
 }
 
-/* ==================== 六主题配色（契约导出，颜色全 #rrggbb） ====================
+/* ==================== 七主题配色（契约导出，颜色全 #rrggbb） ====================
  * v2.5：新增 blockS（暗缝第 4 色阶）/capS/plankL 与 band（天光带暖/冷色）；
- * lava 改为黑玄武岩系（发光裂纹画进瓦片）。 */
+ * lava 改为黑玄武岩系（发光裂纹画进瓦片）。
+ * v3：新增第 7 主题 boss（星核虚空，工单 art.md §A 字面量）；装饰全复用既有类型。 */
 const THEMES = {
   grass: { name: '草原', skyT: '#6ec2f0', skyB: '#cdeefb',
     far: '#a8dcb0', near: '#7cc47c',
@@ -819,7 +1193,14 @@ const THEMES = {
     cap: '#b0a0d0', capD: '#8880a8', capL: '#c8bce4', capS: '#645884',
     plank: '#6a6088', plankD: '#4c4464', plankL: '#8478a4', accent: '#48d8e8',
     decor: ['torch', 'candelabra', 'flagbanner', 'urn', 'crystal', 'gear', 'flagbanner'],
-    dust: '#b0a8d8', dark: true, band: '#8878e8' }
+    dust: '#b0a8d8', dark: true, band: '#8878e8' },
+  boss: { name: '星核', skyT: '#0a0a1e', skyB: '#1e1440',
+    far: '#161030', near: '#241a4a',
+    block: '#3a2c5e', blockD: '#281e42', blockL: '#4c3a74', blockS: '#1a1230', speck: '#241a3a',
+    cap: '#8858e8', capD: '#6038b0', capL: '#a878f8', capS: '#402468',
+    plank: '#6a5a8a', plankD: '#4a3e64', plankL: '#8474a4', accent: '#f8d048',
+    decor: ['crystal', 'torch', 'skull', 'crystal'],     // 全部复用既有类型，不新增 decor 素材
+    dust: '#a890f8', dark: true, band: '#f8d048' }
 };
 
 /* ==================== 内部：主题材质母题（画进瓦片本体） ==================== */
@@ -1738,6 +2119,56 @@ function makeBG(th, key) { // 远/近两层背景（契约导出名）：far 内
       const x = Math.floor(rnd() * W), y = 190 + Math.floor(rnd() * 20);
       _wrap3(gn, W, function (ox) { gn.fillRect(x + ox, y, 6, 3); });
     }
+  } else if (key === 'boss') { // v3：星核虚空（深空渐变+星点+行星+碎石+能量带+祭坛柱）
+    // 深空渐变：skyT→skyB 4 阶直接烘进 far（本主题自带底色，不叠 _skyBands）
+    for (let i = 0; i < 4; i++) {
+      gf.fillStyle = _mixHex(th.skyT, th.skyB, i / 3);
+      gf.fillRect(0, i * 56, W, 56);
+    }
+    // 星点：_mulberry32(77) 约 40 颗，1~2px，白/金/青三色
+    const rb = _mulberry32(77);
+    for (let i = 0; i < 40; i++) {
+      const x = Math.floor(rb() * W), y = Math.floor(rb() * 200);
+      const big = rb() < 0.22;
+      gf.fillStyle = i % 3 === 0 ? '#ffffff' : (i % 3 === 1 ? '#f8d048' : '#48d8e8');
+      _wrap3(gf, W, function (ox) { gf.fillRect(x + ox, y, big ? 2 : 1, big ? 2 : 1); });
+    }
+    // 右上大行星圆弧：r=90 圆心 (430,-40)，#2a2050 面 + #8858e8 1px 边光
+    // （圆右缘越界段全部在画布外 y<0，无需 wrap）
+    gf.fillStyle = '#2a2050';
+    gf.beginPath(); gf.arc(430, -40, 90, 0, _TAU); gf.fill();
+    gf.fillStyle = '#8858e8';
+    for (let a = 0; a < 360; a += 0.5) {
+      const ang = a * Math.PI / 180;
+      const ex = Math.round(430 + Math.cos(ang) * 90), ey = Math.round(-40 + Math.sin(ang) * 90);
+      if (ey >= 0 && ey < H && ex >= 0 && ex < W) gf.fillRect(ex, ey, 1, 1);
+    }
+    // 左侧漂浮碎石剪影（3 块多边形，行跨表 + wrap 平铺）
+    gf.fillStyle = th.far;
+    [[40, 54, [[5, 10], [3, 12], [1, 13], [0, 14], [0, 14], [2, 12], [4, 9], [6, 7]]],
+     [104, 92, [[3, 8], [1, 10], [0, 11], [0, 11], [1, 9], [3, 7]]],
+     [16, 118, [[2, 7], [0, 9], [0, 9], [1, 7], [3, 5]]]].forEach(function (rk) {
+      _wrap3(gf, W, function (ox) {
+        rk[2].forEach(function (row, ry) {
+          gf.fillRect(rk[0] + ox + row[0], rk[1] + ry, row[1] - row[0] + 1, 1);
+        });
+      });
+    });
+    // 中景：环形能量带——两条 band 色 2px 线（y=60/150）+ 沿线均匀 12 个 1px 亮点（每线 6 个错相）
+    gf.fillStyle = th.band;
+    gf.fillRect(0, 60, W, 2); gf.fillRect(0, 150, W, 2);
+    gf.fillStyle = '#fff8c8';
+    for (let i = 0; i < 6; i++) {
+      const x = Math.floor(i * W / 6) + 10;
+      gf.fillRect(x, 60, 1, 1);
+      gf.fillRect((x + Math.floor(W / 12)) % W, 150, 1, 1);
+    }
+    // 近景：祭坛石柱剪影（5 根矩形+顶冠，th.near=#241a4a，高度 40~90 交错）
+    gn.fillStyle = th.near;
+    [[36, 90], [130, 56], [224, 74], [318, 48], [428, 88]].forEach(function (p) {
+      gn.fillRect(p[0], H - p[1], 14, p[1]);
+      gn.fillRect(p[0] - 3, H - p[1] - 6, 20, 6); // 顶冠
+    });
   } else { // tower
     _skyBands(gf, W, th.band); // 夜空紫晕带
     // 远景：月晕（两圈半透明）+ 弯月 + 大小星
