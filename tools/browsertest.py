@@ -3,7 +3,7 @@
 from playwright.sync_api import sync_playwright
 import pathlib, sys
 
-BASE = 'http://127.0.0.1:8765/index.html'
+BASE = 'file:///C:/Users/A/.zcode/workspace/draft-6e5b5889-432a-4c7b-aabe-13a594a464ac/pixel-quest/index.html'
 OUT = pathlib.Path(__file__).parent.parent / 'testshots'
 OUT.mkdir(exist_ok=True)
 errors = []

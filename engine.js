@@ -9,6 +9,12 @@
         提供 tileAt / solid 瓦片语义；
      3. game 世界状态（含 input 与 sfxQueue）；
      4. loadLevel / respawn / killPlayer / levelClear / updateWorld。
+   v2 增量（docs/specs/2026-10-24-v2-optimization.md P0+P1，引擎工程师）：
+     - P1 手感：coyote/buffer 0.12/0.18、起跳/落地粒子加强、死亡震屏 8、击杀震屏 3；
+     - P1 动作：攻击（J/X：冷却 0.35s、身前 18×14 框 0.12s、命中敌→hit-stop 0.06s 不弹跳、
+       命中 'B' 砖→碎+1 金币、斩碎炮弹）、冲刺（K/Shift：冷却 0.8s、0.18s vx=±260 免摩擦、
+       重力减半）、连击（击杀/碎砖 2s 窗口累计 game.combo，断档清零）；
+     - 'B' 可碎木箱砖入 solid/电锯轨道语义、内含金币计入 totalCoin（P3 关卡侧配套）。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -59,8 +65,20 @@ function _engRectTiles(L, rx, ry, rw, rh, cb) { // 内部：遍历矩形覆盖�
 /* ==================== 物理常量（契约导出；键名固定，数值可 ±15%） ==================== */
 const PHY = {
   grav: 1500, maxFall: 360, acc: 1400, fric: 1800, fricIce: 180,
-  maxRun: 120, jumpV: 330, springV: 520, coyote: 0.09, buffer: 0.11
+  maxRun: 120, jumpV: 330, springV: 520,
+  coyote: 0.12, buffer: 0.18 // v2 P1 手感调优：土狼 0.09→0.12、缓冲 0.11→0.18（任务书指定）
 };
+
+/* ==================== v2 P1 动作常量（内部；不入 PHY——契约键名不得变） ==================== */
+const _engAtkCd = 0.35;   // 内部：攻击冷却（s）
+const _engAtkDur = 0.12;  // 内部：攻击判定框存在时长（s）
+const _engAtkW = 18, _engAtkH = 14; // 内部：攻击判定框尺寸（身前 18×14）
+const _engDashCd = 0.8;   // 内部：冲刺冷却（s）
+const _engDashDur = 0.18; // 内部：冲刺持续时间（s）
+const _engDashV = 260;    // 内部：冲刺水平速度
+const _engDashGrav = 0.5; // 内部：冲刺期间重力倍率（减半）
+const _engHitStop = 0.06; // 内部：攻击命中敌人的全局冻结时长（s）
+const _engComboWin = 2;   // 内部：连击计数窗口（s）
 
 /* ==================== Level 关卡解析（契约导出） ==================== */
 class Level {
@@ -87,6 +105,7 @@ class Level {
     this.cannons = []; this.springs = []; this.levers = []; this.checkpoints = [];
     this.crumbles = new Map(); this.doors = new Map();
     this.spawn = { x: 32, y: 32 }; this.goal = null;
+    let brickN = 0; // v2 P3：'B' 可碎木箱砖计数（每箱内含 1 金币，计入 totalCoin）
     for (let y = 0; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
         const ch = this.tiles[y][x];
@@ -120,6 +139,7 @@ class Level {
           case 'c': this.checkpoints.push({ x: px, y: py - 8, w: 16, h: 24, on: false }); this.tiles[y][x] = '.'; break;
           case 'C': this.crumbles.set(x + ',' + y, { x: x, y: y, state: 0, t: 0, dy: 0, dvy: 0 }); break; // 0稳 1抖 2落 3无
           case 'D': this.doors.set(x + ',' + y, { x: x, y: y }); break;
+          case 'B': brickN++; break; // v2 P3：木箱砖是实心瓦片（留在网格），仅攻击可碎（碎于 _engResolveAttack）
         }
       }
     }
@@ -179,7 +199,7 @@ class Level {
       }
     }
 
-    this.totalCoin = this.coins.reduce((a, c) => a + (c.key ? 0 : (c.gem ? 5 : 1)), 0);
+    this.totalCoin = this.coins.reduce((a, c) => a + (c.key ? 0 : (c.gem ? 5 : 1)), 0) + brickN; // 木箱内含金币一并计入
     this.par = meta.par;
   }
 
@@ -193,7 +213,7 @@ class Level {
 
   _railSolid(tx, ty) { // 内部（类成员）：电锯轨道的「实心」语义（构造期恒实的瓦片）
     const ch = this.tileAt(tx, ty);
-    return ch === '#' || ch === 'I' || ch === 'a' || ch === 'b' || ch === 'D' || ch === 'C';
+    return ch === '#' || ch === 'I' || ch === 'a' || ch === 'b' || ch === 'D' || ch === 'C' || ch === 'B';
   }
 
   tileAt(tx, ty) { // 越界规则：x 方向返回'#'（左右墙），y<0 与 y≥h 返回'.'
@@ -202,9 +222,9 @@ class Level {
     return this.tiles[ty][tx];
   }
 
-  solid(tx, ty, switchState) { // '#'/'I' 恒实；a/b 随全局开关；D 未开门时实；C 崩塌态<2 时实
+  solid(tx, ty, switchState) { // '#'/'I'/'B' 恒实；a/b 随全局开关；D 未开门时实；C 崩塌态<2 时实
     const ch = this.tileAt(tx, ty);
-    if (ch === '#' || ch === 'I') return true;
+    if (ch === '#' || ch === 'I' || ch === 'B') return true; // 'B' 木箱砖：实心，碎后网格改'.'自然失效
     if (ch === 'a') return switchState === 0;
     if (ch === 'b') return switchState === 1;
     if (ch === 'D') return this.doors.has(tx + ',' + ty);
@@ -220,16 +240,22 @@ const game = {
   time: 0, deaths: 0, coins: 0, keys: 0, switchState: 0,
   bullets: [], parts: [], sfxQueue: [],
   respawnAt: null, clearT: 0,
-  input: { left: 0, right: 0, jump: 0, jumpHit: 0 }, // ui 写入，engine 只读
-  paused: false, tick: 0
+  // v2 P1：input 新增 attack/dash 边沿与持键（ui 写入，engine 只读并消费边沿）
+  input: { left: 0, right: 0, jump: 0, jumpHit: 0, attack: 0, attackHit: 0, dash: 0, dashHit: 0 },
+  paused: false, tick: 0,
+  combo: 0, comboT: 0,   // v2 P1：连击计数 / 窗口剩余（断档清零）
+  hitStop: 0             // v2 P1：攻击命中的全局冻结计时（>0 时世界暂停推进）
 };
 
 /* ==================== 关卡装载 / 出生 / 死亡 / 通关 ==================== */
-function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单）
+function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 + v2 P1 攻击/冲刺字段）
   return {
     x: x, y: y, w: 10, h: 14, vx: 0, vy: 0, face: 1,
     onGround: false, coyote: 0, jbuf: 0, anim: 'idle', animT: 0,
-    dead: false, deadT: 0, standOn: null, landT: 0
+    dead: false, deadT: 0, standOn: null, landT: 0,
+    atkCd: 0, atkT: 0,     // v2 P1：攻击冷却剩余 / 判定框剩余存在时间
+    dashCd: 0, dashT: 0, dashDir: 1, // v2 P1：冲刺冷却剩余 / 持续剩余 / 方向
+    jumpCut: false, prevJump: 0 // v2.6：松手截断只作用于普通跳；prevJump 记录跳键上一帧状态
   };
 }
 
@@ -252,6 +278,11 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.x = game.respawnAt.x; p.y = game.respawnAt.y;
   p.vx = 0; p.vy = 0; p.dead = false; p.deadT = 0;
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
+  p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; // v2 P1：动作状态复位
+  p.jumpCut = false; p.prevJump = 0;
+  // v2 P1：清输入锁存——死亡期间残留的边沿不得在复活后的缓冲窗口内自动触发
+  game.input.jumpHit = 0; game.input.attackHit = 0; game.input.dashHit = 0;
+  game.hitStop = 0;
   game.bullets = [];
   for (const e of L.enemies) {
     e.dead = 0;
@@ -265,7 +296,8 @@ function killPlayer() {
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return;
   p.dead = true; p.deadT = 0;
-  game.deaths++; game.shake = 6;
+  p.atkT = 0; p.dashT = 0; // v2 P1：动作状态随死亡终止
+  game.deaths++; game.shake = 8; // v2 P1：死亡震屏 6→8
   game.sfxQueue.push('die'); // 音效只能入队，engine 不发声
   _engAddParts(p.x + 5, p.y + 7, 18, '#f08830', 120);
   _engAddParts(p.x + 5, p.y + 7, 10, '#f8d020', 90);
@@ -301,6 +333,47 @@ function _engOnCrumble(p, c) { // 内部：玩家是否正踩在此崩塌砖顶�
   return Math.abs(p.y + p.h - by) < 3 && p.x + p.w > bx && p.x < bx + _engTile;
 }
 
+function _engAddCombo() { // 内部：击杀/碎砖连击计数（v2 P1：2s 窗口累计，断档清零在 updateWorld ⑬）
+  game.combo++;
+  game.comboT = _engComboWin;
+  if (game.combo >= 2) game.sfxQueue.push('combo'); // n≥2 才有连击音
+}
+
+function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1）——身前 18×14 框 vs 敌人/炮弹/'B' 砖
+  if (!(p.atkT > 0) || p.dead) return;
+  const box = { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
+  // 敌人：攻击击杀与踩踏等价（史莱姆/蝙蝠均可），但玩家不弹跳；命中→hit-stop 全局冻结
+  let hitEnemy = false;
+  for (const e of L.enemies) {
+    if (e.dead > 0 || !_engAabb(box, e)) continue;
+    e.dead = 0.01;
+    hitEnemy = true;
+    _engAddParts(e.x + 6, e.y + 4, 12, e.type === 'bat' ? '#8858c8' : '#58c848', 90, 250);
+    _engAddCombo();
+    game.sfxQueue.push('stomp');
+  }
+  if (hitEnemy) { game.hitStop = _engHitStop; game.shake = Math.max(game.shake, 3); } // v2 P1：击杀震屏 3
+  // 炮弹：可被斩碎
+  for (let i = game.bullets.length - 1; i >= 0; i--) {
+    const b = game.bullets[i];
+    if (_engAabb(box, b)) {
+      game.bullets.splice(i, 1);
+      _engAddParts(b.x + 4, b.y + 3, 8, '#f8b020', 80, 200);
+      game.sfxQueue.push('break');
+    }
+  }
+  // 'B' 木箱砖：碎后内含 1 金币粒子 + 1 金币计数（v2 P3 与 levels 侧约定）
+  _engRectTiles(L, box.x, box.y, box.w, box.h, function (tx, ty, ch) {
+    if (ch !== 'B') return;
+    L.tiles[ty][tx] = '.'; // 碎后从网格移除（respawn 不重建网格 → 保持已碎，与已收金币同理）
+    game.coins++;
+    _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 10, '#c89858', 90, 300);
+    _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 4, '#f8d020', 70, 200);
+    _engAddCombo();
+    game.sfxQueue.push('break');
+  });
+}
+
 /* ==================== 玩家物理（契约第 3 节算法 1/2/3/7） ==================== */
 function _engUpdatePlayer(dt, L, p) {
   // 死亡冻结 0.9s 后重生（契约算法 12）
@@ -308,6 +381,25 @@ function _engUpdatePlayer(dt, L, p) {
 
   /* ---- 输入（只读 game.input） ---- */
   const dir = (game.input.right ? 1 : 0) - (game.input.left ? 1 : 0);
+
+  /* ---- v2 P1：攻击 / 冲刺（边沿消费 + 冷却门控） ---- */
+  p.atkCd -= dt; p.dashCd -= dt; p.atkT -= dt; p.dashT -= dt;
+  if (game.input.attackHit) {
+    game.input.attackHit = 0; // 消费边沿（空挥也进入冷却，防止按住刷判定）
+    if (p.atkCd <= 0) {
+      p.atkCd = _engAtkCd; p.atkT = _engAtkDur;
+      game.sfxQueue.push('slash');
+    }
+  }
+  if (game.input.dashHit) {
+    game.input.dashHit = 0;
+    if (p.dashCd <= 0) {
+      p.dashCd = _engDashCd; p.dashT = _engDashDur;
+      p.dashDir = dir !== 0 ? dir : p.face; // 有方向输入用输入向，否则用面向
+      game.sfxQueue.push('dash');
+      _engAddParts(p.x + 5 - p.dashDir * 6, p.y + 7, 6, '#48d8e8', 60, 0);
+    }
+  }
 
   // 站立地面材质：冰面低摩擦 / 传送带推力（脚下一行瓦片）
   let onIce = false, convL = false, convR = false;
@@ -322,15 +414,18 @@ function _engUpdatePlayer(dt, L, p) {
     }
   }
 
-  // 水平：加速 / 摩擦 / 限速（冰面用 fricIce）
-  if (dir !== 0) { p.vx += dir * PHY.acc * dt; p.face = dir; }
+  // 水平：冲刺锁定高速免摩擦（v2 P1）/ 加速 / 摩擦 / 限速（冰面用 fricIce）
+  if (p.dashT > 0) {
+    p.vx = p.dashDir * _engDashV;
+    p.face = p.dashDir;
+  } else if (dir !== 0) { p.vx += dir * PHY.acc * dt; p.face = dir; }
   else {
     const s = _engSign(p.vx);
     p.vx -= s * (onIce ? PHY.fricIce : PHY.fric) * dt;
     if (_engSign(p.vx) !== s) p.vx = 0;
   }
-  p.vx = _engClamp(p.vx, -PHY.maxRun, PHY.maxRun);
-  if (p.onGround) { // 传送带：站上被推动（可叠加到跑速之上，上限 ±170）
+  if (p.dashT <= 0) p.vx = _engClamp(p.vx, -PHY.maxRun, PHY.maxRun);
+  if (p.onGround && p.dashT <= 0) { // 传送带：站上被推动（可叠加到跑速之上，上限 ±170）；冲刺中不吃传送带
     if (convL) p.vx = _engClamp(p.vx - 520 * dt, -170, 170);
     if (convR) p.vx = _engClamp(p.vx + 520 * dt, -170, 170);
   }
@@ -342,11 +437,13 @@ function _engUpdatePlayer(dt, L, p) {
   if (p.jbuf > 0 && p.coyote > 0) {
     p.vy = -PHY.jumpV; p.jbuf = 0; p.coyote = 0;
     p.onGround = false; p.standOn = null;
+    p.jumpCut = true; // 普通跳才吃松手截断；弹簧/踩踏弹跳免疫
     game.sfxQueue.push('jump');
-    _engAddParts(p.x + 5, p.y + 14, 4, (L.theme && L.theme.dust) || '#ffffff', 40, 200);
+    _engAddParts(p.x + 5, p.y + 14, 8, (L.theme && L.theme.dust) || '#ffffff', 55, 220); // v2 P1：起跳粒子加强 4→8
   }
-  if (p.vy < 0 && !game.input.jump) p.vy *= 0.94; // 松开跳键：上升渐弱（每帧）
-  p.vy = Math.min(p.vy + PHY.grav * dt, PHY.maxFall);
+  if (p.jumpCut && p.vy < 0 && p.prevJump && !game.input.jump) p.vy *= 0.45; // 松键瞬间一次性截断=可变跳高（弹簧/踩踏不受影响）
+  p.prevJump = game.input.jump ? 1 : 0;
+  p.vy = Math.min(p.vy + PHY.grav * (p.dashT > 0 ? _engDashGrav : 1) * dt, PHY.maxFall); // 冲刺中重力减半（v2 P1）
 
   // 移动平台载人：上一帧站其上 → 先随平台位移（契约算法 3）
   if (p.standOn) { p.x += p.standOn.dx; p.y += p.standOn.dy; }
@@ -406,10 +503,11 @@ function _engUpdatePlayer(dt, L, p) {
     }
   }
 
-  // 落地尘土
+  // 落地尘土（v2 P1：粒子加强 3→8；landT 0.15s 供渲染层做落地 squash）
   if (p.onGround && !wasGround && p.landT <= 0) {
-    _engAddParts(p.x + 5, p.y + 14, 3, (L.theme && L.theme.dust) || '#ffffff', 30, 200);
+    _engAddParts(p.x + 5, p.y + 14, 8, (L.theme && L.theme.dust) || '#ffffff', 45, 220);
     p.landT = 0.15;
+    p.jumpCut = false; game.sfxQueue.push('land'); // 落地解除截断 + 轻落地声
   }
   p.landT -= dt;
 
@@ -419,6 +517,7 @@ function _engUpdatePlayer(dt, L, p) {
     if (p.vy >= 0 && p.x + p.w > s.x && p.x < s.x + s.w &&
         p.y + p.h >= s.y - 10 && p.y + p.h <= s.y + 10) {
       p.vy = -PHY.springV; p.onGround = false; p.standOn = null;
+      p.jbuf = 0; p.coyote = 0; p.jumpCut = false; // 清缓冲防弱跳覆盖弹簧；弹簧不吃松手截断
       s.t = 0.25; // 压缩动画计时
       game.sfxQueue.push('spring');
       _engAddParts(s.x + 6, s.y, 8, '#f8d020', 70, 250);
@@ -435,9 +534,15 @@ function _engUpdatePlayer(dt, L, p) {
 /* ==================== 世界更新（契约第 3 节算法 14 的顺序） ==================== */
 function updateWorld(dt) {
   if (game.paused || game.state !== 'play') return;
+  if (game.hitStop > 0) { // v2 P1：攻击命中 → 全局冻结（世界整体暂停推进，计时到点自动恢复）
+    game.hitStop -= dt;
+    if (game.hitStop < 0) game.hitStop = 0;
+    return;
+  }
   const L = game.level, p = game.player;
   if (!L || !p) return;
-  game.tick++;
+  // tick 由 ui.js step() 每步统一 +1（覆盖全部界面状态）；此处不再自增——
+  // 曾因双自增使 play 态 tick 恒为偶数，(tick*n|0)%2 类取帧全部冻结在第 1 帧
 
   /* ① 拉杆：接触且冷却≤0 → 全局开关翻转、冷却 0.6s（契约算法 9） */
   for (const lv of L.levers) {
@@ -628,15 +733,20 @@ function updateWorld(dt) {
     if (!p.dead && _engAabb(p, e)) {
       if (p.vy > 60 && p.y + p.h - e.y < 9) {
         e.dead = 0.01;
-        p.vy = -250;
+        p.vy = -250; p.jumpCut = false; // 踩踏弹跳不吃松手截断
+        game.shake = Math.max(game.shake, 3); // v2 P1：击杀震屏 3
+        _engAddCombo();                        // v2 P1：击杀计入连击
         game.sfxQueue.push('stomp');
         _engAddParts(e.x + 6, e.y + 4, 10, e.type === 'bat' ? '#8858c8' : '#58c848', 70, 250);
       } else killPlayer();
     }
   }
 
-  /* ⑩ 玩家物理（含死亡冻结计时、弹簧、平台吸附） */
+  /* ⑩ 玩家物理（含死亡冻结计时、弹簧、平台吸附、攻击/冲刺） */
   _engUpdatePlayer(dt, L, p);
+
+  /* ⑩′ 攻击判定（v2 P1）：判定框存在 atkDur 秒，每步扫描敌人/炮弹/'B' 砖 */
+  _engResolveAttack(L, p);
 
   /* ⑪ 危险判定：尖刺 ^ 下半 / 吊刺 v 上半 / 熔岩 ~ y+3 以下 / 坠出底部（契约算法 5） */
   if (!p.dead) {
@@ -656,9 +766,13 @@ function updateWorld(dt) {
     return pt.life > 0;
   });
 
-  /* ⑬ 计时 / 震屏 / 相机（跟随 + 面向前瞻 20px + lerp 0.12 + 关卡钳制，契约算法 13） */
+  /* ⑬ 计时 / 震屏 / 连击断档 / 相机（跟随 + 面向前瞻 20px + lerp 0.12 + 关卡钳制，契约算法 13） */
   game.time += dt;
   game.shake = Math.max(0, game.shake - 20 * dt);
+  if (game.comboT > 0) { // v2 P1：连击 2s 窗口断档清零
+    game.comboT -= dt;
+    if (game.comboT <= 0) { game.comboT = 0; game.combo = 0; }
+  }
   const ctx2 = p.x + p.w / 2 - _engVW / 2 + p.face * 20;
   const cty2 = p.y + p.h / 2 - _engVH / 2;
   game.cam.x += (ctx2 - game.cam.x) * 0.12;

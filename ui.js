@@ -1,6 +1,13 @@
 // ============================================================
 // ui.js —— 渲染 / 输入 / 音频 / 界面状态机 / 主循环
 // 契约：只读 engine 的 game/Level 与 art 的 SPR/THEMES/buildThemeArt
+// v2 增量（2026-10-24 任务书 P0+P1，引擎工程师）：
+//   P0 修复：pressed 边沿改为「每个物理 step 之后」清空（挪入 while 循环），
+//            高刷屏零步进渲染帧不再吞跳跃/攻击输入；
+//   P1：攻击 J/X、冲刺 K/Shift 按键映射与边沿桥接；slash/dash/break/combo 四新音效；
+//   渲染：落地 squash（landT 变换）、冲刺残影（0.04s×4 快照）、挥击弧光
+//        （slashArc[3] 就位自动启用，此前程序化弧兜底）、连击 HUD 弹字、
+//        heroRun 取帧按帧数自适应（3/6 帧）。
 // ============================================================
 'use strict';
 (function(){
@@ -22,6 +29,7 @@ addEventListener('resize',fitScreen);
 const KEYMAP={
   left:['ArrowLeft','KeyA'],right:['ArrowRight','KeyD'],
   jump:['ArrowUp','KeyW','Space'],down:['ArrowDown','KeyS'],
+  attack:['KeyJ','KeyX'],dash:['KeyK','ShiftLeft','ShiftRight'], // v2 P1：攻击/冲刺
   pause:['KeyP'],mute:['KeyM'],restart:['KeyR'],back:['Escape'],
   confirm:['Enter','Space','KeyW','ArrowUp']
 };
@@ -88,7 +96,13 @@ const SFX={
   checkpoint(){[523,659,784].forEach((f,i)=>tone({f,d:0.12,v:0.2,at:i*0.07}));},
   clear(){[523,659,784,1047,784,1047,1319].forEach((f,i)=>tone({f,d:i===6?0.5:0.13,v:0.2,at:i*0.11}));},
   select(){tone({f:880,d:0.05,v:0.15});},
+  land(){noiseSfx({d:0.05,v:0.12,fc:500});tone({f:120,d:0.05,v:0.1,type:'triangle'});},
   shot(){tone({f:330,f2:120,d:0.1,v:0.14,type:'sawtooth'});},
+  // v2 P1 新增音效事件（engine 经 sfxQueue 推送）
+  slash(){noiseSfx({d:0.07,v:0.18});tone({f:980,f2:320,d:0.09,v:0.15,type:'sawtooth'});}, // 挥击
+  dash(){noiseSfx({d:0.16,v:0.22});tone({f:180,f2:640,d:0.18,v:0.16,type:'triangle'});}, // 冲刺
+  break(){noiseSfx({d:0.14,v:0.3});tone({f:150,f2:55,d:0.12,v:0.22,type:'square'});},     // 碎砖/斩弹
+  combo(){tone({f:784,d:0.06,v:0.16});tone({f:1046,d:0.09,v:0.16,at:0.06});},            // 连击
 };
 const MUSIC_LEAD=[440,523,659,0,587,659,784,0,659,523,440,0,494,587,494,0,
  440,523,659,0,587,659,784,0,880,784,659,523,587,494,440,0];
@@ -131,6 +145,9 @@ function startLevel(idx){
   hintT=3.5;lastLevelIdx=idx;menuSel=idx;
   themeArt=buildThemeArt(LEVELS[idx].theme);
   fade=1;fadeDir=-1;
+  // v2 P1：进关清残留输入锁存，防止上一状态的边沿在新关卡被缓冲触发
+  game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0;
+  ghosts.length=0;comboPop=0;lastCombo=0;
 }
 
 // ---------- 渲染 ----------
@@ -159,7 +176,9 @@ function render(){
     renderDecor(L,tick);
     renderTiles(L,tick);
     renderEntities(L,tick);
+    renderGhosts();   // v2 P1：冲刺残影（玩家之下层）
     renderPlayer(tick);
+    renderSlash();    // v2 P1：挥击弧光（玩家之上层）
     renderParts();
     ctx.restore();
     renderHUD();
@@ -297,25 +316,93 @@ function renderEntities(L,tick){
       else ctx.drawImage(SPR.slime[(tick*4|0)%2],px(e.x-1),px(e.y));
     }else{
       if(e.dead>0){ctx.globalAlpha=0.5;ctx.drawImage(SPR.bat[0],px(e.x),px(e.y));ctx.globalAlpha=1;}
-      else ctx.drawImage(SPR.bat[(tick*8|0)%2],px(e.x),px(e.y));
+      else ctx.drawImage(SPR.bat[(tick*8|0)%3],px(e.x),px(e.y));
     }
   }
 }
 
-function renderPlayer(tick){
-  const p=game.player;
-  if(!p||p.dead)return;
-  // 动画态从物理状态推导（不依赖引擎实现细节）
+// v2 P1：英雄姿态选择（渲染与残影快照共用）。heroAttack/heroDash/heroSquash 为 P2 画师
+// 待交付键——就位前自动回退既有帧，取帧式按 SPR.heroRun.length 自适应（3 帧现状/6 帧 P2 均可）。
+function heroPoseImg(tick){
+  const p=game.player,faceL=p.face<0;
   let anim;
   if(!p.onGround)anim=p.vy<0?'jump':'fall';
   else anim=Math.abs(p.vx)>10?'run':'idle';
   let img;
-  const faceL=p.face<0;
   if(anim==='idle')img=(tick%40<38)?(faceL?SPR.heroIdle1L:SPR.heroIdle1):(faceL?SPR.heroIdle2L:SPR.heroIdle2);
-  else if(anim==='run')img=(faceL?SPR.heroRunL:SPR.heroRun)[(p.animT*10|0)%3];
+  else if(anim==='run'){const fr=faceL?SPR.heroRunL:SPR.heroRun;img=fr[(p.animT*12|0)%fr.length];} // v2：6 帧取帧适配（animT*12%帧数）
   else if(anim==='jump')img=faceL?SPR.heroJumpL:SPR.heroJump;
   else img=faceL?SPR.heroFallL:SPR.heroFall;
-  ctx.drawImage(img,px(p.x-1),px(p.y));
+  if(p.landT>0&&SPR.heroSquash)img=faceL?SPR.heroSquashL:SPR.heroSquash; // 落地压扁帧（P2 就位后生效）
+  if(p.dashT>0&&SPR.heroDash)img=faceL?SPR.heroDashL:SPR.heroDash;       // 冲刺帧（P2 就位后生效）
+  if(p.atkT>0&&SPR.heroAttack)img=faceL?SPR.heroAttackL:SPR.heroAttack; // 挥击帧优先级最高（P2 就位后生效）
+  return img;
+}
+
+function renderPlayer(tick){
+  const p=game.player;
+  if(!p)return;
+  if(p.dead){ // 死亡表现：旋转上抛渐隐（替代 v1 的 0.9s 完全隐形）
+    const df=SPR.heroFall;
+    ctx.save();
+    ctx.translate(px(p.x-3)+df.width/2,px(p.y-2)+df.height-2);
+    ctx.rotate(p.deadT*9);
+    ctx.globalAlpha=clamp(1-p.deadT/0.85,0,1);
+    ctx.drawImage(df,-df.width/2,-df.height);
+    ctx.restore();
+    return;
+  }
+  const img=heroPoseImg(tick);
+  if(p.landT>0){ // v2 P1：落地 squash——landT(0.15s) 内以脚底中心为锚 y 向压缩、x 微胀
+    const k=clamp(p.landT/0.15,0,1);
+    ctx.save();
+    ctx.translate(px(p.x-3)+img.width/2,px(p.y-2)+img.height);
+    ctx.scale(1+0.25*k,1-0.32*k);
+    ctx.drawImage(img,-img.width/2,-img.height);
+    ctx.restore();
+  }else ctx.drawImage(img,px(p.x-3),px(p.y-2)); // 16×16 精灵相对 10×14 命中框的居中偏移
+}
+
+// v2 P1：冲刺残影——0.04s 间隔记录姿态快照，0.16s 生命期=共 4 帧半透明剪影
+function updateGhosts(dt){
+  const p=game.player;
+  for(let i=0;i<ghosts.length;i++)ghosts[i].t+=dt;
+  while(ghosts.length&&ghosts[0].t>=0.16)ghosts.shift();
+  if(p&&p.dashT>0&&uiState==='play'){
+    ghostTick-=dt;
+    if(ghostTick<=0){ghostTick=0.04;ghosts.push({img:heroPoseImg(game.tick),x:p.x-3,y:p.y-2,t:0});}
+  }else ghostTick=0;
+}
+function renderGhosts(){
+  for(const g of ghosts){
+    ctx.globalAlpha=clamp(0.45*(1-g.t/0.16),0,1);
+    ctx.drawImage(g.img,px(g.x),px(g.y));
+  }
+  ctx.globalAlpha=1;
+}
+
+// v2 P1：挥击弧光——画师 slashArc[3]（18×14 白→蓝渐隐）就位后自动启用，此前程序化弧兜底
+function renderSlash(){
+  const p=game.player;
+  if(!p||!(p.atkT>0))return;
+  const prog=clamp(1-p.atkT/0.12,0,1); // 判定框存在期 0.12s 内的进度 0→1
+  ctx.save();
+  ctx.translate(px(p.x+p.w/2+p.face*13),px(p.y+p.h/2));
+  if(p.face<0)ctx.scale(-1,1);
+  ctx.globalAlpha=clamp(0.9-prog*0.55,0,1);
+  if(SPR.slashArc&&SPR.slashArc.length){
+    const arc=SPR.slashArc;
+    const img=arc[Math.min(arc.length-1,(prog*arc.length)|0)];
+    ctx.drawImage(img,-img.width/2,-img.height/2);
+  }else{
+    ctx.strokeStyle=prog<0.5?'#ffffff':'#48d8e8';
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    ctx.arc(0,0,8+prog*6,-1.25+prog*1.5,0.45+prog*1.5);
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.globalAlpha=1;
 }
 
 function renderParts(){
@@ -346,6 +433,13 @@ function renderHUD(){
   drawPixelText(mm+':'+ss,VIEW_W-6,5,1,game.time<=L.par?'#f0f0f8':'#f87858','right');
   // 死亡数
   if(game.deaths>0)drawPixelText('X '+game.deaths,VIEW_W-46,5,1,'#f87858','right');
+  // v2 P1：连击弹字（n≥2 显示；2s 断档清零由引擎负责，弹跳动画由 comboPop 驱动）
+  if(game.combo>=2){
+    const pop=clamp(comboPop/0.3,0,1);
+    const dy=pop>0?-Math.round(pop*3):0;
+    const col=(game.tick%10<5)?'#f8d020':'#ffffff';
+    drawPixelText('COMBO X'+game.combo,VIEW_W-6,24+dy,2,col,'right');
+  }
 }
 
 function renderPause(){
@@ -391,7 +485,7 @@ function renderMenu(th,tick){
     const bob=Math.sin(tick*2)*3;
     drawCNText('像素勇者',VIEW_W/2,46+bob*0.4,34,'#ffffff','center');
     drawPixelText('PIXEL QUEST',VIEW_W/2,96,2,'#f8d020','center');
-    ctx.drawImage(SPR.heroRun[(tick*8|0)%3],VIEW_W/2-14,VIEW_H-46+bob);
+    ctx.drawImage(SPR.heroRun[(tick*8|0)%SPR.heroRun.length],VIEW_W/2-14,VIEW_H-46+bob); // v2：按帧数自适应（3/6 帧）
     if(tick%50<32)drawCNText('按 回车/空格 开始',VIEW_W/2,150,13,'#ffffff','center');
     drawPixelText('ARROWS/WASD MOVE  SPACE JUMP  M SOUND',VIEW_W/2,204,1,'#f0f0f8','center');
   }else{
@@ -426,17 +520,30 @@ function renderVictory(tick){
 
 // ---------- 状态机与主循环 ----------
 let lastState='';
+// v2 P1：冲刺残影快照（0.04s 间隔，共 4 帧半透明剪影）+ 连击弹字动画状态
+const ghosts=[];let ghostTick=0,comboPop=0,lastCombo=0;
 function step(dt){
   game.tick+=dt*60;
   fade=clamp(fade+fadeDir*dt*3,0,1);
   hintT-=dt;
   if(game.shake>0)game.shake=Math.max(0,game.shake-dt*18);
 
-  // 输入桥接
+  // 输入桥接（持键直写；边沿锁存只在 play 且未暂停时写入——暂停/结算期不积累 stale 边沿）
   game.input.left=kd('left')?1:0;
   game.input.right=kd('right')?1:0;
   game.input.jump=kd('jump')?1:0;
-  if(hit('jump'))game.input.jumpHit=1;
+  game.input.attack=kd('attack')?1:0;
+  game.input.dash=kd('dash')?1:0;
+  if(uiState==='play'&&!game.paused){
+    if(hit('jump'))game.input.jumpHit=1;
+    if(hit('attack'))game.input.attackHit=1;
+    if(hit('dash'))game.input.dashHit=1;
+  }
+
+  // v2 P1：残影记录与连击弹字计时
+  updateGhosts(dt);
+  if(game.combo!==lastCombo){if(game.combo>lastCombo)comboPop=0.3;lastCombo=game.combo;}
+  comboPop-=dt;
 
   if(uiState==='title'){
     if(hit('confirm')){SFX.select();uiState='select';fade=1;fadeDir=-1;}
@@ -450,7 +557,10 @@ function step(dt){
     }
     if(hit('back')){uiState='title';fade=1;fadeDir=-1;}
   }else if(uiState==='play'){
-    if(hit('pause')){game.paused=!game.paused;SFX.select();}
+    if(hit('pause')){
+      game.paused=!game.paused;SFX.select();
+      if(game.paused){game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0;} // 暂停瞬间的 stale 边沿不带入恢复后
+    }
     if(hit('restart')){startLevel(game.levelIdx);return;}
     if(hit('back')&&!game.paused){uiState='select';fade=1;fadeDir=-1;return;}
     if(!game.paused)updateWorld(dt);
@@ -483,10 +593,12 @@ function step(dt){
 let acc=0,last=performance.now();
 function frame(now){
   acc+=Math.min(0.1,(now-last)/1000);last=now;
-  while(acc>=1/60){step(1/60);acc-=1/60;}
+  // P0 修复（任务书 2026-10-24-v2 §P0）：pressed 边沿只在真实跑过至少一个物理 step 之后清空。
+  // 清空动作挪进 while 循环、逐 step 执行——零步进的渲染帧（高刷屏 acc<1/60）不再吞输入；
+  // 一帧多 step 时第一步消费后即清，边沿只消费一次（不丢不重）。
+  while(acc>=1/60){step(1/60);clearPressed();acc-=1/60;}
   render();
   if(uiState==='victory')renderVictory(game.tick);
-  clearPressed();
   requestAnimationFrame(frame);
 }
 
