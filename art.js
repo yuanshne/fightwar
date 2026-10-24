@@ -33,6 +33,19 @@
  *   E. 施法金色姿态 heroAttackGold(+L)。
  *   【预算授权（工单 art.md 即授权依据）】v2.5 已到 80KB 上限（79,589 字节）；v3 增量 ≤20KB、
  *   总量上限 100KB。Boss 身体/手臂用行跨坐标程序化画法（非全字面网格），字面网格均经行长校验。
+ * —— v4 谜题神龛（规格书 2026-10-24-v4-puzzles.md，美术队工单 §1-§4）——
+ *   A. SPR.shrineOff / SPR.shrineOn：16×24 谜题神龛石碑两态。off=暗青石+裂纹+暗刻纹；
+ *      on=同网格换点亮调色板（刻纹变金纹）+顶部星光 2 帧闪烁——shrineOn=[帧1,帧2] 数组
+ *      （ui 沿用 decor 的 (tick*4|0)%2 取帧即可），shrineOff 为单帧。问号与已解谜底
+ *      缩略图按分工由 ui 叠画（本精灵不内置）。
+ *   B. SPR.puzzleUI：谜题覆盖层素材字典——木框四角 cornerTL/TR/BL/BR（8×8，外两侧描边、
+ *      内侧暗缘）+ 边条 edgeH/edgeV（8×8，两长边均描边→上/下、左/右边通用；与对应角块
+ *      齐缝可拼接）、网格光标框 cursor（12×12：白描边+藏蓝内圈，中空透出格内容）、
+ *      数织叉格标记 xmark（8×8 亮灰+暗尖，亮暗底均可见）；
+ *      gold/goldD/goldL = #f8d048/#c89010/#fff8c8 主题无关金色印章三阶（工单 §3，ui 画
+ *      数独"完"字印直接取用）。
+ *   C. 全部手绘字符网格（行长均经 _art_v4_check.js 校验）；顶层导出仍限契约 7 符号，
+ *      新素材全部挂进 SPR（下划线前缀为内部实现）。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -942,6 +955,144 @@ const _SK_O = [
   '............'];
 const _P_HERO_GOLD = Object.assign({}, _P_HERO, { b: '#f8d048', B: '#c89010', W: '#fff8c8' }); // 内部：施法金（蓝主体换金，围巾橙金系保留）
 
+/* ==================== v4：谜题神龛 16×24（手绘字符网格，同网格双调色板） ====================
+ * 石碑剪影：顶部尖角 + 8 宽碑身（左受光 L / 右背光 D）+ 中段刻纹带 + 下层台座。
+ * 字符语义：k 描边 / L 亮面 / S 基面 / D 暗面 / c 裂纹·金纹暗 / v 刻纹·金纹亮 / w 微光·金纹芯 / m 苔点。
+ * off=暗青石（c/v/w 为暗刻痕）；on=点亮（c/v/w 换金纹三阶，石面整体提亮）。 */
+const _P_SH_OFF = { // 内部：神龛·未解（暗青石）
+  k: '#0c2024', L: '#4f8a8e', S: '#356064', D: '#24444a',
+  c: '#143034', v: '#2a5254', w: '#3e7478', m: '#3a6e58'
+};
+const _P_SH_ON = { // 内部：神龛·已解点亮（金纹）
+  k: '#12282c', L: '#68a8ac', S: '#4a8286', D: '#2f5c60',
+  c: '#c89010', v: '#f8d048', w: '#fff8c8', m: '#4e8a62'
+};
+const _SHRINE = [ // 16×24：碑身+裂纹之字+刻纹带（行12-14 菱点+横槽）+台座
+  '................',
+  '................',
+  '.......kk.......',
+  '......kLSk......',
+  '.....kLLSSk.....',
+  '....kLSSSSDk....',
+  '....kLScSSDk....',
+  '....kLSScSDk....',
+  '....kLScSSDk....',
+  '....kLSScSDk....',
+  '....kLSSSmDk....',
+  '....kLSSSSDk....',
+  '....kLvSSvDk....',
+  '....kcvwwvck....',
+  '....kLvSSvDk....',
+  '....kLSSSSDk....',
+  '....kLSScSDk....',
+  '....kLScSSDk....',
+  '....kLSSSSDk....',
+  '...kLLSSSSDDk...',
+  '..kkkkkkkkkkkk..',
+  '..kDSSSSmSSSDk..',
+  '..kDSSSSSSSSDk..',
+  '.kkkkkkkkkkkkkk.'];
+const _P_STAR1 = { w: '#f8d048', y: '#fff8c8', W: '#ffffff' }; // 内部：星光帧1（金芒+白芯）
+const _SHRINE_STAR1 = [ // 8×6 四芒星，叠画于 (4,0)——盖住碑顶尖如光爆
+  '...ww...',
+  '...ww...',
+  'wwyWWyww',
+  'wwyWWyww',
+  '...ww...',
+  '...ww...'];
+const _P_STAR2 = { d: '#d8a020', y: '#f8d048' }; // 内部：星光帧2（收暗）
+const _SHRINE_STAR2 = [ // 8×6 缩小闪烁+右上偏移碎光
+  '........',
+  '...dd.d.',
+  '..dyyd..',
+  '..dyyd..',
+  '...dd...',
+  '........'];
+
+/* ==================== v4：谜题覆盖层素材（手绘字符网格） ====================
+ * 木框件与 _P_BRICK 同木色系：k 描边 / N 深木 / n 板底 / m 浅板 / l 高光。
+ * 四角外两侧描边；边条两长边均描边（水平条上下通用、垂直条左右通用）。
+ * 齐缝约定：cornerTL/TR/BL/BR 的接缝行(列)与 edgeH/edgeV 端行(列)逐像素同色（_art_v4_check.js 校验）。 */
+const _P_PZWOOD = { k: '#241408', N: '#5c3a18', n: '#8a5a2a', m: '#b07840', l: '#d8a860' }; // 内部：覆盖层木框（木箱同族色）
+const _PZ_EDGE_H = [ // 8×8 水平边条（上下边通用：上缘高光/下缘暗纹为全局受光方向）
+  'kkkkkkkk',
+  'llllllll',
+  'mmnnnnmm',
+  'mnnNnnnm',
+  'nnnnnnnn',
+  'NnnNNnnN',
+  'NNNNNNNN',
+  'kkkkkkkk'];
+const _PZ_EDGE_V = [ // 8×8 垂直边条（左右边通用：竖向木纹虚接）
+  'klmnnnNk',
+  'klmnnnNk',
+  'klnnnnNk',
+  'klnnNnNk',
+  'klmnnnNk',
+  'klmnnnNk',
+  'klnnnnNk',
+  'klnnnnNk'];
+const _PZ_CORNER_TL = [ // 8×8 左上角：右列接 edgeH 左端、底行接 edgeV 顶行
+  'kkkkkkkk',
+  'klllllll',
+  'klmnnnnm',
+  'kmnnnnnm',
+  'kmnnnnnn',
+  'kmnnnnNN',
+  'kmnnnNNN',
+  'klmnnnNk'];
+const _PZ_CORNER_TR = [ // 8×8 右上角：左列接 edgeH 右端、底行接 edgeV 顶行
+  'kkkkkkkk',
+  'lllllllk',
+  'mnnnnnnk',
+  'mnnnnnnk',
+  'nnnnnnnk',
+  'NnnnnnNk',
+  'NnnnnNNk',
+  'klmnnnNk'];
+const _PZ_CORNER_BL = [ // 8×8 左下角：顶行接 edgeV 底行、右列接 edgeH 左端
+  'klnnnnNk',
+  'klnnNnnl',
+  'klnnnnnm',
+  'klnnNnnm',
+  'klnnnnnn',
+  'knnnnnnN',
+  'knnnnnNN',
+  'kkkkkkkk'];
+const _PZ_CORNER_BR = [ // 8×8 右下角：顶行接 edgeV 底行、左列接 edgeH 右端
+  'klnnnnNk',
+  'lnnNnnnk',
+  'mnnnnnnk',
+  'mnnNnnnk',
+  'nnnnnnnk',
+  'Nnnnnnnk',
+  'NNnnnnnk',
+  'kkkkkkkk'];
+const _P_PZCUR = { w: '#ffffff', k: '#1c2450' }; // 内部：光标框（白描边+藏蓝内圈=主角描边同族，白底格上仍可读）
+const _PZ_CURSOR = [ // 12×12 网格光标：外圈白、内圈藏蓝、中空（透出格内容）
+  'wwwwwwwwwwww',
+  'wkkkkkkkkkkw',
+  'wk........kw',
+  'wk........kw',
+  'wk........kw',
+  'wk........kw',
+  'wk........kw',
+  'wk........kw',
+  'wk........kw',
+  'wk........kw',
+  'wkkkkkkkkkkw',
+  'wwwwwwwwwwww'];
+const _P_PZX = { w: '#dfe6f2', d: '#8e9cb0' }; // 内部：数织叉格（亮灰主体+暗灰尖角）
+const _PZ_XMARK = [ // 8×8 叉格标记：粗叉亮灰、上下尖端收暗（暗底亮可见/亮底暗尖可见）
+  'd......d',
+  'ww....ww',
+  '.ww..ww.',
+  '..wwww..',
+  '..wwww..',
+  '.ww..ww.',
+  'ww....ww',
+  'd......d'];
+
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
@@ -1144,6 +1295,27 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.skU = _makeSprite(_SK_U, _P_SKU);                 // 技能栏图标 12×12
   SPR.skI = _makeSprite(_SK_I, _P_SKI);
   SPR.skO = _makeSprite(_SK_O, _P_SKO);
+  // —— v4：谜题神龛（美术工单 §1；off 单帧暗青石，on=点亮金纹+顶部星光 2 帧闪烁）——
+  SPR.shrineOff = _makeSprite(_SHRINE, _P_SH_OFF);
+  SPR.shrineOn = [0, 1].map(function (f) { // [帧1 大星芒, 帧2 收暗碎光]；ui 按 (tick*4|0)%2 取帧
+    const c = _makeSprite(_SHRINE, _P_SH_ON);
+    c.getContext('2d').drawImage(_makeSprite(f ? _SHRINE_STAR2 : _SHRINE_STAR1, f ? _P_STAR2 : _P_STAR1), 4, 0);
+    return c;
+  });
+  // —— v4：谜题覆盖层素材（美术工单 §2/§3：木框拼接件+光标框+数织叉格+金印三阶色）——
+  SPR.puzzleUI = {
+    cornerTL: _makeSprite(_PZ_CORNER_TL, _P_PZWOOD),
+    cornerTR: _makeSprite(_PZ_CORNER_TR, _P_PZWOOD),
+    cornerBL: _makeSprite(_PZ_CORNER_BL, _P_PZWOOD),
+    cornerBR: _makeSprite(_PZ_CORNER_BR, _P_PZWOOD),
+    edgeH: _makeSprite(_PZ_EDGE_H, _P_PZWOOD),
+    edgeV: _makeSprite(_PZ_EDGE_V, _P_PZWOOD),
+    cursor: _makeSprite(_PZ_CURSOR, _P_PZCUR),
+    xmark: _makeSprite(_PZ_XMARK, _P_PZX),
+    gold: '#f8d048',  // 主题无关金色印章色（工单 §3 指定值）
+    goldD: '#c89010', // 印章暗部（金纹同族）
+    goldL: '#fff8c8'  // 印章高光
+  };
   return SPR;
 }
 
@@ -2238,4 +2410,5 @@ function buildThemeArt(themeKey) { // 参数=THEMES 键名；未知键回退 gra
 }
 
 /* 自测：量化自查（色阶/抖动/描边/装饰计数等 227 项）见工作区 _art_check.js（node 可跑）；
+   v4 神龛/谜题 UI 素材自查（网格行长/齐缝/星光两帧/金印色）见工作区 _art_v4_check.js；
    浏览器快速冒烟：buildSprites(); buildThemeArt('lava'); 无异常且 SPR/THEMES 非空即通过。 */

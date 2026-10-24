@@ -25,6 +25,18 @@
      - 三技能（U 星陨 8s / I 护盾 12s / O 连斩 20s+连击8）+ meteor/wave/drop 实体循环；
      - 击杀统一入口 _engKillEnemy（30% 掉回复心）；sfx 新事件
        'roar','meteor','shield','ult','heart','hurt','bosshit'（只 push 不发声）。
+   v4 增量（docs/specs/2026-10-24-v4-puzzles.md「引擎队」工单，引擎工程师）：
+     - 'Q' 谜题神龛解析：实体提取为 L.shrines:[{x,y,w:16,h:24,idx}]（idx=1 起关卡号，
+       配 levels.js PUZZLES 键；y 取瓦片顶上移 8px——与 'c' 检查点 16×24 实体同一锚定
+       惯例，碑底=支撑瓦片顶面），网格换 '.'；
+     - game.puzzleActive（覆盖层打开中，updateWorld 在 paused 判断之后直接 return，
+       玩家/敌人/计时全部冻结，同暂停语义但不改 paused 字段）；
+     - game.puzzleNear（每步计算：玩家矩形 vs 神龛矩形四周 8px 外扩重叠 → 该神龛
+       idx，否则 -1；ui 据此显示「↑解谜」并处理开龛键）；
+     - 新契约导出 puzzleSolved(idx)（红线唯一例外，已录入 CONTRACT 附记）：标记
+       solvedPuzzles[idx]=true、coins+5、sfxQueue push 'puzzle'+'gem'、玩家头顶
+       金色烟花约 24 粒；solvedPuzzles={} 在 loadLevel 重置（ui 负责从 localStorage
+       注入已解状态）。'Q' 提取与 puzzleNear 均为纯数据/纯判定，对七关空转零副作用。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -117,6 +129,7 @@ class Level {
     /* ---------- 实体提取：实体字符从网格换成'.'，瓦片字符保留 ---------- */
     this.coins = []; this.enemies = []; this.plats = []; this.saws = [];
     this.cannons = []; this.springs = []; this.levers = []; this.checkpoints = [];
+    this.shrines = []; // v4：谜题神龛（'Q' 提取，见下）
     this.crumbles = new Map(); this.doors = new Map();
     this.spawn = { x: 32, y: 32 }; this.goal = null; this.bossSpawn = null; // v3：Boss 锚点
     let brickN = 0; // v2 P3：'B' 可碎木箱砖计数（每箱内含 1 金币，计入 totalCoin）
@@ -155,6 +168,11 @@ class Level {
           case 'D': this.doors.set(x + ',' + y, { x: x, y: y }); break;
           case 'B': brickN++; break; // v2 P3：木箱砖是实心瓦片（留在网格），仅攻击可碎（碎于 _engResolveAttack）
           case 'X': this.bossSpawn = { x: px + 8, y: py }; this.tiles[y][x] = '.'; break; // v3：Boss 锚点（不入 SOLIDISH/STAND，solid() 无需改）
+          case 'Q': // v4：谜题神龛——16×24 石碑实体（不入 SOLIDISH/STAND，solid() 无需改）。
+            // y=瓦片顶上移 8px：碑底对齐支撑瓦片顶面（与 'c' 检查点 16×24 同一锚定惯例；
+            // 工单字段清单 {x,y,w:16,h:24,idx} 不钉死 y 值）。idx=1 起关卡号，配 PUZZLES。
+            this.shrines.push({ x: px, y: py - 8, w: 16, h: 24, idx: this.idx + 1 });
+            this.tiles[y][x] = '.'; break;
         }
       }
     }
@@ -268,7 +286,11 @@ const game = {
   meteors: [],           // 星陨术流星
   waves: [],             // Boss 落地冲击波
   skills: { u: 0, i: 0, o: 0 }, // 三技能 CD 剩余秒（U/I/O）
-  flashT: 0              // 流星连斩白屏剩余（s）
+  flashT: 0,             // 流星连斩白屏剩余（s）
+  // v4：谜题神龛（沿 v2/v3 先例扩展字段，不新增契约外顶层全局符号）
+  puzzleActive: false,   // 谜题覆盖层打开中——updateWorld 顶部直接 return（同 paused 冻结语义，不改 paused）
+  puzzleNear: -1,        // 玩家靠近的神龛 idx（1~6），不靠近=-1（每步刷新；ui 据此提示/消费开龛键）
+  solvedPuzzles: {}      // 已解神龛表 {"1":true,...}（loadLevel 重置；ui 从 localStorage 注入已解状态）
 };
 
 /* ==================== 关卡装载 / 出生 / 死亡 / 通关 ==================== */
@@ -299,6 +321,9 @@ function loadLevel(idx, keepStats) {
   game.boss = L.bossSpawn ? _engMkBoss(L.bossSpawn.x, L.bossSpawn.y) : null;
   game.drops = []; game.meteors = []; game.waves = []; game.flashT = 0;
   game.skills = { u: 0, i: 0, o: 0 };
+  // v4：谜题状态复位——覆盖层强制关闭 / 接近清空 / 已解表清空（工单 4：
+  // solvedPuzzles={} 在 loadLevel 重置；已解状态由 ui 在 startLevel 后从 localStorage 注入）
+  game.puzzleActive = false; game.puzzleNear = -1; game.solvedPuzzles = {};
 }
 
 function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复位、子弹清空；钥匙/门/开关/已收金币保持
@@ -350,6 +375,16 @@ function levelClear() {
     }
   }
   // 星级/解锁/存档由 ui 层负责，engine 不碰 localStorage
+}
+
+/* ==================== v4：谜题神龛结算（新契约导出，见 CONTRACT 附记） ==================== */
+function puzzleSolved(idx) { // 谜题解开结算（ui 在覆盖层校验全对时调用；红线唯一允许的新全局导出）
+  if (game.solvedPuzzles[idx]) return; // 已解神龛不重复结算（正常流：已解神龛走 ui 只读模式不会到这；防御双发奖）
+  game.solvedPuzzles[idx] = true;      // 持久化由 ui 层负责（engine 不碰 localStorage）
+  game.coins += 5;                     // 奖励 5 金币（等价一颗宝石，直接走计数，不涉及宝石实体）
+  game.sfxQueue.push('puzzle'); game.sfxQueue.push('gem'); // 解谜音 + 得宝石音（只入队，engine 不发声）
+  const p = game.player;
+  if (p) _engAddParts(p.x + 5, p.y - 6, 24, '#f8d048', 130, 150); // 玩家位置上方金色烟花 ≈24 粒（#f8d048=美术金色印章色）
 }
 
 /* ==================== v3：HP 伤害 / Boss AI / 技能（内部） ==================== */
@@ -821,6 +856,8 @@ function _engUpdatePlayer(dt, L, p) {
 /* ==================== 世界更新（契约第 3 节算法 14 的顺序） ==================== */
 function updateWorld(dt) {
   if (game.paused || game.state !== 'play') return;
+  if (game.puzzleActive) return; // v4：谜题覆盖层打开——世界整体冻结（同 paused 语义但不改 paused 字段；
+                                 // 玩家物理/敌人/计时/机关全部停摆，粒子亦冻结，ui 自绘覆盖层）
   if (game.hitStop > 0) { // v2 P1：攻击命中 → 全局冻结（世界整体暂停推进，计时到点自动恢复）
     game.hitStop -= dt;
     if (game.hitStop < 0) game.hitStop = 0;
@@ -830,6 +867,16 @@ function updateWorld(dt) {
   if (!L || !p) return;
   // tick 由 ui.js step() 每步统一 +1（覆盖全部界面状态）；此处不再自增——
   // 曾因双自增使 play 态 tick 恒为偶数，(tick*n|0)%2 类取帧全部冻结在第 1 帧
+
+  /* ⓪ v4：谜题神龛接近检测（工单 3，每步计算）：玩家矩形 vs 神龛矩形四周 8px 外扩，
+        重叠 → game.puzzleNear=该神龛 idx，否则 -1。纯判定，无任何物理副作用。 */
+  game.puzzleNear = -1;
+  for (const sh of L.shrines) {
+    if (_engAabb(p, { x: sh.x - 8, y: sh.y - 8, w: sh.w + 16, h: sh.h + 16 })) {
+      game.puzzleNear = sh.idx;
+      break;
+    }
+  }
 
   /* ① 拉杆：接触且冷却≤0 → 全局开关翻转、冷却 0.6s（契约算法 9） */
   for (const lv of L.levers) {

@@ -14,6 +14,15 @@
 //   选关 7 格、通关进致谢屏（§E）；roar/meteor/shield/ult/heart/hurt/bosshit 音效（§G）。
 //   注：消费 engine v3 字段（game.boss/drops/meteors/waves/skills/flashT 等）与
 //   art v3 SPR 键；v2 基线（未合入时）经 ||[] 与 SPR 存在性守卫照常运行 L1-L6。
+// v4 增量（docs/specs/2026-10-24-v4-puzzles.md §界面队，界面队）：
+//   谜题神龛：KEYMAP.puzzleOpen（play 态且 puzzleNear>=0 时消费；近龛优先开龛不跳——
+//   puzzleNear>=0 时 jumpHit 桥接置 0）；覆盖层状态机 puzzle（数织=行/列线索+网格 J填/K叉/R清，
+//   数独=粗细分隔线+给定格灰底+冲突红字/数字键/0退格清除/R重来；Esc 退出，进度仅本关内保留）；
+//   完成校验（数织对 pic/数独对 sol，全对→puzzleSolved(idx)+本地持久化+2s 自动关层，错格闪红 1s）；
+//   已解神龛=点亮+谜底缩略图（数织画原样/数独金色"完"印章）+只读查看；puzzleNear 头顶浮动提示；
+//   HUD 已解神龛 x/6 小图标；startLevel 注入 game.solvedPuzzles=progress.puzzles。
+//   依赖 engine v4（level.shrines/game.puzzleActive/game.puzzleNear/game.solvedPuzzles/全局
+//   puzzleSolved）与 levels v4（PUZZLES）；未合入时按 typeof/||[] 守卫整体静默降级，v3 行为不变。
 // ============================================================
 'use strict';
 (function(){
@@ -38,6 +47,8 @@ const KEYMAP={
   up:['ArrowUp','KeyW'], // v3 §E2：选关上移键（hit('up') 依赖；新增行，不动既有键）
   attack:['KeyJ','KeyX'],dash:['KeyK','ShiftLeft','ShiftRight'], // v2 P1：攻击/冲刺
   skillU:['KeyU'],skillI:['KeyI'],skillO:['KeyO'], // v3 §A：技能三键（同 attack/dash 边沿模式，不动既有键）
+  puzzleOpen:['ArrowUp','KeyW','Enter'], // v4 §界面①：play 态且 puzzleNear>=0 时消费（近龛优先开龛不跳）
+  nonoFill:['KeyJ'],nonoCross:['KeyK'],  // v4 §界面②：数织覆盖层内 J 填格/K 叉格（仅覆盖层消费，不影响 play 态 attack/dash）
   pause:['KeyP'],mute:['KeyM'],restart:['KeyR'],back:['Escape'],
   confirm:['Enter','Space','KeyW','ArrowUp']
 };
@@ -45,7 +56,8 @@ const keys={},pressed={};
 function kd(name){return KEYMAP[name].some(c=>keys[c]);}
 function hit(name){return KEYMAP[name].some(c=>pressed[c]);}
 addEventListener('keydown',e=>{
-  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+  // v4：Backspace 一并 preventDefault——数独覆盖层用它清格，防触发浏览器后退
+  if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace'].includes(e.code))e.preventDefault();
   if(!keys[e.code])pressed[e.code]=true;
   keys[e.code]=true;audioUnlock();
   if(e.code==='KeyM'){toggleAudio();return;}
@@ -119,6 +131,8 @@ const SFX={
   heart(){tone({f:784,d:0.08,v:0.18,type:'triangle'});tone({f:1046,d:0.12,v:0.18,at:0.07,type:'triangle'});},
   hurt(){tone({f:220,f2:90,d:0.18,v:0.28,type:'square'});noiseSfx({d:0.1,v:0.2});},
   bosshit(){tone({f:150,f2:60,d:0.1,v:0.22,type:'square'});},
+  // v4：谜题解开音（engine puzzleSolved 经 sfxQueue 推送 'puzzle'+'gem'，gem 沿用既有音）
+  puzzle(){tone({f:659,d:0.09,v:0.18});tone({f:880,d:0.09,v:0.18,at:0.08});tone({f:1319,d:0.18,v:0.2,at:0.16});},
 };
 const MUSIC_LEAD=[440,523,659,0,587,659,784,0,659,523,440,0,494,587,494,0,
  440,523,659,0,587,659,784,0,880,784,659,523,587,494,440,0];
@@ -155,6 +169,188 @@ let clearStars=0,clearShown=0,creditsT=0; // v3 §E：致谢屏计时
 // god 模式：吞掉击杀（调试用）
 if(GOD&&typeof killPlayer==='function'){const orig=killPlayer;window.killPlayer=function(){};}
 
+// ---------- v4 谜题神龛（数织/数独覆盖层：状态机+输入+校验+持久化；渲染函数见下方渲染区） ----------
+// 依赖：levels.js PUZZLES（键 1..6，奇=nono 数织/偶=sudoku 数独）、engine.js v4
+// （level.shrines / game.puzzleNear / game.puzzleActive / game.solvedPuzzles / 全局 puzzleSolved）。
+// 全部带存在性守卫：任一依赖未合入时功能整体静默降级（神龛与覆盖层不出现），v3 行为不变。
+// 工单 §界面② 状态机 puzzle={open,idx,type,size,grid,cur,err,done}
+// （grid：数织 0空/1填/2叉，数独 0空/1..n 数字；given/doneT/view 为内部扩展字段）
+const puzzle={open:false,idx:0,type:'',size:0,grid:null,given:null,cur:{x:0,y:0},err:0,done:false,doneT:0,view:false};
+let puzzleRep=0,puzzleSkip=0;   // 内部：方向键持键重复计时 / 开层当步跳过输入（防开启键泄漏为光标移动）
+const sudokuBoxCache={};        // 内部：数独块尺寸按题号缓存（6×6 的 2×3/3×2 歧义按 sol 合法性自解析）
+
+// puzzleNear 读取：engine v4 每步计算 game.puzzleNear（工单 §引擎3）；未合入时按同规格本地兜底
+// （玩家矩形 vs 神龛矩形外扩 8px 严格重叠，与 _engAabb 语义一致）。
+function puzzleNearIdx(){
+  if(typeof game.puzzleNear==='number')return game.puzzleNear;
+  const L=game.level;if(!L||!L.shrines||!L.shrines.length)return -1;
+  const p=game.player;if(!p)return -1;
+  for(const s of L.shrines)
+    if(p.x<s.x+s.w+8&&p.x+p.w>s.x-8&&p.y<s.y+s.h+8&&p.y+p.h>s.y-8)return s.idx;
+  return -1;
+}
+function isPuzzleSolved(idx){ // 已解判定：engine 置位（本关内）或本地存档（跨关）
+  return !!((game.solvedPuzzles&&game.solvedPuzzles[idx])||(progress.puzzles&&progress.puzzles[idx]));
+}
+function openPuzzle(idx){ // 仅 play 态且 puzzleNear>=0 时由 step() 输入桥接调用
+  if(typeof PUZZLES==='undefined')return;
+  const pz=PUZZLES[idx];if(!pz)return;
+  const resume=!puzzle.done&&puzzle.idx===idx&&puzzle.type===pz.type&&puzzle.grid&&puzzle.grid.length===pz.size;
+  puzzle.open=true;puzzle.idx=idx;puzzle.type=pz.type;puzzle.size=pz.size;
+  puzzle.err=0;puzzle.done=false;puzzle.doneT=0;puzzle.view=isPuzzleSolved(idx);
+  puzzleSkip=1;
+  if(!puzzle.view&&!resume){ // 已解→只读谜底；未解→续用内存进度（重进关卡由 startLevel 重置）
+    if(pz.type==='nono')puzzle.grid=Array.from({length:pz.size},()=>Array(pz.size).fill(0));
+    else{puzzle.grid=pz.givens.map(r=>r.slice());puzzle.given=pz.givens.map(r=>r.map(v=>v>0));}
+    puzzle.cur={x:0,y:0};
+  }
+  game.puzzleActive=true; // 工单 §通用：覆盖层期间世界暂停（engine 冻结；ui 亦跳过 updateWorld 双保险）
+  game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0;
+  game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0;
+}
+function closePuzzle(){
+  puzzle.open=false;game.puzzleActive=false;puzzleSkip=0;
+  game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0; // 关层清 stale 边沿，防带入恢复后
+  game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0;
+}
+function winPuzzle(){ // 工单 §界面③：puzzleSolved(idx)+本地持久化+2s 后自动关层
+  if(puzzle.done)return;
+  puzzle.done=true;puzzle.doneT=2;puzzle.err=0;
+  const idx=puzzle.idx;
+  if(typeof puzzleSolved==='function'){
+    puzzleSolved(idx); // engine v4：solvedPuzzles 置位 / 金币+5 / 'puzzle'+'gem' 音效 / 金色烟花
+    game.solvedPuzzles=game.solvedPuzzles||{};game.solvedPuzzles[idx]=true; // ui 侧读取一致性（幂等）
+  }else{
+    // engine v4 未合入兜底：与工单 §引擎4 等效的最小实现（粒子约 24 粒金色）
+    game.solvedPuzzles=game.solvedPuzzles||{};
+    if(!game.solvedPuzzles[idx]){
+      game.solvedPuzzles[idx]=true;game.coins+=5;
+      game.sfxQueue.push('puzzle','gem');
+      const p=game.player;
+      if(p)for(let i=0;i<24;i++)game.parts.push({x:p.x+5,y:p.y+4,
+        vx:(Math.random()*2-1)*95,vy:-60-Math.random()*120,life:0.5+Math.random()*0.4,
+        color:'#f8d048',size:1+(Math.random()*2|0),grav:220});
+    }
+  }
+  progress.puzzles=progress.puzzles||{};
+  if(!progress.puzzles[idx]){progress.puzzles[idx]=true;saveProgress(progress);}
+}
+function puzzleSetFill(v){ // 数织：J 填格(1) / K 叉格(2)，同格再按同标记=取消
+  const c=puzzle.cur;
+  puzzle.grid[c.y][c.x]=puzzle.grid[c.y][c.x]===v?0:v;
+  checkNonoDone();
+}
+function puzzleSetNum(n){ // 数独：数字填入；0/退格清除；同格再按同数字也可清除；给定格锁定
+  const c=puzzle.cur;
+  if(puzzle.given[c.y][c.x])return;
+  puzzle.grid[c.y][c.x]=puzzle.grid[c.y][c.x]===n?0:n;
+  checkSudokuDone();
+}
+function puzzleClearGrid(){ // R：数织清空 / 数独清空重来（givens 保留）
+  const pz=PUZZLES[puzzle.idx];
+  if(pz.type==='nono')puzzle.grid=puzzle.grid.map(r=>r.map(()=>0));
+  else{puzzle.grid=pz.givens.map(r=>r.slice());puzzle.given=pz.givens.map(r=>r.map(v=>v>0));}
+  puzzle.err=0;
+}
+function checkNonoDone(){ // 工单 §玩法设计：完成时自动校验——全对胜利；错格闪红 1s
+  const pz=PUZZLES[puzzle.idx];
+  let unfilled=0,wrong=0;
+  for(let r=0;r<pz.size;r++)for(let c=0;c<pz.size;c++){
+    const want=(pz.pic[r][c]||'.')==='#',v=puzzle.grid[r][c];
+    if(want&&v!==1)unfilled++;
+    else if(!want&&v===1)wrong++;
+  }
+  if(unfilled===0&&wrong===0)winPuzzle();
+  else if(unfilled===0&&wrong>0)puzzle.err=1;
+}
+function checkSudokuDone(){ // 完成自动校验：grid 与 sol 全等→胜利，否则错格闪红 1s
+  const pz=PUZZLES[puzzle.idx];
+  let full=true,wrong=0;
+  for(let r=0;r<pz.size;r++)for(let c=0;c<pz.size;c++){
+    const v=puzzle.grid[r][c];
+    if(!v)full=false;
+    else if(v!==pz.sol[r][c])wrong++;
+  }
+  if(full&&wrong===0)winPuzzle();
+  else if(full&&wrong>0)puzzle.err=1;
+}
+function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/Esc/数字键（工单 §界面①②③）
+  if(puzzle.err>0)puzzle.err=Math.max(0,puzzle.err-dt);
+  if(puzzle.done){ // 已解开：2s 自动关层（Esc 可提前；关层后世界恢复，烟花粒子在场景中绽放）
+    if(hit('back'))closePuzzle();
+    else{puzzle.doneT-=dt;if(puzzle.doneT<=0)closePuzzle();}
+    return;
+  }
+  if(puzzleSkip){puzzleSkip=0;return;}
+  if(puzzle.view){if(hit('back')||hit('confirm'))closePuzzle();return;} // 已解神龛只读查看
+  const s=puzzle.size;
+  puzzleRep-=dt; // 方向键：单击即移 + 持键重复（10×10 网格可用性）。
+  // 注意必须认 hit() 边沿：快速点按的 keydown+keyup 可能落在两个 step 之间，step 时 kd() 已为 false，
+  // 只看持键会吞掉单击（浏览器实测发现）；边沿与持键二选一消费，互不重复计步。
+  for(const d of[['left',-1,0],['right',1,0],['up',0,-1],['down',0,1]]){
+    const edge=hit(d[0]),held=kd(d[0]);
+    if(!edge&&!held)continue;
+    if(edge){
+      puzzle.cur.x=clamp(puzzle.cur.x+d[1],0,s-1);
+      puzzle.cur.y=clamp(puzzle.cur.y+d[2],0,s-1);
+      puzzleRep=0.18;
+    }else if(puzzleRep<=0){ // 持键 0.18s 后每 0.055s 重复一格
+      puzzle.cur.x=clamp(puzzle.cur.x+d[1],0,s-1);
+      puzzle.cur.y=clamp(puzzle.cur.y+d[2],0,s-1);
+      puzzleRep=0.055;
+    }
+  }
+  if(puzzle.type==='nono'){
+    if(hit('nonoFill'))puzzleSetFill(1);    // J 填格
+    if(hit('nonoCross'))puzzleSetFill(2);   // K 叉格
+    if(hit('restart'))puzzleClearGrid();    // R 清空
+  }else{
+    for(let n=1;n<=9;n++)if(pressed['Digit'+n]||pressed['Numpad'+n])puzzleSetNum(n);
+    if(pressed['Digit0']||pressed['Numpad0']||pressed['Backspace'])puzzleSetNum(0); // 0/退格清除
+    if(hit('restart'))puzzleClearGrid();    // R 清空重来
+  }
+  if(hit('back'))closePuzzle();             // Esc 退出（进度保留在内存，重进关卡重置）
+}
+// 数独块尺寸：4×4=2×2、9×9=3×3 固定；6×6 工单写作「块2×3」存在行列书写歧义，
+// 按 sol 在哪种划分（[行高,列宽]）下合法自解析，两种划分都不合法时兜底 [2,3]（gate 侧同规则把关）。
+function sudokuSolValidUi(pz,bh,bw){
+  const n=pz.size,sol=pz.sol;
+  const uniq=get=>{const s=new Set();for(let i=0;i<n;i++){const v=get(i);if(v<1||v>n||s.has(v))return false;s.add(v);}return true;};
+  for(let r=0;r<n;r++)if(!uniq(c=>sol[r][c]))return false;
+  for(let c=0;c<n;c++)if(!uniq(r=>sol[r][c]))return false;
+  for(let br=0;br<n;br+=bh)for(let bc=0;bc<n;bc+=bw){
+    const s=new Set();
+    for(let r=br;r<br+bh;r++)for(let c=bc;c<bc+bw;c++){const v=sol[r][c];if(v<1||v>n||s.has(v))return false;s.add(v);}
+  }
+  return true;
+}
+function sudokuBoxDims(pz){ // 内部：返回 [块行高,块列宽]（按当前题号缓存）
+  if(sudokuBoxCache[puzzle.idx])return sudokuBoxCache[puzzle.idx];
+  let box=pz.size===4?[2,2]:pz.size===9?[3,3]:null;
+  if(!box){
+    box=[2,3];
+    if(!sudokuSolValidUi(pz,2,3)&&sudokuSolValidUi(pz,3,2))box=[3,2];
+  }
+  sudokuBoxCache[puzzle.idx]=box;return box;
+}
+function sudokuConflicts(r,c,v){ // 实时冲突：同行/列/块出现重复数字（工单 §界面②）
+  const pz=PUZZLES[puzzle.idx],s=pz.size,[bh,bw]=sudokuBoxDims(pz);
+  for(let i=0;i<s;i++){
+    if(i!==c&&puzzle.grid[r][i]===v)return true;
+    if(i!==r&&puzzle.grid[i][c]===v)return true;
+  }
+  const r0=(r/bh|0)*bh,c0=(c/bw|0)*bw;
+  for(let i=r0;i<r0+bh;i++)for(let j=c0;j<c0+bw;j++)
+    if((i!==r||j!==c)&&puzzle.grid[i][j]===v)return true;
+  return false;
+}
+function rowRuns(str){ // 内部：数织一行/一列的连续实心段线索
+  const out=[];let n=0;
+  for(let i=0;i<str.length;i++){if(str[i]==='#')n++;else if(n){out.push(n);n=0;}}
+  if(n)out.push(n);
+  return out;
+}
+
 function startLevel(idx){
   loadLevel(idx,false);
   uiState='play';game.state='play';
@@ -165,6 +361,12 @@ function startLevel(idx){
   game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0;
   game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0; // v3 §A：技能边沿同清，防 stale
   ghosts.length=0;comboPop=0;lastCombo=0;
+  // v4：谜题覆盖层复位（解题进度仅本关内保留，重进关卡重置——工单 §玩法设计）
+  puzzle.open=false;puzzle.idx=0;puzzle.grid=null;puzzle.given=null;puzzle.cur={x:0,y:0};
+  puzzle.err=0;puzzle.done=false;puzzle.view=false;puzzleRep=0;puzzleSkip=0;
+  game.puzzleActive=false;
+  // v4 §界面⑥：engine loadLevel 清空 solvedPuzzles 后，由 ui 从本地存档回填已解神龛
+  game.solvedPuzzles=Object.assign({},progress.puzzles||{});
 }
 
 // ---------- 渲染 ----------
@@ -192,12 +394,14 @@ function render(){
     ctx.translate(px(-camX+sx),px(-camY+sy));
     renderDecor(L,tick);
     renderTiles(L,tick);
+    renderShrines(L,tick); // v4 §界面④：谜题神龛（未解=暗色石碑+?，已解=点亮+顶部谜底缩略图）
     renderEntities(L,tick);
     renderBoss(tick); // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前）
     renderGhosts();   // v2 P1：冲刺残影（玩家之下层）
     renderPlayer(tick);
     renderSlash();    // v2 P1：挥击弧光（玩家之上层）
     renderParts();
+    renderPuzzleHint(tick); // v4 §界面④：puzzleNear 时头顶浮动"↑ 解谜/查看"提示（世界坐标最上层）
     ctx.restore();
     renderHUD();
     renderIntro();  // v3 §D1：登场横幅（intro 态）
@@ -211,6 +415,7 @@ function render(){
     if(GOD)drawPixelText('GOD MODE',VIEW_W/2,VIEW_H-16,1,'#f8d020','center');
     if(game.paused)renderPause();
     if(uiState==='clear')renderClear(tick);
+    if(puzzle.open)renderPuzzleOverlay(tick); // v4 §界面②：谜题覆盖层（世界之上、渐变遮罩之下）
   }
   // 渐变遮罩
   if(fade>0){ctx.setTransform(1,0,0,1,0,0);ctx.fillStyle='rgba(0,0,0,'+clamp(fade,0,1)+')';ctx.fillRect(0,0,VIEW_W,VIEW_H);}
@@ -551,6 +756,16 @@ function renderHUD(){
   drawPixelText(mm+':'+ss,VIEW_W-6,5,1,game.time<=L.par?'#f0f0f8':'#f87858','right');
   // 死亡数
   if(game.deaths>0)drawPixelText('X '+game.deaths,VIEW_W-46,5,1,'#f87858','right');
+  // v4 §界面⑤：已解神龛 x/6 小图标（金币下方第二行；本关有神龛才显示，L7 无神龛不显示）
+  if(L.shrines&&L.shrines.length&&typeof PUZZLES!=='undefined'){
+    const total=Object.keys(PUZZLES).length||6;
+    for(let i=0;i<total;i++){
+      const done=isPuzzleSolved(i+1),x=100+i*6,y=21;
+      ctx.fillStyle=done?'#f8d048':'#3a3a4a';ctx.fillRect(x,y+1,4,3); // 迷你石碑
+      ctx.fillStyle=done?'#fff0b0':'#4a4a5e';ctx.fillRect(x+1,y,2,1);
+      if(done&&game.tick%30<15){ctx.fillStyle='#fff8c8';ctx.fillRect(x+1,y+2,2,1);} // 已解微闪
+    }
+  }
   // v2 P1：连击弹字（n≥2 显示；2s 断档清零由引擎负责，弹跳动画由 comboPop 驱动）
   if(game.combo>=2){
     const pop=clamp(comboPop/0.3,0,1);
@@ -734,6 +949,167 @@ function renderCredits(tick){
   if(tick%50<32)drawCNText('回车 · 返回标题',VIEW_W/2,206,11,'#ffffff','center'); // 底部常驻
 }
 
+// ---------- v4 谜题渲染（神龛/头顶提示/覆盖层；全程序化兜底，SPR.shrineOff/shrineOn 与
+// SPR.puzzleUI{cornerTL..cornerBR,cross} 就位后自动启用，键不匹配则静默跳过） ----------
+function renderShrines(L,tick){
+  const shr=L.shrines;
+  if(!shr||!shr.length)return;
+  for(const s of shr){
+    const solved=isPuzzleSolved(s.idx);
+    let img=solved?SPR.shrineOn:SPR.shrineOff;
+    if(Array.isArray(img))img=img[(tick*4|0)%img.length]; // 美术 v4：shrineOn=[帧1,帧2] 星光两帧（art 注释指定取帧式）
+    if(img)ctx.drawImage(img,px(s.x),px(s.y));
+    else drawSteleFallback(px(s.x),px(s.y),solved,tick); // 美术 v4 未合入兜底：程序化石碑 16×24
+    if(solved)drawShrineThumb(s,tick); // 已解：顶部展示谜底缩略图
+  }
+}
+function drawSteleFallback(x,y,solved,tick){ // 内部：程序化石碑（16×24，暗青石 vs 点亮金纹）
+  ctx.fillStyle=solved?'#465064':'#2c3440';ctx.fillRect(x+2,y+2,12,22); // 碑身
+  ctx.fillStyle=solved?'#5a6478':'#3c4652';ctx.fillRect(x+1,y,14,4);   // 顶帽
+  ctx.fillStyle='rgba(0,0,0,0.28)';ctx.fillRect(x+11,y+4,3,20);        // 侧影
+  if(solved){
+    ctx.strokeStyle='#f8d048';ctx.lineWidth=1;ctx.strokeRect(x+2.5,y+2.5,11,21); // 金纹描边
+    if(tick%36<18){ctx.fillStyle='#fff8c8';ctx.fillRect(x+7,y-3,2,2);}           // 顶部星光 2 帧闪烁
+  }else drawPixelText('?',x+5,y+9,2,'#c8b478');                                  // 问号
+}
+function drawShrineThumb(s,tick){ // 已解神龛顶部谜底缩略图：数织画原样 / 数独金色"完"字印章
+  if(typeof PUZZLES==='undefined')return;
+  const pz=PUZZLES[s.idx];if(!pz)return;
+  const bob=Math.sin(tick*3+s.idx*1.7)*1.5;
+  if(pz.type==='nono'){
+    const cs=2,w=pz.size*cs;
+    const x0=Math.round(s.x+8-w/2),y0=Math.round(s.y-4-pz.size*cs+bob);
+    ctx.fillStyle='rgba(4,4,12,0.65)';ctx.fillRect(x0-2,y0-2,w+4,pz.size*cs+4); // 衬底
+    ctx.fillStyle='#efe6c4';
+    for(let r=0;r<pz.size;r++)for(let c=0;c<pz.size;c++)
+      if((pz.pic[r][c]||'.')==='#')ctx.fillRect(x0+c*cs,y0+r*cs,cs,cs);
+  }else{
+    const bx=Math.round(s.x+1),by=Math.round(s.y-17+bob);
+    ctx.fillStyle='rgba(4,4,12,0.65)';ctx.fillRect(bx-1,by-1,15,15);
+    ctx.fillStyle='rgba(248,208,72,0.14)';ctx.fillRect(bx,by,13,13);            // 印章底
+    ctx.strokeStyle='#f8d048';ctx.lineWidth=1;ctx.strokeRect(bx+0.5,by+0.5,12,12);
+    drawCNText('完',bx+6.5,by+2,10,'#f8d048','center');
+  }
+}
+function renderPuzzleHint(tick){ // puzzleNear 时头顶浮动提示（已解→查看，未解→解谜）
+  if(puzzle.open||uiState!=='play')return;
+  const pn=puzzleNearIdx();
+  if(pn<0)return;
+  const p=game.player;if(!p||p.dead)return;
+  drawCNText(isPuzzleSolved(pn)?'↑ 查看':'↑ 解谜',p.x+p.w/2,p.y-13+Math.sin(tick*4)*1.5,9,'#f8d048','center');
+}
+function renderPuzzleOverlay(tick){ // 覆盖层：半透明黑底+木框+题目+光标+底部操作提示
+  if(typeof PUZZLES==='undefined')return;
+  const pz=PUZZLES[puzzle.idx];if(!pz)return;
+  ctx.fillStyle='rgba(4,4,14,0.78)';ctx.fillRect(0,0,VIEW_W,VIEW_H);
+  const fx=16,fy=10,fw=VIEW_W-32,fh=VIEW_H-24; // 木框 352×200（宽高均为 8 的倍数，美术拼接件齐缝）
+  ctx.fillStyle='#5c4326';ctx.fillRect(fx,fy,fw,fh);
+  ctx.fillStyle='#7d5c36';ctx.fillRect(fx+2,fy+2,fw-4,fh-4);
+  ctx.fillStyle='rgba(0,0,0,0.22)';for(let x=fx+4;x<fx+fw-4;x+=13)ctx.fillRect(x,fy+2,1,fh-4); // 木纹
+  ctx.fillStyle='#14121c';ctx.fillRect(fx+6,fy+6,fw-12,fh-12); // 内板
+  ctx.strokeStyle='#2e2212';ctx.lineWidth=1;ctx.strokeRect(fx+0.5,fy+0.5,fw-1,fh-1);
+  const PU=SPR.puzzleUI; // 美术 v4 木框拼接件：四角+边条（8×8 齐缝平铺；键不匹配则保持程序化木框）
+  if(PU&&PU.cornerTL&&PU.cornerTR&&PU.cornerBL&&PU.cornerBR&&PU.edgeH&&PU.edgeV){
+    const cw=PU.cornerTL.width,ch=PU.cornerTL.height;
+    for(let x=fx+cw;x+PU.edgeH.width<=fx+fw-cw;x+=PU.edgeH.width){
+      ctx.drawImage(PU.edgeH,x,fy);ctx.drawImage(PU.edgeH,x,fy+fh-PU.edgeH.height);
+    }
+    for(let y=fy+ch;y+PU.edgeV.height<=fy+fh-ch;y+=PU.edgeV.height){
+      ctx.drawImage(PU.edgeV,fx,y);ctx.drawImage(PU.edgeV,fx+fw-PU.edgeV.width,y);
+    }
+    ctx.drawImage(PU.cornerTL,fx,fy);ctx.drawImage(PU.cornerTR,fx+fw-PU.cornerTR.width,fy);
+    ctx.drawImage(PU.cornerBL,fx,fy+fh-PU.cornerBL.height);ctx.drawImage(PU.cornerBR,fx+fw-PU.cornerBR.width,fy+fh-PU.cornerBR.height);
+  }
+  drawCNText((puzzle.type==='nono'?'谜题神龛 · 数织 ':'谜题神龛 · 数独 ')+puzzle.size+'×'+puzzle.size,
+    VIEW_W/2,fy+9,12,'#f8d048','center');
+  if(puzzle.view)drawCNText('已解 · 谜底',fx+fw-10,fy+11,10,'#8ad8a0','right');
+  if(puzzle.type==='nono')renderNonoBoard(tick,pz);else renderSudokuBoard(tick,pz);
+  if(puzzle.done){ // 解开横幅（2s 自动关层期间）
+    ctx.fillStyle='rgba(0,0,0,0.72)';ctx.fillRect(VIEW_W/2-105,fy+fh/2-12,210,20);
+    drawCNText('神龛点亮！宝石 +1 · 金币 +5',VIEW_W/2,fy+fh/2-9,12,'#f8d048','center');
+  }
+  const hint=puzzle.view?'Esc 关闭':puzzle.type==='nono'
+    ?'方向 移动 · J 填格 · K 叉格 · R 清空 · Esc 退出'
+    :'方向 移动 · 数字键 填入 · 0/退格 清除 · R 重来 · Esc 退出';
+  drawCNText(hint,VIEW_W/2,fy+fh-16,9,'#b8b8c8','center');
+}
+function renderNonoBoard(tick,pz){ // 数织：左侧/顶部线索 + 网格 + 光标 + 错格闪红
+  const s=pz.size;
+  const cell=s<=5?18:s<=7?15:11;
+  const rowC=pz.pic.map(rowRuns);
+  const colC=[];
+  for(let c=0;c<s;c++){let str='';for(let r=0;r<s;r++)str+=(pz.pic[r][c]||'.');colC.push(rowRuns(str));}
+  const maxR=Math.max(1,...rowC.map(a=>a.length)),maxC=Math.max(1,...colC.map(a=>a.length));
+  const clueW=maxR*7+5,clueH=maxC*7+5,gw=s*cell;
+  const gx=Math.round((VIEW_W-clueW-gw)/2)+clueW,gy=38+clueH;
+  ctx.fillStyle='#b0b8d0'; // 列线索（顶部，自下而上贴近网格）
+  for(let c=0;c<s;c++){
+    const ns=colC[c].length?colC[c]:[0];
+    for(let j=0;j<ns.length;j++)drawPixelText(''+ns[j],gx+c*cell+((cell-3)>>1),gy-10-(ns.length-1-j)*7,1,'#b0b8d0');
+  }
+  for(let r=0;r<s;r++){ // 行线索（左侧，自右向左贴近网格）
+    const ns=rowC[r].length?rowC[r]:[0];
+    for(let j=0;j<ns.length;j++)drawPixelText(''+ns[j],gx-7-(ns.length-1-j)*7,gy+r*cell+((cell-5)>>1),1,'#b0b8d0');
+  }
+  const PU=SPR.puzzleUI; // 美术 v4 可选：8×8 数织叉格标记 xmark（未就位用程序化 X 兜底）
+  for(let r=0;r<s;r++)for(let c=0;c<s;c++){
+    const x=gx+c*cell,y=gy+r*cell,want=(pz.pic[r][c]||'.')==='#';
+    const v=puzzle.view?0:(puzzle.grid?puzzle.grid[r][c]:0);
+    const filled=puzzle.view?want:v===1,crossed=!puzzle.view&&v===2;
+    ctx.fillStyle='#0e0e1a';ctx.fillRect(x,y,cell,cell);
+    ctx.fillStyle='#2c2c44';ctx.fillRect(x,y,cell,1);ctx.fillRect(x,y,1,cell);
+    if(filled){ctx.fillStyle=puzzle.done?'#f8d048':'#e9e2c8';ctx.fillRect(x+1,y+1,cell-1,cell-1);}
+    else if(crossed&&PU&&PU.xmark)ctx.drawImage(PU.xmark,x+((cell-8)>>1),y+((cell-8)>>1));
+    else if(crossed){
+      ctx.strokeStyle='#7c86a8';ctx.lineWidth=1;ctx.beginPath();
+      ctx.moveTo(x+2.5,y+2.5);ctx.lineTo(x+cell-2.5,y+cell-2.5);
+      ctx.moveTo(x+cell-2.5,y+2.5);ctx.lineTo(x+2.5,y+cell-2.5);ctx.stroke();
+    }
+    if(!puzzle.view&&puzzle.err>0&&(game.tick%10<5)&&((want&&v!==1)||(!want&&v===1))){ // 错格闪红 1s
+      ctx.fillStyle='rgba(248,64,64,0.85)';ctx.fillRect(x+1,y+1,cell-1,cell-1);
+    }
+  }
+  if(s>=8){ctx.fillStyle='#50507a'; // 8×8 以上每 5 格加粗辅助线（便于数格）
+    for(let i=5;i<s;i+=5){ctx.fillRect(gx+i*cell,gy,1,gw);ctx.fillRect(gx,gy+i*cell,gw,1);}}
+  ctx.strokeStyle='#9a9ab8';ctx.lineWidth=1;ctx.strokeRect(gx-0.5,gy-0.5,gw+1,gw+1);
+  if(!puzzle.view&&!puzzle.done){ // 光标：白色描边方块
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.strokeRect(gx+puzzle.cur.x*cell+1,gy+puzzle.cur.y*cell+1,cell-2,cell-2);
+  }
+}
+function renderSudokuBoard(tick,pz){ // 数独：粗细分隔线+给定格灰底+冲突红字+光标
+  const s=pz.size,[bh,bw]=sudokuBoxDims(pz);
+  const cell=s===4?26:s===6?22:17,gw=s*cell;
+  const gx=Math.round((VIEW_W-gw)/2),gy=Math.round(38+Math.max(0,(156-gw)/2));
+  for(let r=0;r<s;r++)for(let c=0;c<s;c++){
+    const x=gx+c*cell,y=gy+r*cell;
+    const v=puzzle.view?(pz.sol[r][c]||0):(puzzle.grid?puzzle.grid[r][c]:0);
+    const isG=puzzle.view||!puzzle.given||puzzle.given[r][c];
+    ctx.fillStyle='#0e0e1a';ctx.fillRect(x,y,cell,cell);
+    if(isG){ctx.fillStyle='rgba(168,168,200,0.32)';ctx.fillRect(x+1,y+1,cell-1,cell-1);} // 给定格灰底
+    if(v>0){
+      let col=isG?'#f0f0f4':'#7ec8f0';
+      if(!puzzle.view&&sudokuConflicts(r,c,v))col='#f85858'; // 冲突实时红字
+      const sc=s===9?1:2;
+      drawPixelText(''+v,x+cell/2,Math.round(y+(cell-5*sc)/2),sc,col,'center');
+    }
+    if(!puzzle.view&&v>0&&puzzle.err>0&&(game.tick%10<5)&&v!==pz.sol[r][c]){ // 完成校验错格闪红
+      ctx.fillStyle='rgba(248,64,64,0.8)';ctx.fillRect(x+1,y+1,cell-1,cell-1);
+    }
+  }
+  for(let i=0;i<=s;i++){ // 块界粗线 / 格间细线（外框同为粗线）
+    const xth=(i%bw===0)?2:1,yth=(i%bh===0)?2:1;
+    ctx.fillStyle=(i%bw===0)?'#b0b0cc':'#3a3a58';
+    ctx.fillRect(gx+i*cell-(xth===2?1:0),gy,xth,gw);
+    ctx.fillStyle=(i%bh===0)?'#b0b0cc':'#3a3a58';
+    ctx.fillRect(gx,gy+i*cell-(yth===2?1:0),gw,yth);
+  }
+  if(!puzzle.view&&!puzzle.done){ // 光标：白色描边方块
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.strokeRect(gx+puzzle.cur.x*cell+1,gy+puzzle.cur.y*cell+1,cell-2,cell-2);
+  }
+}
+
 // ---------- 状态机与主循环 ----------
 let lastState='';
 // v2 P1：冲刺残影快照（0.04s 间隔，共 4 帧半透明剪影）+ 连击弹字动画状态
@@ -750,8 +1126,13 @@ function step(dt){
   game.input.jump=kd('jump')?1:0;
   game.input.attack=kd('attack')?1:0;
   game.input.dash=kd('dash')?1:0;
-  if(uiState==='play'&&!game.paused){
-    if(hit('jump'))game.input.jumpHit=1;
+  if(uiState==='play'&&!game.paused&&!puzzle.open){
+    // v4 §界面①：puzzleNear>=0 时优先开龛不跳——跳跃边沿不桥接并置 0（工单硬性要求）
+    const pn=puzzleNearIdx();
+    if(pn>=0){
+      if(hit('puzzleOpen')&&game.player&&!game.player.dead)openPuzzle(pn);
+      game.input.jumpHit=0;
+    }else if(hit('jump'))game.input.jumpHit=1;
     if(hit('attack'))game.input.attackHit=1;
     if(hit('dash'))game.input.dashHit=1;
     if(hit('skillU'))game.input.skillUHit=1;   // v3 §A：技能边沿（engine 写入消费）
@@ -777,14 +1158,18 @@ function step(dt){
     }
     if(hit('back')){uiState='title';fade=1;fadeDir=-1;}
   }else if(uiState==='play'){
-    if(hit('pause')){
-      game.paused=!game.paused;SFX.select();
-      if(game.paused){game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0; // 暂停瞬间的 stale 边沿不带入恢复后
-        game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0;} // v3 §A：技能边沿同清
+    if(puzzle.open)stepPuzzleInput(dt); // v4：覆盖层消费输入，世界冻结（下方跳过 updateWorld；
+                                        // engine 侧另有 puzzleActive 早退双保险，同 paused 语义）
+    else{
+      if(hit('pause')){
+        game.paused=!game.paused;SFX.select();
+        if(game.paused){game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0; // 暂停瞬间的 stale 边沿不带入恢复后
+          game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0;} // v3 §A：技能边沿同清
+      }
+      if(hit('restart')){startLevel(game.levelIdx);return;}
+      if(hit('back')&&!game.paused){uiState='select';fade=1;fadeDir=-1;return;}
+      if(!game.paused&&!puzzle.open)updateWorld(dt); // v4：覆盖层期间世界暂停（不改 paused 字段）
     }
-    if(hit('restart')){startLevel(game.levelIdx);return;}
-    if(hit('back')&&!game.paused){uiState='select';fade=1;fadeDir=-1;return;}
-    if(!game.paused)updateWorld(dt);
   }else if(uiState==='clear'){
     game.clearT+=dt;
     if(hit('confirm')&&game.clearT>0.8){

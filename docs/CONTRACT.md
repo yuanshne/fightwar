@@ -111,3 +111,30 @@ gate.js 会 `new Function(src)` 只编译不执行 art.js（语法检查），�
 - levels.js 不含任何行为逻辑（不解物理）；
 - engine.js 不 draw、不发声、不读键盘；
 - art.js 不含游戏逻辑（不 import 关卡数据）。
+
+---
+
+## 附记（v4 谜题神龛，2026-10-24 · 引擎队录入）
+
+> 依据：docs/specs/2026-10-24-v4-puzzles.md 红线「不加新全局导出（engine 的
+> puzzleSolved 除外，写进 CONTRACT 附记）」。本附记只增不改上文任何条款。
+
+### engine.js 新增契约导出（第 3 节追加）
+- `function puzzleSolved(idx)` —— 谜题解开结算：标记 `game.solvedPuzzles[idx]=true`、
+  `game.coins+=5`、`game.sfxQueue` push `'puzzle'` 与 `'gem'`、玩家位置上方金色烟花
+  约 24 粒（#f8d048）。由 ui 在覆盖层完成校验全对时调用；存档持久化由 ui 负责。
+
+### engine.js 新增字段（沿 v2/v3「扩展字段」先例）
+- `Level` 实例字段 `shrines[]`：`'Q'` 实体提取结果 `{x, y, w:16, h:24, idx}`（idx=1 起
+  关卡号，配 levels.js `PUZZLES` 键；碑底对齐支撑瓦片顶面，与 'c' 检查点同锚定惯例；
+  网格换 '.'，不入 SOLIDISH/STAND）。
+- `game` 字段：`puzzleActive`（覆盖层打开中，updateWorld 于 paused 判断之后直接 return，
+  同暂停冻结语义）、`puzzleNear`（每步计算，玩家矩形与神龛矩形四周 8px 外扩重叠时的
+  神龛 idx，否则 -1）、`solvedPuzzles`（loadLevel 重置为 `{}`，已解状态由 ui 从
+  localStorage 注入）。
+- `game.sfxQueue` 新事件 `'puzzle'`（解谜完成音，ui 消费）。
+
+### 瓦片/实体字符表（第 2 节追加一行）
+```
+Q 谜题神龛(L1~L6 各恰 1，脚下有支撑；走近提示可开谜题覆盖层)
+```
