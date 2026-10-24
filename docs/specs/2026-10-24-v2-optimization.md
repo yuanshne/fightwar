@@ -17,6 +17,11 @@ keydown 事件直接置位 `game.input.jumpHit` 等引擎输入锁存。两法�
 **验收（测试员）**：注入 50 次 keydown(ArrowUp)，逐帧轮询 `game.player.vy`，全部在 ≤2 帧
 内出现 vy<0，零丢失；60Hz 与 120Hz（`page.evaluate` 改造 rAF 时间步模拟）均须通过。
 
+**主 agent 实测证据（2026-10-24，tools/latency.py）**：
+- v1 @60Hz 无头：30 试 0 丢失，中位 9ms；
+- v1 @144Hz 模拟（rAF 强制 7ms，物理仍锁 60fps）：**30 试丢 15（50%）**——根因坐实。
+- 修复后回归标准：144Hz 模拟下丢失率必须为 **0%**。
+
 ## P1 · 手感调优（引擎工程师，engine.js）
 
 - coyote 0.09→**0.12s**，buffer 0.11→**0.18s**；起跳/落地粒子加强；落地 squash（渲染层
