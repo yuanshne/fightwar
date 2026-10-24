@@ -24,7 +24,7 @@ try {
   } else if (mod === 'levels') {
     const src = read('levels.js');
     const sandbox = new Function(src + '\n;return {LG,LEVELS,validateLevels};')();
-    if (!(sandbox.LEVELS && sandbox.LEVELS.length === 6)) { console.error('LEVELS 必须长度为 6'); process.exit(1); }
+    if (!(sandbox.LEVELS && sandbox.LEVELS.length >= 6)) { console.error('LEVELS 至少 6 关'); process.exit(1); }
     const meta = sandbox.LEVELS.map(l => l.theme + '/' + l.w + 'x' + l.h).join(', ');
     const v = sandbox.validateLevels();
     if (!v.ok) { console.error('validateLevels 未通过: ' + v.msg); process.exit(1); }
@@ -36,7 +36,8 @@ try {
     const glue = '\n;return {PHY,Level,game,loadLevel,respawn,killPlayer,levelClear,updateWorld,LEVELS};';
     const sandbox = new Function('THEMES', levelsSrc + '\n' + engineSrc + glue)(themes);
     need(engineSrc, ['PHY', 'Level', 'game', 'loadLevel', 'respawn', 'killPlayer', 'levelClear', 'updateWorld'], 'engine.js');
-    for (let i = 0; i < 6; i++) {
+    const nLevels = sandbox.LEVELS.length;
+    for (let i = 0; i < nLevels; i++) {
       sandbox.loadLevel(i, false);
       const g = sandbox.game;
       g.state = 'play';
