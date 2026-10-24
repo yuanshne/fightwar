@@ -1,0 +1,113 @@
+# Pixel Quest 模块契约（CONTRACT）—— 三个子 agent 必须严格遵守
+
+游戏目录：`pixel-quest/`（相对工作区根）。旧半成品 `pixel-quest/index.html` 仅作**搬运素材参考**，它有已知语法错误和 bug，**禁止直接复制引擎段落**。
+
+## 0. 总体规则（三方通用）
+
+1. 产出**普通 script 文件**（非 ES module）：禁止 `import`/`export` 语句，顶层 `const/class/function` 声明即全局暴露。
+2. **禁止**：DOM 访问（`document`/`window`/`canvas`）出现在 engine.js 与 levels.js 的任何执行路径；art.js 允许在**函数体内**用 `document.createElement('canvas')` 生成离屏画布，但顶层代码不得执行任何 DOM 调用（会被 node 门禁执行）。
+3. 引擎不发声：engine.js 播放音效的方式只能是 `game.sfxQueue.push('die')`（ui.js 每帧消费）。
+4. 引擎不读键盘：输入由 ui.js 写入 `game.input`，engine 只读 `game.input`。
+5. 文件顶部注释声明本文件职责。代码中文注释。**UTF-8 无 BOM**。
+6. 不新增契约外的全局符号（内部辅助函数用 IIFE 或下划线前缀并注明"内部"）。
+7. 完成后必须自查：`node --check <file>` 通过 + 对照本文档导出清单逐项确认，把结果写进交付说明。
+
+## 1. 文件与加载顺序（index.html 由主 agent 编写）
+
+```html
+<script src="art.js"></script>    <!-- 素材 -->
+<script src="levels.js"></script> <!-- 关卡数据 -->
+<script src="engine.js"></script> <!-- 物理/机关 -->
+<script src="ui.js"></script>     <!-- 渲染/输入/主循环（主 agent 写） -->
+```
+
+## 2. levels.js（关卡模块）
+
+### 导出
+- `class LG` —— 网格构建器：`constructor(w,h)`；方法 `set(x,y,ch)`、`fill(x0,y0,x1,y1,ch)`、`ground(x0,x1,topY,fillY?)`（默认填到底）、`plat(x0,x1,y)`（单向平台'='）、`row(x0,x1,y,ch)`、`coins(x0,x1,y)`、`coinArc(cx,y,n)`（n 个金币抛物线弧）、`stairs(x,y,steps,dir)`。全部返回 this 供链式调用。网格存 `this.g`（二维字符数组），边界外 set 静默忽略。
+- `const LEVELS` —— 长度恰为 6 的数组，每项 `{name,theme,par,hint,w,h,build(g)}`：
+  - `name`：'1 · 草原初试' 等中文关名；`theme`：'grass'|'cave'|'sky'|'factory'|'lava'|'tower'；
+  - `par`：限时秒数（暂定 40/70/65/85/95/150，标注待校准）；`hint`：开场 3.5 秒显示的中文提示；
+  - `w,h`：网格尺寸，六关依次 `(100,14)(110,20)(120,14)(120,18)(130,16)(44,36)`；
+  - `build(g)`：往 LG 网格里填关卡，返回 g。
+- `function validateLevels()` —— 返回 `{ok:boolean, msg:string}`，执行几何断言（见下）。
+
+### 瓦片/实体字符表（engine 与 levels 共用语义）
+```
+# 实心砖   I 冰面(实心,低摩擦)   = 单向平台   ^ 上尖刺(即死)   v 吊刺(即死)   ~ 熔岩(即死)
+o 金币     * 宝石(=5金币)        S 弹簧       C 崩塌砖
+K 钥匙     D 门(整组同开)        L 拉杆
+a 切换砖橙(初始实心)  b 切换砖蓝(初始虚化)   ←拉杆后两色互换
+M 横移平台(3瓦宽)  V 竖移平台     W 史莱姆   F 蝙蝠
+< 朝左大炮   > 朝右大炮   Z 横电锯   U 竖电锯
+( 左传送带   ) 右传送带
+@ 出生点(每关恰1)  P 终点旗(每关恰1)  c 检查点
+```
+
+### 几何断言（validateLevels 必须实现）
+1. 每关恰一个 `@` 和一个 `P`；`@` 下方 2 格内必须有实心支撑（'#'/'I'）。
+2. **跳跃可达性**：同一行高度上，实心地面之间的空隙 ≤ 3 格（弹簧 `S` 后接的空隙 ≤ 7 格且落点侧有地面）；直上墙面高度 ≤ 2 格（除非 3 格内有弹簧/可垫脚平台）。
+3. **拉杆不死锁**（L4/L6）：任意开关状态（a实/b虚 与 a虚/b实）下，从拉杆可到达的区域至少一条路径通向下一区域；实现方式：每处拉杆-砖组设计中，砖组只做"高路/低路二选一"，两条路都通向同一汇合点之后的区域。
+4. `~` 熔岩必须连续成片贴着关卡底部或凹槽，不得出现在悬空位置。
+5. 断言失败时 msg 给出关卡号+行列位置。断言是尽力而为的静态检查，允许保守（误报优于漏报，但不得误报正常设计）。
+
+### 六关设计要求
+难度递进；每关新机关：L1 基础+弹簧+史莱姆（几乎无死亡陷阱，沟底有底）；L2 尖刺/崩塌桥/蝙蝠/钥匙门/检查点（纵向洞窟，先下后上）；L3 横移平台/弹簧链/崩塌台阶+坠落即死；L4 拉杆切换/传送带/大炮/横锯；L5 熔岩海弹簧岛链/竖锯（三检查点）；L6 纵向登顶综合。旧 index.html 的 LEVELS 数组可作底稿，但必须：
+- 修复 L4 第二拉杆段：按断言 3 重设计（旧设计有 1 格爬缝，废除）；
+- 删除 L5 中 `g.set(44,H-3,'#')` 与其后一行残留（浮空熔岩）；
+- L6 中段（钥匙/弹簧/门/平台）重新对齐，确保 `K` 的取放路线和 `D` 的通过路线在断言下成立；
+- 金币沿主路径与冒险支线分布，每关 15~30 枚，宝石每关 1~2 颗。
+
+## 3. engine.js（引擎模块）
+
+### 导出
+- `const PHY`：物理常量 `{grav:1500,maxFall:360,acc:1400,fric:1800,fricIce:180,maxRun:120,jumpV:330,springV:520,coyote:0.09,buffer:0.11}`（数值可微调 ±15%，键名不得变）。
+- `class Level`：`constructor(idx)` 解析 LEVELS[idx]——提取实体（把实体字符从网格换成'.'，瓦片字符保留在网格）、门分组（相邻 D 连通分量）、电锯轨道扫描（左右/上下各扫 ≤7 格遇实心停）、装饰物随机摆放（seed=99+idx*17，只摆'ai'风格的确定性随机）、`totalCoin` 统计。实例字段：`tiles,w,h,tw,th,theme,meta,idx,coins[],enemies[],plats[],saws[],cannons[],springs[],levers[],checkpoints[],crumbles:Map,doors:Map,doorGroups[],spawn,goal,decor[],totalCoin,par`。
+  - `tileAt(tx,ty)`：越界规则 x 方向返回'#'（左右墙），y<0 与 y≥h 返回'.'。
+  - `solid(tx,ty,switchState)`：'#'/'I' 恒实；'a' 实当 switchState===0；'b' 实当 ===1；'D' 实当未开门；'C' 实当崩塌态<2；其余假。
+- `const game`：`{state:'title',levelIdx,level,player,cam:{x,y},shake,time,deaths,coins,keys,switchState,bullets:[],parts:[],sfxQueue:[],respawnAt,clearT,input:{left:0,right:0,jump:0,jumpHit:0},paused,tick}`。
+- `function loadLevel(idx,keepStats)` / `function respawn()` / `function killPlayer()` / `function levelClear()` / `function updateWorld(dt)`。
+- 玩家 `{x,y,w:10,h:14,vx,vy,face,onGround,coyote,jbuf,anim,animT,dead,deadT,standOn,landT}`。
+
+### 算法规范（照此实现，不要自由发挥）
+1. **逐轴 AABB**：先 X 后 Y。X：`p.x+=vx*dt`，取玩家覆盖的行范围 y0..y1，若 vx>0 检查右缘所在列，撞实心则 `p.x=tx*16-p.w; vx=0`；vx<0 同理。Y：`p.y+=vy*dt`，vx>0 向下检查底缘行：实心或（'=' 且**本帧移动前脚底 `wasFeet<=ty*16+0.5`**）→ 落地 `p.y=ty*16-p.h; vy=0; onGround=true`；vy<0 向上撞实心 → `p.y=(ty+1)*16; vy=0`。
+2. **手感**：土狼时间（离地后 coyote 计时内仍可跳）、跳跃缓冲（提前按跳缓存 buffer 秒）、松开跳键时上升速度渐弱 `vy*=0.94/帧`。
+3. **移动平台**：实体 48×8。平台先动并记录本帧 `dx,dy`；玩家若上一帧站其上，先随平台位移。落上判定：vy≥0 且水平重叠且脚底穿过平台顶（`wasFeet<=pl.y+6` 且 `p.y+p.h>=pl.y-1`）→ 吸附。水平移动平台挤墙时把玩家沿推动方向推挤；推入实心则玩家死亡（避免夹卡）。
+4. **踩踏判定**：敌人碰撞时若 `p.vy>60 && p.y+p.h-e.y<9` → 敌死、玩家反弹 `vy=-250`；否则玩家死。
+5. **电锯**：圆 r7.5 vs 玩家矩形（最近点距离法）。**尖刺**：'^' 危险区=瓦片下半 (y+8..16)，'v'=上半。**熔岩**：瓦片 y+3 以下。
+6. **崩塌砖**：状态机 0稳→(被踩0.45s,期间再踩重置到≤0.12s)→1抖→2落(加速下坠1.6s,期间非实心)→3无(1.2s 后且玩家矩形不重叠→回到0)。
+7. **弹簧**：vy≥0 且水平重叠且脚底在弹簧顶 ±10px → `vy=-springV`，弹簧压缩动画计时 0.25s。
+8. **门**：持钥匙接触任一 D 瓦片 → 钥匙-1，该连通分量所有 D 从网格移除。
+9. **拉杆**：接触且 (冷却≤0) → switchState 翻转、冷却 0.6s、推送音效事件。
+10. **大炮**：周期 1.9s 发射 8×6 炮弹，速度 105px/s，撞实心或出界消失，碰玩家即死。
+11. **检查点**：接触置 on，respawnAt 更新（只进不退）。
+12. **死亡序列**：dead=true 冻结 0.9s → respawn（敌人复活重置、崩塌砖复位、子弹清空、钥匙/门/开关/已收金币保持）。
+13. **camera**：跟随玩家+面向前瞻 20px，lerp 0.12，clamp 关卡边界。
+14. `updateWorld(dt)` 内按序：拉杆→拾取→门→检查点→终点判定→移动平台→电锯→大炮/炮弹→敌人→玩家物理→危险判定→粒子→计时。所有音效点 push 到 sfxQueue（'jump','coin','gem','key','door','switch','stomp','die','spring','checkpoint','clear','shot','crumble'）。
+
+### 门禁执行环境说明
+gate.js 会在 node 里以 `THEMES={六主题的空对象}` 桩执行 engine.js+levels.js，`new Level(i)` 六关全部构造、`updateWorld(1/60)` 空转 120 帧不得抛异常。因此：**顶层代码零 DOM、零音频、零键盘**。
+
+## 4. art.js（美术模块）
+
+### 导出
+- `const SPR` —— `buildSprites()` 填充的精灵画布字典：`heroIdle1,heroIdle2,heroRun[3],heroJump,heroFall`（及左向 `...L` 翻转版）、`slime[2],slimeDead,bat[2],coin[4],gem,key,springX,springC,flag[2],checkOff,checkOn,saw[2],cannon,cannonL,bullet,lever[2]`。
+- `const THEMES` —— 六主题对象，键=主题名，字段：`name,skyT,skyB,far,near,block,blockD,blockL,speck,cap,capD,capL,plank,plankD,accent,decor[],dust,dark?,lavaGlow?`（颜色全用 #rrggbb）。
+- `function buildSprites()` —— 一次性构建全部精灵（幂等）。
+- `function buildThemeArt(themeKey)` —— 参数取值 THEMES 键名；返回 `{tiles:{block,blockCap,plank,ice,crumble,toggleA,toggleB,spikes,spikesD,lava:[2],door:[2],convL,convR},decor:{bush,flower,mushroom,crystal,gear,chain,torch:[2],skull,cloudpot},bg:{far,near}}`，全部为 canvas（16×16 瓦片、bg 为 512×224 可平铺层）。
+- `function drawPixelText(str,x,y,scale,color,align?)` —— 3×5 像素字体（A-Z 0-9 与 `: . ! ? - / x ( ) > < & +` 空格），align='left'|'center'|'right'。
+- `function drawCNText(str,x,y,px,color,align?)` —— ctx.font 系统字体画中文（ui 用）。
+- `function flipSprite(c)` —— 水平翻转 canvas。
+
+### 规格
+- 主角 12×14 橙兜帽小勇者（旧 index.html 的 P_HERO/HERO_* 像素数据直接搬运，允许微调）；史莱姆 12×10 两帧+压扁；蝙蝠 12×10 两帧；金币 8×8 四帧旋转；宝石 8×8；钥匙 10×5；弹簧 12×8 两态；终点旗 16×14 两帧；检查点旗两态；电锯 16×16 两帧（锯齿+中栓）；大炮 16×14 双向；炮弹 8×6；拉杆 12×14 两态。
+- 六主题配色与瓦片风格差异化：grass 明快绿、cave 暗紫岩石、sky 淡云、factory 金属蓝灰、lava 玄武岩红黑、tower 暗夜紫。瓦片绘制函数（blockTile/plankTile/iceTile/crumbleTile/toggleTile/spikesTile/lavaTile/doorTile/conveyorTile）与视差背景（makeBG：远/近两层 512 宽可水平平铺，各主题不同母题——丘陵/钟乳石/云海/齿轮管道/熔岩尖塔/星空月）可从旧文件搬运后按本契约改造。
+- 装饰物清单与摆放由 engine 的 Level.decor 决定，art 只提供图。
+
+### 门禁
+gate.js 会 `new Function(src)` 只编译不执行 art.js（语法检查），并正则核对导出符号齐全。
+
+## 5. 各自的"不做"清单
+- levels.js 不含任何行为逻辑（不解物理）；
+- engine.js 不 draw、不发声、不读键盘；
+- art.js 不含游戏逻辑（不 import 关卡数据）。

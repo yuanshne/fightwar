@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>像素勇者 Pixel Quest</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;background:#0b0b12;overflow:hidden}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+  canvas{
+    image-rendering:pixelated;image-rendering:crisp-edges;
+    background:#000;box-shadow:0 0 60px rgba(0,0,0,.8);
+  }
+  #tip{position:fixed;left:0;right:0;bottom:8px;text-align:center;color:#5a5a72;
+    font:12px/1.4 Consolas,monospace;pointer-events:none;user-select:none}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="384" height="224"></canvas></div>
+<div id="tip">←→/AD 移动 · ↑/W/空格 跳跃(长按跳更高) · P 暂停 · M 声音 · R 重开 · Esc 菜单</div>
+<script>
+// 全局共享常量（各模块通过经典 script 共享，任何模块不得重复声明）
+const VIEW_W=384,VIEW_H=224,TILE=16;
+</script>
+<script src="art.js"></script>
+<script src="levels.js"></script>
+<script src="engine.js"></script>
+<script src="ui.js"></script>
+</body>
+</html>
