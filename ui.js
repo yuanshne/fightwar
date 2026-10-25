@@ -744,6 +744,10 @@ function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/H/Esc/数字键�
   // 情况下误操作）；8s 超时自动关（绝不卡死）。放在 puzzleSkip 之后：开层那一键不会立刻把卡关掉。
   if(puzzle.ruleOn){
     puzzle.ruleT-=dt;
+    // v7.9：Esc 在规则卡上 = 直接退出谜题层（Esc 的语义是"出去"，不是"开始"）。
+    // 此前 Esc 只收卡片、要按两次才离开；而覆盖层冻结世界时 deadT 也不推进，玩家若在开层期间
+    // 死亡（例如被陷阱推入实心），第一次 Esc 只收卡片会让尸体一动不动地停在盘面上，看着像卡死。
+    if(hit('back')){puzzleRuleDismiss();closePuzzle();return;}
     let anyKey=false;
     for(const k in pressed)if(pressed[k]){anyKey=true;break;}
     if(puzzle.ruleT<=0||anyKey)puzzleRuleDismiss();
@@ -1019,7 +1023,7 @@ function computeHover(){
       for(let i=0;i<4;i++)if(ptIn(mx,my,162+i*22,198,16,16)){hover='skill:'+i;break;}
       if(!hover&&ptIn(mx,my,1,16,104,14))hover='hearts';           // §C 新 9 心面板
       const b=game.boss;
-      if(!hover&&b&&b.state!=='dormant'&&ptIn(mx,my,82,17,200,11))hover='bossbar'; // 仅血条可见时
+      if(!hover&&b&&b.state!=='dormant'&&ptIn(mx,my,128,16,174,22))hover='bossbar'; // v7.9：名字行+血条整块（条下移到 y=29）
       if(!hover&&ptIn(mx,my,100,2,40,12))hover='coins';
       // §F.2 指引面板：与渲染同条件（本关有未解神龛且 puzzleNear<0）才可悬停，面板未显示时不响应
       if(!hover&&ptIn(mx,my,4,VIEW_H-18,64,14)){
@@ -1633,14 +1637,26 @@ function tintOf(img,color){
 
 // v7 §9.3：Boss 名/提示/刻度参数化（kind：0/1=星核巨兽、2=蛟龙·敖渊、3=幽冥判官；旧引擎无 kind → 0 零回归）。
 // BOSS_P2FRAC=P2 阶段刻度占条宽比例（=设计书 §6.4 的 50%/40%/40%）。
-const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官'];
-const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%'];
+const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜光·圣裁者'];
+const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决'];
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
 // v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
 // （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
 // L16 显示 "undefined"。kind 缺省/0 → 回落 0（星核），与旧引擎零回归。
-const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(2,n-1):0;};
-const BOSS_P2FRAC=[0.5,0.4,0.4];
+// v7.9：表扩到 5 个（4=冥古龙、5=曜光·圣裁者），仍按 kind 1 基换算——上限随之 2→4，
+// 否则 kind 4/5 会被夹到 2 取到判官的名字（新 Boss 顶个旧名字，比没名字更误导）。
+const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(4,n-1):0;};
+const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5];
+// v7.9：Boss 三段血进度**唯一口径**。HUD 三段条、条上方剩余段方块、血条悬停提示卡三处全部从这里取数，
+// 禁止各处再自算一遍（旧版 bar 用 hp/maxHp、提示卡另说一套，三段化后必然漂移）。
+// bandMax 缺失（引擎三段血未合入 / 旧存档回放）→ seg=false，调用方回落旧单条血逻辑，保证不崩。
+// 口径：total=(bandBreak*bandMax+hp)/maxHp；left=还没打空的段数（含当前段）。
+function _bossProg(b){
+  const bm=+b.bandMax||0,brk=clamp(+b.bandBreak||0,0,2),tot=+b.maxHp||0;
+  const cur=bm>0?clamp(+b.hp||0,0,bm):Math.max(0,+b.hp||0);
+  if(bm>0)return{seg:true,bandMax:bm,brk:brk,cur:cur,left:3-brk,total:clamp((brk*bm+cur)/(tot||bm*3),0,1)};
+  return{seg:false,bandMax:0,brk:0,cur:cur,left:1,total:clamp(cur/(tot||1),0,1)};
+}
 // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前调用）。
 // 画序 body→armL/armR→jaw→eyes+瞳孔→core→白闪覆盖；状态偏移表 [bodyDy,armDy,jaw开?,eyeType]，
 // eyeType：eye 普通眼 / rage 红眼 / dizzy 晕眼（不画瞳）/ dark 暗眼（alpha .5）。
@@ -1651,8 +1667,12 @@ const BOSS_P2FRAC=[0.5,0.4,0.4];
 // 若套底对齐公式会整体下移 2px——kind1 走原偏移保证 R8 零回归，kind2/3 走 y=b.y+b.h-img.height+dy）。
 function renderBoss(tick){
   const b=game.boss; if(!b||b.state==='dead')return;
-  const P=[SPR.boss,SPR.boss2,SPR.boss3][_bossIdx(b.kind)];
-  if(!P)return; // 美术 v7 未合入兜底（该 kind 部件组缺失→整块不画）
+  // v7.9：部件表扩到 5 个（4=冥古龙 64×48、5=曜光·圣裁者 44×52）。美术并发交付，缺 boss4/boss5 时
+  // 逐档向前回落（缺自己→上一档），**不允许整块 return**：旧写法 !P 直接返回会让新 Boss 整只隐形，
+  // 玩家只能看见血条在掉——宁可先借上一只的贴图，也必须"Boss 一定看得见"。
+  const _bi=_bossIdx(b.kind);
+  const P=[SPR.boss,SPR.boss2,SPR.boss3,SPR.boss4||SPR.boss3,SPR.boss5||SPR.boss4||SPR.boss3][_bi];
+  if(!P)return; // 连回落档都没有（art 全缺）→ 整块不画（既有兜底保留）
   if(b.state==='blinkCast'&&b.hidden)return; // v7 §9.3：blink 隐身期整帧跳过渲染（免伤免接触由引擎管）
   const p=game.player,R=b.phase===2;                 // 换装组选择
   const B=R?(P.bodyRage||P.body):P.body,A=R?(P.armRage||P.arm):P.arm,
@@ -1678,6 +1698,7 @@ function renderBoss(tick){
     case 'recover': dy=2;ad=16;break;                                     // +2/16/闭/眼
     case 'novaCast': dy=-2;ad=2;jaw=1;eye='rage';break;                   // -2/2/开/红眼
     case 'summonCast': ad=8;jaw=1;break;                                  // 0/8/开/眼
+    case 'revive': dy=6;ad=20;eye='dizzy';break;                          // v7.9：击破后复活演出（约 0.9s，跪地+垂臂+晕眼；上浮/无敌由引擎走 y 与免伤表，UI 不接管）
     case 'intro': case 'enrage': dy=-2;ad=4;jaw=1;eye='rage';break;       // -2/4/开/红眼
     case 'dying': dy=12;ad=12;jaw=1;eye='dizzy';break;                    // 随引擎 y 下沉 +12/12/开/晕眼
     case 'sweepCast': dy=2;ad=20;jaw=1;eye='rage';break;                  // v7 §9.3：蛟龙扫尾
@@ -1704,7 +1725,7 @@ function renderBoss(tick){
   }
   ctx.globalAlpha=baseA;
   if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
-  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White][_bossIdx(b.kind)]; // v7：白剪影同索引（art 实际交付键=boss2White/boss3White；缺失不闪白）
+  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White,SPR.boss4White||SPR.boss3White,SPR.boss5White||SPR.boss4White||SPR.boss3White][_bi]; // v7.9：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
   if(b.flashT>0&&PW){                                         // 白闪：同偏移再画一遍
     ctx.globalAlpha=baseA*clamp(b.flashT/0.12,0,1);
     ctx.drawImage(PW.body,px(bdx),px(bdy+dy));
@@ -2107,22 +2128,82 @@ function renderHUD(){
     }
     if(p.hp<=2&&game.tick%30<15){ctx.strokeStyle='#f84848';ctx.strokeRect(2.5,17.5,101,11);} // 低血红框脉冲（随新面板宽）
   }
-  // v3 §C②：Boss 血条（仅 boss 存在且非 dormant 显示）；v5 §A-4：名牌/条底改深蓝+金细线
-  // v7 §9.3：名字/P2 刻度线按 b.kind 参数化（旧引擎无 kind → 0=星核巨兽，零回归）
+  // v3 §C②：Boss 血条（仅 boss 存在且非 dormant 显示）；v5 §A-4：条底深蓝+金细线
+  // v7 §9.3：名字按 b.kind 参数化
+  // v7.9 重排：名字改成**独占条上方一行**（旧版塞在条左端 82..134 的小牌里，红条从 128 起压住字尾，
+  // 五个字的名字（曜光·圣裁者）只能缩到 7px 还读不出），血条整体下移到 y=29，两者纵向不重叠。
   const b=game.boss;
   if(b&&b.state!=='dormant'){
-    const bk=_bossIdx(b.kind);
+    const bk=_bossIdx(b.kind),BP=_bossProg(b);
     ctx.globalAlpha=b.state==='dying'?clamp(1-b.t/2.2,0,1):1; // dying：随 2.2s 渐隐
-    ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(82,17,52,11);          // 名牌深蓝底
-    ctx.strokeStyle='#f0c860';ctx.lineWidth=1;ctx.strokeRect(82.5,17.5,51,10);
-    drawCNText(BOSS_NAME[bk],84,18,8,'#f8d048');
-    ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(128,19,174,9);          // 条底深蓝
-    ctx.strokeStyle='#f0c860';ctx.strokeRect(128.5,19.5,173,8);
-    const mx=b.maxHp||60,bw=clamp(172*b.hp/mx,0,172);
-    ctx.fillStyle=b.phase===2?'#f84848':'#f8d048';                          // P2 变红
-    ctx.fillRect(128,19,px(bw),9);
-    ctx.fillStyle='#f0f4ff';ctx.fillRect(128+Math.round(172*(1-(BOSS_P2FRAC[bk]||0.5))),19,1,9); // P2 刻度线（50%/40%/40% 按 kind）
-    if(b.flashT>0.09){ctx.fillStyle='#ffffff';ctx.fillRect(128,19,174,9);}  // 受击 2 帧整条白
+    // ① 名字行 y=15..27：左缘对齐条左缘 128，宽度随字宽（10px 名 + 左右内边距）
+    // 只画深蓝底 + 底缘 1px 金线，**不包金框**——9px 金字套金框时字与框抢对比度，实测糊成一团读不出。
+    const nm=BOSS_NAME[bk],nw=Math.ceil(_textW(nm,10))+8;
+    ctx.fillStyle='rgba(14,26,58,.86)';ctx.fillRect(128,15,nw,13);
+    ctx.fillStyle='#f0c860';ctx.fillRect(128,27,nw,1);
+    drawCNText(nm,132,16,10,'#f8d048');
+    // ② 段数徽标「x/3」贴该行最右端（右缘=条右缘 302）：2× 像素字=10px 高，满足「不小于 7px」。
+    // 只在三段血成立时画——回落旧单条血时没有"段"这个概念，挂个 1/3 会误导。
+    if(BP.seg){
+      const lv=Math.max(1,BP.left);
+      ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(274,16,28,11);
+      ctx.strokeStyle='#f0c860';ctx.lineWidth=1;ctx.strokeRect(274.5,16.5,27,10);
+      drawPixelText(lv+'/3',288,17,2,lv>1?'#f8d048':'#f87858','center');   // 最后一段转红，提示"最后一条命"
+    }
+    // ③ 血条 128..302 × 29..37（内区 129,30,172×8）
+    ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(128,29,174,9);        // 条底深蓝
+    ctx.strokeStyle='#f0c860';ctx.strokeRect(128.5,29.5,173,8);
+    if(BP.seg){
+      const bx=129,by=30,bh=8,sw=172/3;                 // 内区左缘/顶/高/段宽（57.33，取整后 57/57/58）
+      const fadeA=ctx.globalAlpha;                      // 保留 dying 渐隐（闪白要乘回去）
+      // 填充几何只有一个来源：**当前段的 hp/bandMax 画在本段格子内**，从段左缘往右填。
+      // total 是"整体剩余占比"（满血=1/3），只给文字/百分比用，绝不参与填充——这是本版最容易踩的坑。
+      for(let i=0;i<3;i++){
+        const xL=Math.round(bx+i*sw),xR=Math.round(bx+(i+1)*sw),w=xR-xL;
+        // 段序：当前段=2-bandBreak（击破的永远是最右那几段），它左侧=尚未轮到的段（不填），右侧=已击破
+        if(i>2-BP.brk){                                 // 已击破段：更暗的紫灰底 + 斜十字叉
+          ctx.fillStyle='#2a2038';ctx.fillRect(xL,by,w,bh);
+          // 叉用"每 14px 一枚 7×8 小叉横排重复"：段只有 8px 高，画一条通栏对角线斜率太缓，
+          // 抗锯齿后是两道波浪（看着像噪点而非划掉）；小叉逐列落点、无 AA，1× 下也能看出是叉。
+          ctx.fillStyle='#8a3040';                       // 暗红叉：暗底上纯黑看不见
+          for(let ox=xL+5;ox<xR-3;ox+=14)
+            for(let k=0;k<7;k++){
+              const o=Math.round(k*(bh-1)/6);
+              ctx.fillRect(ox+k,by+o,1,1);ctx.fillRect(ox+k,by+(bh-1)-o,1,1);
+            }
+        }else if(i<2-BP.brk){                           // 尚未轮到的段：整段满红（"这条命还没开打"=满血状态）
+          // v7.9 口径：**红色占比必须等于剩余血量百分比**（玩家口径「血条分三份、击破回上一个阈值」：
+          // 第一段打空 → 回到 2/3，条上正好剩两段红）。这里若画空槽，满血时整条只有右侧 1/3 是红的，
+          // 会被读成"Boss 只剩三成血"，与三段血语义正好相反。
+          ctx.fillStyle='#b0282a';ctx.fillRect(xL,by,w,bh);
+          ctx.fillStyle='rgba(255,200,190,0.32)';ctx.fillRect(xL,by,w,1); // 顶部高光（弱于当前段）
+          ctx.fillStyle='#241018';ctx.fillRect(xL,by+bh-1,w,1);           // 下缘压暗，与当前段亮顶形成层级
+        }else{                                          // 当前段：段内 ratio = hp/bandMax
+          const r=clamp(BP.cur/BP.bandMax,0,1),fw=Math.round(w*r);
+          ctx.fillStyle='#22100f';ctx.fillRect(xL,by,w,bh);     // 已被打掉的残槽（近黑），与"未轮到"区分开
+          if(fw>0){
+            ctx.fillStyle=r>0.66?'#ff6250':r>0.33?'#f84848':'#d02c30'; // 剩得多亮红、见底转暗红（仍亮于已破段）
+            ctx.fillRect(xL,by,fw,bh);
+            ctx.fillStyle='rgba(255,208,190,0.55)';ctx.fillRect(xL,by,fw,1); // 顶部 1px 高光，拉开亮度层级
+          }
+        }
+      }
+      ctx.fillStyle='#0a0812';                          // 段间 1px 暗分隔线（画在填充之上才看得见）
+      ctx.fillRect(Math.round(bx+sw),by,1,bh);ctx.fillRect(Math.round(bx+2*sw),by,1,bh);
+      // 击破瞬间整条闪白：衰减完全读引擎的 b.bandFlashT 倒计时，UI 不自建计时器（否则两边节拍会错开）
+      if(b.bandFlashT>0){
+        ctx.globalAlpha=fadeA*clamp(b.bandFlashT*4,0,1)*0.8;
+        ctx.fillStyle='#ffffff';ctx.fillRect(128,29,174,9);
+        ctx.globalAlpha=fadeA;
+      }
+    }else{
+      // v7.9：bandMax 缺失（引擎三段血未合入）→ 回落旧单条血，逐像素保持 v7 行为，保证老引擎不崩不空条
+      const mx=b.maxHp||60,bw=clamp(172*b.hp/mx,0,172);
+      ctx.fillStyle=b.phase===2?'#f84848':'#f8d048';                          // P2 变红
+      ctx.fillRect(128,29,px(bw),9);
+      ctx.fillStyle='#f0f4ff';ctx.fillRect(128+Math.round(172*(1-(BOSS_P2FRAC[bk]||0.5))),29,1,9); // P2 刻度线（50%/40%/40% 按 kind）
+    }
+    if(b.flashT>0.09){ctx.fillStyle='#ffffff';ctx.fillRect(128,29,174,9);}  // 受击 2 帧整条白
     ctx.globalAlpha=1;
   }
   // v6 §F.2：神龛指引 HUD 左下 (4,VIEW_H-18)——迷你石碑+方向箭头+距离（1 瓦=1M）。
@@ -2182,7 +2263,7 @@ function renderHUD(){
   }
   // ---------- v6 §A.2/§B/§D2/§E：悬停描边 + 提示卡 + 引导横幅（renderHUD 末尾最顶层；同帧只显示 hover 一张） ----------
   if(hover){
-    const HR={hearts:[1,16,104,14],bossbar:[82,17,200,11],coins:[100,2,40,12],shrinehud:[4,VIEW_H-18,64,14]};
+    const HR={hearts:[1,16,104,14],bossbar:[128,16,174,22],coins:[100,2,40,12],shrinehud:[4,VIEW_H-18,64,14]}; // v7.9：bossbar 随名字行+条下移
     if(hover.indexOf('skill:')===0){ // 悬停高亮：#fff8c8 1px 描边（与选关卡选中框同视觉语言）
       const i=+hover.slice(6);
       ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;ctx.strokeRect(162+i*22-0.5,197.5,17,17);
@@ -2202,8 +2283,10 @@ function renderHUD(){
       ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;ctx.strokeRect(r[0]+0.5,r[1]+0.5,r[2]-1,r[3]-1);
       if(hover==='hearts'&&game.player)
         drawTipCard(r,'生命 '+game.player.hp+' / '+(game.player.maxHp||5)+'　吃心回复');
-      else if(hover==='bossbar'&&game.boss)
-        drawTipCard(r,BOSS_NAME[_bossIdx(game.boss.kind)]+' · 阶段'+(game.boss.phase||1)+'　'+BOSS_P2TIP[_bossIdx(game.boss.kind)]); // v7 §9.3 同参数化
+      else if(hover==='bossbar'&&game.boss){
+        const bp=_bossProg(game.boss); // v7.9：段数/总进度走唯一口径（与条上的方块同源），三段血的 Boss 才带这两项
+        drawTipCard(r,BOSS_NAME[_bossIdx(game.boss.kind)]+' · 阶段'+(game.boss.phase||1)+(bp.seg?'　剩 '+bp.left+'/3 段（'+Math.round(bp.total*100)+'%）':'')+'　'+BOSS_P2TIP[_bossIdx(game.boss.kind)]); // v7 §9.3 同参数化
+      }
       else if(hover==='coins')
         drawTipCard(r,'金币 '+game.coins+' / 总'+game.level.totalCoin+'　全收得星');
       else if(hover==='shrinehud'){
@@ -2686,7 +2769,9 @@ function renderTitleCover(tick){
 // 并按 7 列换行（第二行 y=34+62=96——一章 7 卡后越出 384 画布，wrap 由 _cardXY 消费）；
 // ≥11 关按表截断：章显示条件=章首 idx<length，章长=min(声明,余量)——13 关=两章、16 关=三章、
 // 15 关=第三章 2 卡；13 关时第三章头=13 但空章不显示。
-const CH_HEAD=[[0,7],[7,6],[13,3]];
+// v7.9：第三章 3→5 关（新增 L17/L18）。章长仍按 min(声明, 余量) 截断——章节文件只到 L16 时实际画 3 卡，
+// 关卡补齐后自动变 5 卡，无需再改本表；一排放 5 张卡：x=6+j*53，第 5 张左缘 218、右缘 264，画布 384 内不越界。
+const CH_HEAD=[[0,7],[7,6],[13,5]];
 const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章'];
 const CH_HEAD_Y=[24,86,148],CH_CARD_Y=[34,96,158];
 function _chapters(){

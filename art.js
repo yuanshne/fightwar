@@ -76,6 +76,12 @@
  *   E. SPR.boss2 蛟龙（body 64×40，青金）/SPR.boss3 判官（body 40×52，暗紫+鬼火绿）——键集合=SPR.boss
  *      全键+coreRage；boss2White/boss3White={body,arm,jaw} 沿 bossWhite 先例；jaw/eye/pupil/core 复用
  *      既有网格+新调色板（对齐 renderBoss 装配，设计书 §9.3）。
+ * —— v7.9 Boss 二补（kind4/kind5，工单 v7.9-bossart）——
+ *   F. SPR.boss4 冥古龙（body 64×48，骨白角冠+暗紫黑躯+胸口熔岩裂纹+下垂破翼+四足；正面宽颅骨，
+ *      与 boss2 的横向青金蛟龙反向构图）；SPR.boss5 曜光·圣裁者（body 44×52，象牙白圣袍+金色光环+
+ *      光翼+发光面具；与 boss3 暗紫判官形成明暗对立）。两者键集合=SPR.boss2，装配仍走 _mkV7Boss，
+ *      白剪影 boss4White/boss5White={body,arm,jaw}；眼/瞳/核心/下颚复用既有网格+新调色板。
+ *      叠加契约写在两个体建器函数头上（eye/jaw/core 覆盖区各留 ±1px 暗框，两种 x 偏移都在框内）。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -1802,6 +1808,28 @@ const _P_JUDGE_CORE = { k: '#140a24', C: '#68e8a0', c: '#38a870', W: '#d8ffe8' }
 const _P_JUDGE_CORE2 = { k: '#140a24', C: '#38a870', c: '#207848', W: '#68e8a0' };
 const _P_JUDGE_CORE_R = { k: '#0a0414', C: '#f86030', c: '#a82810', W: '#ffd8c8' };
 const _P_JUDGE_CORE_R2 = { k: '#0a0414', C: '#a82810', c: '#701808', W: '#f86030' };
+// v7.9：冥古龙（幽冥魔龙）调色板——骨白(b/o)对暗紫黑(S/D)的明度差是「头骨感」的唯一来源，
+//   b 参与 _rasterGrid 描边、o 只做角根暗面（不描边，必被 b 包住）；t=胸口熔岩裂纹橙。
+const _P_UND = { k: '#170b20', S: '#3c2748', L: '#5c3f74', D: '#241332', b: '#e6dcc6', o: '#b0a488', m: '#130a1c', t: '#f86828', W: '#fff8d8' }; // 冥古龙常态
+const _P_UND_RAGE = { k: '#200710', S: '#5a2333', L: '#7e3446', D: '#340f1a', b: '#f2dcc0', o: '#c8a888', m: '#18060c', t: '#f8d048', W: '#fff8d8' }; // 冥古龙狂暴（躯干转暗血紫，裂纹转金）
+const _P_UND_EYE = { k: '#170b20', e: '#f8a828', w: '#fff2c0' };
+const _P_UND_EYE_R = { k: '#200710', E: '#f84838', w: '#ffd8c8' };
+const _P_UND_PUPIL = { k: '#170b20', p: '#1e0c14' };
+const _P_UND_CORE = { k: '#170b20', C: '#f8a020', c: '#b86010', W: '#fff0b0' };
+const _P_UND_CORE2 = { k: '#170b20', C: '#d88018', c: '#8a4008', W: '#f8c858' };
+const _P_UND_CORE_R = { k: '#200710', C: '#f84828', c: '#a81808', W: '#ffd8a0' };
+const _P_UND_CORE_R2 = { k: '#200710', C: '#c83018', c: '#701008', W: '#f88848' };
+// v7.9：曜光·圣裁者调色板——纯白/淡金圣袍，描边走暖金（白袍配黑描边会脏，且项目红线禁纯黑）；
+//   b=淡金（参与描边，用于光环/羽翼/饰带），m=暗金（胸腔插座），t=圣光斑。
+const _P_SERA = { k: '#a8843c', S: '#ece2c8', L: '#fffaf0', D: '#cab894', b: '#f8d878', o: '#d8b060', m: '#6a5220', t: '#ffe9a0', W: '#ffffff' }; // 圣裁者常态（象牙白圣袍+淡金）
+const _P_SERA_RAGE = { k: '#8a5a1c', S: '#f8d888', L: '#fff8d0', D: '#d8a040', b: '#fff0a0', o: '#e8b850', m: '#7a4a10', t: '#fff8c8', W: '#ffffff' }; // 圣裁者狂暴（转炽金）
+const _P_SERA_EYE = { k: '#a8843c', e: '#fff4c0', w: '#ffffff' };
+const _P_SERA_EYE_R = { k: '#8a5a1c', E: '#ff9020', w: '#fff8e0' };
+const _P_SERA_PUPIL = { k: '#f0dc9c', p: '#fff8d8' }; // 面具无眼珠：瞳孔+描边都用近白色（ui 恒画瞳，深色瞳环会读成护目镜）
+const _P_SERA_CORE = { k: '#a8843c', C: '#f8d878', c: '#c8a040', W: '#fffdf0' };
+const _P_SERA_CORE2 = { k: '#a8843c', C: '#e0b850', c: '#a88018', W: '#f8f0c0' };
+const _P_SERA_CORE_R = { k: '#8a5a1c', C: '#fff0a0', c: '#f8a830', W: '#ffffff' };
+const _P_SERA_CORE_R2 = { k: '#8a5a1c', C: '#f8c060', c: '#d88020', W: '#fff8d8' };
 
 /* —— v7 Boss 身体程序化画法（行跨+椭圆，沿 _buildBossBody 十步口径：填充→明暗→描边→光栅；狂暴=同网格换装）—— */
 function _rimShade(G, set, get, xFrom, y0, y1, dith) { // 内部：Boss 右下缘 2px 阴影带（dith=第三像素棋盘）
@@ -1942,6 +1970,240 @@ function _buildJudgeBody(pal) { // 内部：判官身体 40×52（官帽+兜帽�
     for (let y = tp; y <= tp + 2; y++) if (get(x, y) === 'S') set(x, y, 'L');
   }
   _rimShade(G, set, get, 20, 24, 45, false);
+  return _rasterGrid(G, pal);
+}
+/* v7.9：冥古龙 64×48 —— 与蛟龙（boss2）刻意反向构图：
+ *   蛟龙=横向长条躯+东方长须；冥古龙=正面骨白头骨（深眼窝+骨鼻）+下垂破翼+四足站姿，
+ *   躯干暗紫黑裹一圈骨肋骨、胸口熔岩腔。剪影第一眼就与蛟龙分得开（横条 vs 宽颅）。
+ *   叠加契约：eye 覆盖 (8,10)/(44,10) 12×10 → 眼窝 D 铺 x6..21 / x42..57 y9..20；
+ *   jaw 覆盖 (16,36)/(22,36) 20×8 → 口部腔 m 铺 x16..41 y36..43（两种 x 偏移都落在腔内）；
+ *   core 12×12 覆盖 (20,20)/(26,20) → 熔岩腔 m 铺 x19..37 y20..33（两种都落在腔内）。 */
+function _buildUnderDragonBody(pal) { // 内部：冥古龙身体 64×48（骨角骨颅+破翼+骨肋胸腔+四足；见上方叠加契约）
+  const W = 64, H = 48;
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const set = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  const box = function (x0, y0, x1, y1, ch) { // 只覆盖已有像素（不把色块刷到轮廓外）
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (get(x, y) !== '.') set(x, y, ch);
+  };
+  const ln = function (x0, y0, x1, y1, ch) { // Bresenham 1px 硬线（骨指/裂纹）
+    let dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy, x = x0, y = y0;
+    for (;;) {
+      set(x, y, ch);
+      if (x === x1 && y === y1) break;
+      const e2 = err * 2;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx) { err += dx; y += sy; }
+    }
+  };
+  const mfill = function (pts, ch) { // 扫描线填多边形 + 左右镜像（翼膜/角这类斜边形状）
+    let ylo = H, yhi = -1;
+    pts.forEach(function (p) { if (p[1] < ylo) ylo = p[1]; if (p[1] > yhi) yhi = p[1]; });
+    for (let y = Math.max(0, ylo); y <= Math.min(H - 1, yhi); y++) {
+      const xs = [];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) xs.push(a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1]));
+      }
+      if (xs.length < 2) continue;
+      const xa = Math.round(Math.min.apply(null, xs)), xb = Math.round(Math.max.apply(null, xs));
+      for (let x = xa; x <= xb; x++) { set(x, y, ch); set(W - 1 - x, y, ch); }
+    }
+  };
+  // ① 破翼（先画=身后层）：单片翼膜（前缘上斜、后缘撕出两个尖）+ 前缘 2px 骨脊 + 2 根指骨 + 1 洞。
+  //    形制是「蝙蝠破翼」：翼指分明、膜面成片——上一版指骨太密，1x 下会读成白色碎屑
+  mfill([[18, 20], [0, 26], [6, 34], [2, 40], [14, 44], [18, 36]], 'S');
+  mfill([[18, 30], [6, 34], [2, 40], [14, 44], [18, 38]], 'D'); // 下半膜面转暗（受光在上）
+  ln(18, 20, 0, 26, 'b'); ln(18, 21, 0, 27, 'b');               // 前缘骨脊
+  ln(18, 22, 0, 27, 'D');
+  ln(0, 27, 6, 33, 'b'); ln(W - 1 - 0, 27, W - 1 - 6, 33, 'b');  // 指骨 1（2px 粗）
+  ln(0, 28, 6, 34, 'b'); ln(W - 1 - 0, 28, W - 1 - 6, 34, 'b');
+  ln(2, 40, 11, 44, 'b'); ln(W - 1 - 2, 40, W - 1 - 11, 44, 'b'); // 后缘一根短指骨（再多会读成白色划痕）
+  [[9, 29], [10, 29], [9, 30], [12, 38], [13, 38]].forEach(function (p) { // 破洞（只挖膜面，不挖骨）
+    if (get(p[0], p[1]) !== 'b') set(p[0], p[1], '.');
+    if (get(W - 1 - p[0], p[1]) !== 'b') set(W - 1 - p[0], p[1], '.');
+  });
+  // ② 躯干（暗紫）：y20..43，半宽 12→18→14（肩宽于颈、腹微收）
+  [[20, 12], [21, 14], [22, 16], [23, 17], [24, 18], [25, 18], [26, 18], [27, 17], [28, 17], [29, 17],
+   [30, 17], [31, 17], [32, 18], [33, 18], [34, 18], [35, 18], [36, 18], [37, 18], [38, 18], [39, 17],
+   [40, 17], [41, 16], [42, 15], [43, 14]
+  ].forEach(function (r) {
+    for (let x = 32 - r[1]; x <= 31 + r[1]; x++) if (get(x, r[0]) === '.') set(x, r[0], 'S');
+  });
+  // ③ 骨白头骨 y3..20：逐行半宽；y10 起满 25，保证双眼覆盖区 y10..19 x8..55 整块落在骨内
+  [[3, 5], [4, 8], [5, 11], [6, 14], [7, 17], [8, 19], [9, 22], [10, 25], [11, 26], [12, 26], [13, 26],
+   [14, 26], [15, 26], [16, 26], [17, 25], [18, 24], [19, 23], [20, 21]
+  ].forEach(function (r) {
+    for (let x = 32 - r[1]; x <= 31 + r[1]; x++) if (get(x, r[0]) === '.') set(x, r[0], 'b');
+  });
+  // ④ 眼窝 D（比 12×10 覆盖区各向外留 1px，eye 叠上后四周有暗框）
+  box(6, 9, 21, 20, 'D'); box(42, 9, 57, 20, 'D');
+  // ⑤ 骨鼻：双眼之间空档中央挖鼻腔 m（x28..35 y13..18），下方 y19..20 留骨梁隔开胸腔
+  box(28, 13, 35, 18, 'm');
+  for (let y = 12; y <= 19; y++) { if (get(27, y) === 'b') set(27, y, 'o'); if (get(36, y) === 'b') set(36, y, 'o'); }
+  // ⑥ 双角 + 冠刺（根粗 8px→尖 3px，向上外弯）
+  for (let y = 0; y <= 9; y++) {
+    const t = (9 - y) / 9;
+    const xOut = Math.round(19 - 12 * t), xIn = Math.round(12 - 8 * t);
+    for (let x = xIn; x <= xOut; x++) { set(x, y, 'b'); set(W - 1 - x, y, 'b'); }
+  }
+  for (let y = 0; y <= 3; y++) { set(30, y, 'b'); set(31, y, 'b'); set(32, y, 'b'); set(33, y, 'b'); } // 冠刺
+  // ⑦ 熔岩核心腔 m（x19..37 y20..33）+ 骨肋骨 3 对（2px 粗，围住腔体两侧）
+  box(19, 20, 37, 33, 'm');
+  [23, 27, 31].forEach(function (y) {
+    for (let x = 14; x <= 18; x++) { if (get(x, y) !== '.') set(x, y, 'b'); if (get(x, y + 1) !== '.') set(x, y + 1, 'b'); }
+    for (let x = 38; x <= 42; x++) { if (get(x, y) !== '.') set(x, y, 'b'); if (get(x, y + 1) !== '.') set(x, y + 1, 'b'); }
+  });
+  // ⑧ 上颚獠牙：只留在口角两侧（x14..17 / x38..43）——居中再排一排会与 jaw 覆盖层的牙重复
+  [[14, 17], [38, 43]].forEach(function (seg) {
+    for (let x = seg[0]; x <= seg[1]; x += 3) {
+      for (let y = 33; y <= 35; y++) { if (get(x, y) !== '.') set(x, y, 'b'); if (get(x + 1, y) !== '.') set(x + 1, y, 'b'); }
+    }
+  });
+  box(16, 36, 41, 43, 'm'); // 口腔腔体（容两种 jaw 偏移）
+  // ⑨ 熔岩裂纹 t：自熔岩腔向躯干外侧放射（狂暴态由调色板把 t 换成金）
+  [[19, 24, 11, 28], [19, 29, 12, 34], [37, 22, 45, 26], [37, 27, 47, 31], [37, 32, 44, 37],
+   [21, 34, 17, 39], [35, 34, 39, 39]].forEach(function (p) { ln(p[0], p[1], p[2], p[3], 't'); });
+  // ⑩ 四足（y44..47 四根粗桩 + 骨白爪）
+  [[12, 19], [24, 30], [34, 40], [45, 52]].forEach(function (f) {
+    for (let y = 44; y <= 46; y++) for (let x = f[0]; x <= f[1]; x++) if (get(x, y) === '.') set(x, y, 'S');
+    for (let x = f[0]; x <= f[1]; x++) if (get(x, 46) === 'S') set(x, 46, 'D');   // 足底暗
+    for (let x = f[0] + 1; x <= f[1] - 1; x += 3) { set(x, 47, 'b'); set(x + 1, 47, 'b'); } // 爪
+  });
+  // ⑪ 明暗：左上受光带 L（每列首个 S 起 3 行 + 带缘棋盘）+ 右下缘 _rimShade
+  for (let x = 0; x < 32; x++) {
+    let tp = -1;
+    for (let y = 0; y < H; y++) if (G[y][x] === 'S') { tp = y; break; }
+    if (tp < 0) continue;
+    for (let y = tp; y <= tp + 2; y++) if (get(x, y) === 'S') set(x, y, 'L');
+    if (get(x, tp + 3) === 'S' && ((x + tp + 3) & 1) === 0) set(x, tp + 3, 'L');
+  }
+  _rimShade(G, set, get, 32, 20, 43, true);
+  return _rasterGrid(G, pal);
+}
+/* v7.9：曜光·圣裁者 44×52 —— 与判官（boss3）形成明暗对立：判官=暗紫长袍+官帽+鬼火绿；
+ *   圣裁者=象牙白圣袍+悬浮金环+金羽光翼+金色发光面具。面具刻意不挖暗眼窝：
+ *   发光面具的「无眼珠」靠亮板 + 近白瞳孔（_P_SERA_PUPIL）实现，挖黑窝会变回判官那张脸。
+ *   层次（自上而下）：悬浮光环 → 金冠三尖 → 金面具（即头部）→ 窄颈巾 → 白袍肩（两肩外侧各一小段金线）→
+ *   胸腔圣龛（对称金胸甲板，核心落在板上）→ 收腰 → 金腰封 → 白裙摆。刻意收腰+收颈、肩线只留 2px 金线，
+ *   且光翼压到腰线以下（y30 起）以避开 ui 手臂覆盖区（y12..27，白色手臂会和白袍肩糊成一片）；
+ *   否则 44×52 的正面人形会整体读成一只花瓶（v7.9 目检第 2 版的实际教训）。
+ *   叠加契约：eye 覆盖 (8,10)/(24,10) 12×10 → 直接落在金色面具板上（不挖窝）；
+ *   jaw 覆盖 (16,36)/(12,36) 20×8 → 金腰封正中（腰封铺 x8..35 y35..44，作徽记底）；
+ *   core 12×12 覆盖 (20,20)/(16,20) → 金胸甲板铺 x13..32 y21..33（两种偏移都落在板内）。 */
+function _buildSeraphBody(pal) { // 内部：圣裁者身体 44×52（光环+金羽光翼+金面具+白袍+金腰封；见上方叠加契约）
+  const W = 44, H = 52;
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const set = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  const box = function (x0, y0, x1, y1, ch) { // 只覆盖已有像素（不把色块刷到轮廓外）
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) if (get(x, y) !== '.') set(x, y, ch);
+  };
+  const mfill = function (pts, ch) { // 扫描线填多边形 + 左右镜像（羽片）
+    let ylo = H, yhi = -1;
+    pts.forEach(function (p) { if (p[1] < ylo) ylo = p[1]; if (p[1] > yhi) yhi = p[1]; });
+    for (let y = Math.max(0, ylo); y <= Math.min(H - 1, yhi); y++) {
+      const xs = [];
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) xs.push(a[0] + (y - a[1]) * (b[0] - a[0]) / (b[1] - a[1]));
+      }
+      if (xs.length < 2) continue;
+      const xa = Math.round(Math.min.apply(null, xs)), xb = Math.round(Math.max.apply(null, xs));
+      for (let x = xa; x <= xb; x++) { set(x, y, ch); set(W - 1 - x, y, ch); }
+    }
+  };
+  // ① 光翼（先画=身后层）：每侧三片金羽，羽缘 1px L 白尖——金羽白尖读作「光翼」
+  mfill([[9, 30], [0, 34], [9, 39]], 'D');
+  mfill([[9, 37], [1, 41], [9, 46]], 'D');
+  mfill([[9, 44], [4, 49], [9, 50]], 'D');
+  for (let y = 30; y <= 50; y++) { // 每行最外两格转 b 金羽尖（金只在尖上，膜面留暖灰）
+    let xl = -1;
+    for (let x = 0; x <= 9; x++) if (get(x, y) === 'D') { xl = x; break; }
+    if (xl >= 0 && xl < 9) {
+      set(xl, y, 'b'); set(W - 1 - xl, y, 'b');
+      if (xl + 1 < 9) { set(xl + 1, y, 'D'); }
+    }
+  }
+  // ② 悬浮光环：椭圆环 y0..6（外 rx13 ry3 / 内 rx7 ry2），必须真中空，
+  //    且与头顶之间留 1 行空隙（y7 只有冠尖）——否则 1x 下读成「帽子」
+  [[0, 7, 0], [1, 11, 4], [2, 13, 7], [3, 13, 7], [4, 13, 7], [5, 11, 4], [6, 7, 0]].forEach(function (r) {
+    for (let x = 22 - r[1]; x <= 21 + r[1]; x++) {
+      if (r[2] && Math.abs(x - 21.5) <= r[2] - 0.5) continue;
+      set(x, r[0], 'b');
+    }
+  });
+  for (let x = 10; x <= 16; x++) set(x, 1, 'L');
+  // ③ 白袍主体：肩 y22..26（半宽 14）→ 收腰 y27..34（12→11）→ 腰封区 y35..44（12）→ 裙摆 y45..51（13→15）
+  for (let y = 22; y <= 51; y++) {
+    let hw;
+    if (y <= 26) hw = 14;
+    else if (y <= 29) hw = 12;
+    else if (y <= 34) hw = 11;
+    else if (y <= 44) hw = 12;
+    else if (y <= 48) hw = 13;
+    else hw = 15;
+    for (let x = 22 - hw; x <= 21 + hw; x++) if (get(x, y) === '.') set(x, y, 'S');
+  }
+  // ④ 颈巾：x11..32 y20..23（比面具窄、比肩窄，把「头 / 肩」断开——花瓶感就消失在这两行）
+  for (let y = 20; y <= 23; y++) for (let x = 11; x <= 32; x++) if (get(x, y) === '.') set(x, y, 'S');
+  // ⑤ 肩线：只在两肩外侧各画一小段金线（x8..14 / x29..35 y23..24）。
+  //    不做贯通全宽的金领：core 恒在 y20..31，全宽金领会横穿胸饰（目检第 5 版实拍即此症）
+  [[8, 12], [31, 35]].forEach(function (seg) {
+    for (let y = 23; y <= 24; y++) for (let x = seg[0]; x <= seg[1]; x++) if (get(x, y) === 'S') set(x, y, 'b');
+    for (let x = seg[0] + 2; x <= seg[1] - 2; x++) if (get(x, 25) === 'S' && (x & 1) === 0) set(x, 25, 'o');
+  });
+  // ⑥ 金面具（盾形，即头部）：y9..21 逐行跨度；上缘+侧棱+中脊 L 高光
+  [[9, 13, 30], [10, 9, 34], [11, 7, 36], [12, 7, 36], [13, 7, 36], [14, 7, 36], [15, 7, 36],
+   [16, 7, 36], [17, 8, 35], [18, 8, 35], [19, 10, 33], [20, 13, 30], [21, 16, 27]
+  ].forEach(function (r) { for (let x = r[1]; x <= r[2]; x++) set(x, r[0], 'b'); });
+  for (let x = 12; x <= 31; x++) set(x, 9, 'L');                      // 额缘高光
+  for (let y = 10; y <= 20; y++) { set(21, y, 'L'); set(22, y, 'L'); } // 中脊
+  for (let y = 11; y <= 16; y++) { set(8, y, 'L'); set(35, y, 'L'); }  // 侧棱
+  for (let y = 12; y <= 20; y++) { if (get(9, y) === 'b') set(9, y, 'o'); if (get(34, y) === 'b') set(34, y, 'o'); } // 金暗面
+  for (let x = 17; x <= 26; x++) if (get(x, 20) === 'b') set(x, 20, 'o');  // 下颏暗面
+  // ⑦ 金冠三尖（y7..8）：左中右，只有两行——头顶与光环之间的「空行」靠它保持通透
+  [[10, 13], [20, 23], [30, 33]].forEach(function (s) {
+    for (let x = s[0]; x <= s[1]; x++) set(x, 8, 'b');
+    set(s[0] + 1, 7, 'b'); set(s[0] + 2, 7, 'b');
+  });
+  // ⑧ 胸腔圣龛：金菱环 + 核心（环心对齐 core 的实际落点 b.x+20，即 44 宽体上偏右 4px 处）。
+  //    为什么不做「对称胸甲」：44 宽在腰段只有 22~24px 净宽，而 core 右缘已在 x31，
+  //    任何以体轴为中心的板/框都放不下对称余量，硬做只会让宝石顶到金边（目检第 5 版实拍）。
+  //    改成「环=围绕宝石自身」后，环与宝石必然同心，偏 4px 只是整枚胸饰略偏右（= boss3 的 +6 同族容差）。
+  for (let y = 20; y <= 32; y++) {
+    const k = Math.round(6 * (1 - Math.abs(y - 26) / 6));
+    const xa = Math.round(25.5 - k), xb = Math.round(25.5 + k);
+    set(xa, y, 'b'); set(xb, y, 'b');
+    if (y === 20 || y === 26 || y === 32) { set(xa + 1, y, 'b'); set(xb - 1, y, 'b'); } // 上下尖/腰线加粗
+  }
+  [[26, 20], [26, 32]].forEach(function (p) { if (get(p[0], p[1]) === 'b') set(p[0], p[1], 'L'); }); // 尖点高光
+  [[18, 24], [18, 28], [15, 26], [14, 23], [14, 29]].forEach(function (p) { // 胸饰左侧圣光点（补白，不抢宝石）
+    if (get(p[0], p[1]) === 'S') set(p[0], p[1], 't');
+  });
+  // ⑨ 金腰封：y35..44（jaw 覆盖层落在正中=腰封徽记）+ 下缘 D
+  box(8, 35, 35, 44, 'b');
+  for (let x = 8; x <= 35; x++) if (get(x, 44) === 'b') set(x, 44, 'D');
+  // ⑩ 摆缘：y48..49 金边 + y51 底缘 D + 中央竖金带（x20..23 y45..50）
+  for (let x = 5; x <= 38; x++) {
+    if (get(x, 49) === 'S') set(x, 49, 'b');
+    if (get(x, 51) === 'S') set(x, 51, 'D');
+  }
+  for (let y = 45; y <= 48; y++) { if (get(21, y) === 'S') set(21, y, 'b'); if (get(22, y) === 'S') set(22, y, 'b'); }
+  // ⑪ 圣光斑 t：面具额心 + 双肩甲 + 龛沿（发光体的「光」靠这几粒读出来）
+  [[21, 12], [22, 12], [21, 13], [22, 13], [10, 23], [33, 23],
+   [15, 28], [28, 28], [15, 29], [28, 29]].forEach(function (p) { if (get(p[0], p[1]) !== '.') set(p[0], p[1], 't'); });
+  // ⑫ 明暗：左上受光带 L（每列首个 S 起 2 行）+ 右下 _rimShade
+  for (let x = 0; x < 22; x++) {
+    let tp = -1;
+    for (let y = 0; y < H; y++) if (G[y][x] === 'S') { tp = y; break; }
+    if (tp < 0) continue;
+    for (let y = tp; y <= tp + 1; y++) if (get(x, y) === 'S') set(x, y, 'L');
+  }
+  _rimShade(G, set, get, 22, 22, 50, false);
   return _rasterGrid(G, pal);
 }
 
@@ -2433,6 +2695,30 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     body: _whiteVariant(SPR.boss3.body[0]),
     arm: _whiteVariant(SPR.boss3.arm),
     jaw: _whiteVariant(SPR.boss3.jaw[1])
+  };
+  // v7.9：kind4 冥古龙 / kind5 圣裁者 —— 装配口径与 boss2/boss3 逐字一致（同一 _mkV7Boss，
+  //   只换体建器与调色板），故键集合自动等于 SPR.boss2；白剪影三件同构（body/arm/开口 jaw）。
+  SPR.boss4 = _mkV7Boss(_buildUnderDragonBody, { // 冥古龙（64×48 骨角破翼四足，暗紫黑+熔岩橙；kind=4）
+    b: _P_UND, bR: _P_UND_RAGE,
+    e: _P_UND_EYE, eR: _P_UND_EYE_R, u: _P_UND_PUPIL,
+    c1: _P_UND_CORE, c2: _P_UND_CORE2, c1r: _P_UND_CORE_R, c2r: _P_UND_CORE_R2,
+    eyeRim: '#ffd08a', coreRim: '#ffd8a0'
+  });
+  SPR.boss4White = {
+    body: _whiteVariant(SPR.boss4.body[0]),
+    arm: _whiteVariant(SPR.boss4.arm),
+    jaw: _whiteVariant(SPR.boss4.jaw[1])
+  };
+  SPR.boss5 = _mkV7Boss(_buildSeraphBody, { // 曜光·圣裁者（44×52 光环光翼面具，象牙白+淡金；kind=5）
+    b: _P_SERA, bR: _P_SERA_RAGE,
+    e: _P_SERA_EYE, eR: _P_SERA_EYE_R, u: _P_SERA_PUPIL,
+    c1: _P_SERA_CORE, c2: _P_SERA_CORE2, c1r: _P_SERA_CORE_R, c2r: _P_SERA_CORE_R2,
+    eyeRim: '#fffbe8', coreRim: '#fffbe8'
+  });
+  SPR.boss5White = {
+    body: _whiteVariant(SPR.boss5.body[0]),
+    arm: _whiteVariant(SPR.boss5.arm),
+    jaw: _whiteVariant(SPR.boss5.jaw[1])
   };
   // —— v7.7：预生成 blue 皮肤帧对象（纯引用上面已画好的 hero* 帧，零额外像素绘制，耗时≈0）；
   //     其余 16 套留待 ui 首次取用时惰性生成，启动期不付 16×20 张画布的钱。——

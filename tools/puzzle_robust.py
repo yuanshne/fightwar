@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # v7.4 谜题可通关性 + 鲁棒性实测（Playwright / file:// 直开，无需服务器）
 #   A 全 13 座神龛通关主链：靠近 → ↑ 开龛 → 真实按键解完 → 奖励/存档/2s 自动关层
-#   B 谜题门：解前走到终点不通关（v7.3 门生效），解后通关（v7.4 护栏放行）
+#   B 谜题不强制（v7.9）：未解也能直接走到终点通关；解完同样通关（旧 v7.3 门已拆）
 #   C 判定按规则而非按答案：多解题填出「非标准答案」的合法终盘也应判胜；填满但违规不得判胜
 #   D fail-open：谜题数据缺失/损坏时神龛不参与门禁（不硬卡关）
 #   E 谜题层输入轰炸：puzzleActive ↔ 覆盖层不得脱钩、关层后世界恢复
@@ -95,13 +95,15 @@ with sync_playwright() as p:
     print('神龛关:', pkeys, '/ 总关数', nlevel)
 
     # ---------- A + B ----------
-    print('== A/B. 逐神龛：解前终点被挡 → 解谜 → 解后放行 ==')
+    # v7.9：谜题门已拆（玩家要求「数独/数织别强制做」）。B 段改为「未解谜题也能直接通关」，
+    # 探一次即可（每关都探会把状态打到 clear，后面开龛流程就得反复重开）。解后仍应正常通关，保留在循环里。
+    goto(pg, pkeys[0])
+    ok('B 未解谜题也能直接通关（v7.9 拆掉谜题门）', try_goal(pg) == 'clear')
+    print('== A. 逐神龛：开龛 → 真实按键解完 → 奖励/存档/解后通关 ==')
     for k in pkeys:
         goto(pg, k)
         state0 = pg.evaluate('() => game.state')
         ok('P%d 进关可玩' % k, state0 == 'play', state0)
-        blocked = try_goal(pg)
-        ok('P%d 解前终点被谜题门挡住' % k, blocked == 'play', blocked)
         near, active = open_shrine(pg)
         ok('P%d 神龛可开' % k, active is True, 'near=%s active=%s' % (near, active))
         if not active:
@@ -230,6 +232,10 @@ with sync_playwright() as p:
     goto(pg, 2)
     near, active = open_shrine(pg)
     ok('G 数独 4×4 可开', active is True)
+    # v7.6 起首次进入某类谜题会弹一次性规则卡，卡显示期间任意键只「收卡」不透传棋盘。
+    # 计费断言必须先把卡收掉，否则第一次 H 被卡吃掉、只扣 1 枚（v7.4 脚本写于规则卡之前）。
+    key(pg, 'ArrowLeft')
+    pg.wait_for_timeout(120)
     pg.evaluate('() => { game.coins = 3; }')
     key(pg, 'KeyH', 2, wait=40)
     ok('G 两次提示 3 → 1 金币', pg.evaluate('() => game.coins') == 1, pg.evaluate('() => game.coins'))

@@ -92,13 +92,16 @@ try {
       + 'validateLevels};')();
     const levels = sandbox.ALL_LEVELS || sandbox.LEVELS;
     if (!(levels && levels.length >= 6)) { console.error('LEVELS 至少 6 关'); process.exit(1); }
-    if (ch.hasContract) { // v7 §1.5：聚合关数断言 = 10 + 3×已合入章数
-      const want = 10 + 3 * ch.n;
+    if (ch.hasContract) { // v7 §1.5：聚合关数断言 = 10 + Σ 各章 levels.length
+      // v7.9：原式写死「每章 3 关」，终章扩到 5 关（L17 纵向关 + L18 双 Boss）后失效。
+      // 改成从 CHAPTERS 注册表实际求和，章内关数变化不再需要动门禁。
+      const chSum = (sandbox.CHAPTERS || []).reduce((a, c) => a + ((c.levels || []).length), 0);
+      const want = 10 + chSum;
       if (levels.length !== want) {
-        console.error('ALL_LEVELS.length=' + levels.length + '（应 ' + want + ' = 10 + 3×' + ch.n + ' 已合入章数）');
+        console.error('ALL_LEVELS.length=' + levels.length + '（应 ' + want + ' = 10 + 章节 ' + chSum + '）');
         process.exit(1);
       }
-      console.log('v7 聚合: ' + levels.length + ' 关（10 + 3×' + ch.n + ' 章）');
+      console.log('v7 聚合: ' + levels.length + ' 关（10 + 章节 ' + chSum + '）');
     }
     const meta = levels.map(l => l.theme + '/' + l.w + 'x' + l.h).join(', ');
     const v = sandbox.validateLevels();
@@ -173,8 +176,8 @@ try {
     for (const bi of bossIdxs) {
       const meta = sandbox.ALL_LEVELS[bi];
       const kind = meta.boss === true ? 1 : meta.boss; // v7 §6.1：boss:true≡kind1
-      if (!(kind >= 1 && kind <= 3)) {
-        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2|3）');
+      if (!(kind >= 1 && kind <= 5)) {   // v7.9：值域扩到 5（4=冥古龙 5=曜光·圣裁者，终章双 Boss）
+        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2|3|4|5）');
         process.exit(1);
       }
       sandbox.loadLevel(bi, false);
@@ -193,7 +196,7 @@ try {
         console.error('L' + (bi + 1) + ' Boss kind 违约: 实际 ' + g.boss.kind + '（应 ' + kind + '）');
         process.exit(1);
       }
-      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3][kind - 1].hp; // v7 §1.5：maxHp 与参数表一致
+      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3, SBAL.boss4, SBAL.boss5][kind - 1].hp; // v7 §1.5：maxHp 与参数表一致（v7.9 扩到 5 表）
       if (g.boss.maxHp !== wantHp) {
         console.error('L' + (bi + 1) + ' Boss maxHp 违约: 实际 ' + g.boss.maxHp + '（应 BAL 表 ' + wantHp + '）');
         process.exit(1);
@@ -251,7 +254,10 @@ try {
           g.state = 'play';
           const shr = g.level.shrines;
           if (!shr) { probs.push('L' + (i + 1) + ' level.shrines 缺失(engine v4 未合入?)'); break; }
-          if (shr.length !== 1) { probs.push('L' + (i + 1) + ' 神龛数=' + shr.length + '(应为1)'); continue; }
+          // v7.9：谜题改为可选，不再要求每个非 Boss 关都有神龛（L17 竖向关没有）。
+          // 0 个 → 跳过本关的链路验证；>1 个仍算违约（一关多龛超出 UI 契约）。
+          if (shr.length === 0) continue;
+          if (shr.length !== 1) { probs.push('L' + (i + 1) + ' 神龛数=' + shr.length + '(应为0或1)'); continue; }
           shrineN++;
           if (shr[0].idx !== i + 1) probs.push('L' + (i + 1) + ' 神龛 idx=' + shr[0].idx + '(应为' + (i + 1) + ')');
           if (g.puzzleNear !== undefined && typeof g.puzzleNear !== 'number') probs.push('L' + (i + 1) + ' puzzleNear 应为 number');
@@ -274,7 +280,7 @@ try {
         process.exit(1);
       }
       console.log('engine v4 谜题冒烟 OK: ' + (shrineRan
-        ? 'PUZZLES ' + Object.keys(PZ).length + ' 题数据/唯一解 + 神龛 ' + shrineN + ' 非Boss关各一 + puzzleSolved 奖励链路'
+        ? 'PUZZLES ' + Object.keys(PZ).length + ' 题数据/唯一解 + ' + shrineN + ' 座神龛链路 + puzzleSolved 奖励链路'
         : 'PUZZLES 数据/唯一解（神龛与 puzzleSolved 链路待 engine v4 合入后生效）'));
     }
     console.log('engine.js OK: ' + nLevels + ' 关构造与空转全部通过');

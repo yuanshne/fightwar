@@ -218,7 +218,10 @@ const BAL = {
            stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
   atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
   // v7.7 手感：cd 0.8→0.5（对照空洞骑士 0.45~0.55s；dur/v 不动 ⇒ 冲刺距离 59.53px 不变）
-  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5 },
+  // v7.9：冲刺追加 inv=0.10 无敌帧。0.10s（6 帧）刚好覆盖「看到攻击抬手 → 按 K 穿过判定框」的反应窗口，
+  // 又远短于 dash 总时长 0.28 —— 不会变成「一直按 K 无敌」。取 0.10 而非 0.18 是玩家明确要求：
+  // 0.18 太长会「没有操作感觉」（无敌窗口比敌人攻击判定还宽，闪避就退化成无脑贴身）。
+  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5, inv: 0.10 },
   combo: { win: 2, ultNeed: 8 },
   // v7.1 O 重做：连击门槛与实战节奏脱节（怪少窗短叠不满 8）→ 改能量充能制：
   // 任何命中充 ultCharge.hit（碎砖减半），满 ultNeed 释放；死亡/断连击不清充能
@@ -241,24 +244,25 @@ const BAL = {
     ghost:  { hp: 3, skill: { wake: 150, lose: 260, spd: 26, home: 40 } },
     boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 16 } } },
   boss:  { hp: 60, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
-           windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55 }, p2WindMul: 0.85,
+           windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55, dive: 0.55 }, p2WindMul: 0.85,
            idleT: [0.6, 0.45], walk: [20, 25],
            leap: { T: 0.9, vy: 675, clamp: 300 },
            charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
            barrage: { v: 130, rounds: 3, pairGap: 0.15, endT: 0.45, deg: [-8, 8] }, // v7 §8：deg=现行硬编码 [-8,8] 收编
            nova: { v: 100, t: [0.55, 0.95], endT: 1.2 },
-           stagger: 1.5, enrage: 1.2, dying: 2.2,
-           recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6 },
+           dive: { ringV: 100 },   // v7.9 末段新招：leap 落地额外甩一圈弹
+           stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
+           recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, dive: 0.65 },
            contactDmg: 1,
            // v7 §8 追加键：kind1 现行硬编码逐字收编（零行为变化——H5，_v6_loot_test ② L7 采样双证）
            w: 52, h: 48, drop1: 'boss1', drop2: 'boss2',
            summon: { type: 'slime', n: 2, off: [-40, 40] },
            poolNear: ['charge', 'leap', 'summon', 'charge'],
            poolFar: ['barrage', 'charge', 'leap', 'barrage'],
-           p2Add: ['nova'] },
+           p2Add: ['nova', 'dive'] },
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
     hp: 90, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40,
-    windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55 },
+    windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70 },
     p2WindMul: 0.85, idleT: [0.7, 0.5], walk: [26, 32],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [250, 310], maxT: 1.5, maxX: 320 },
@@ -266,14 +270,17 @@ const BAL = {
     sweep: { rounds: 3, gap: 0.55, wv: 130, life: 0.42, wh: 16 },
     nova: { v: 110, t: [0.55, 0.95], endT: 1.2 },
     summon: { type: 'jelly', n: 2, off: [-44, 44] },
-    stagger: 1.5, enrage: 1.2, dying: 2.2,
-    recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6 },
+    breath: { rounds: 2, gap: 0.50, wv: 120, life: 0.5, wh: 16 },  // v7.9 末段新招：两段贴地潮涌
+    stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
+    recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6, breath: 0.55 },
     poolNear: ['sweep', 'leap', 'summon', 'sweep'],
     poolFar: ['barrage', 'charge', 'leap', 'barrage'],
-    p2Add: ['nova'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
+    p2Add: ['nova', 'breath'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
   boss3: { // 幽冥判官（L16，nether）——v7 §8 逐字
-    hp: 140, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
-    windup: { blink: 0.50, scythe: 0.60, barrage: 0.45, summon: 0.50, nova: 0.55 },
+    // v7.9：hp 140→138。三段血要求每段 HP 是整数（140/3=46.67 会让血条与段内残余对不上），
+    // 138=46×3；总血量差 2 点不影响手感，门禁只断言 maxHp===本表 hp。
+    hp: 138, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
+    windup: { blink: 0.50, scythe: 0.60, barrage: 0.45, summon: 0.50, nova: 0.55, halo: 0.65 },
     p2WindMul: 0.85, idleT: [0.55, 0.4], walk: [18, 22],
     leap: { T: 0.9, vy: 675, clamp: 300 },      // 表完整性（判官轮换池不含 leap/charge）
     charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
@@ -282,11 +289,62 @@ const BAL = {
     scythe: { wv: 150, life: 0.6, w: 16, h: 22 },
     nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
     summon: { type: 'ghost', n: 2, off: [-48, 48] },
-    stagger: 1.5, enrage: 1.2, dying: 2.4,
-    recover: { blink: 0.4, scythe: 0.6, barrage: 0.5, summon: 0.5, nova: 0.6, leap: 0.7, charge: 0.4 },
+    halo: { v: 95, t: [0.50, 0.85, 1.20], endT: 1.55 },   // v7.9 末段新招：三圈鬼火
+    stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
+    recover: { blink: 0.4, halo: 0.6, scythe: 0.6, barrage: 0.5, summon: 0.5, nova: 0.6, leap: 0.7, charge: 0.4 },
     poolNear: ['scythe', 'blink', 'summon', 'scythe'],
     poolFar: ['barrage', 'blink', 'scythe', 'barrage'],
-    p2Add: ['nova'], contactDmg: 1, drop1: 'gui1', drop2: 'gui2' },
+    p2Add: ['nova', 'halo'], contactDmg: 1, drop1: 'gui1', drop2: 'gui2', revive: 0.9 },
+  // ==================== v7.9 终章双 Boss ====================
+  // 分两棒，不是同时出场：冥古龙被打空三段 → 原地「倒下」，曜光·圣裁者接力进场（nextKind 链）。
+  // 两棒共用同一套状态机与同一套三段血规则；新招式全部由既有实体（ground wave / star bullet）
+  // 组合而成，不引入新弹种——玩家能躲的前提是「看得懂」，新实体只会制造交互未知数。
+  boss4: { // 冥古龙（L18 首发，nether）：骨角魔龙，四足+破翼，熔岩裂纹；hp 150 → 每段 50
+    hp: 150, p2At: 0, actDist: 176, grav: 1500, fallV: 540, w: 64, h: 48,
+    windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, nova: 0.55,
+              sweep: 0.55, breath: 0.75, dive: 0.60 },
+    p2WindMul: 0.82, idleT: [0.62, 0.42], walk: [24, 30],
+    leap: { T: 1.0, vy: 700, clamp: 320 },
+    charge: { v: [260, 320], maxT: 1.4, maxX: 340 },
+    barrage: { v: 125, rounds: 4, pairGap: 0.16, endT: 0.5, deg: [-12, 0, 12] },
+    sweep: { rounds: 3, gap: 0.52, wv: 145, life: 0.42, wh: 16 },
+    // 炼狱吐息：贴地三段推进波，波高 14px（站地面会中，跳上任意台面即可躲）——
+    // 间隔 0.46s 留出「跳上去 → 等下一段 → 落回来」的完整窗口，不是连击必吃。
+    breath: { rounds: 3, gap: 0.46, wv: 130, life: 0.5, wh: 14 },
+    // 陨落（dive）：leap 落地那一下额外甩一圈 8 向弹，把「跳劈」从纯位移变成需要读落点的招
+    dive: { ringV: 105 },
+    nova: { v: 110, t: [0.55, 0.95], endT: 1.2 },
+    summon: { type: 'ghost', n: 2, off: [-52, 52] },
+    stagger: 1.4, enrage: 1.2, dying: 2.4, revive: 0.9,
+    recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6,
+               sweep: 0.6, breath: 0.55, dive: 0.65 },
+    poolNear: ['breath', 'leap', 'summon', 'sweep'],
+    poolFar: ['barrage', 'charge', 'breath', 'leap'],
+    p2Add: ['nova', 'dive'],
+    contactDmg: 2, drop1: 'ming1', drop2: 'ming2',
+    nextKind: 5 },   // 三段打空 → 不通关，换第二棒（见 dying 分支）
+  boss5: { // 曜光·圣裁者（L18 第二棒，nether）：白袍+金环+光翼，hp 180 → 每段 60
+    hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 52,
+    windup: { blink: 0.55, barrage: 0.45, halo: 0.70, summon: 0.50, nova: 0.55,
+              scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60 },
+    p2WindMul: 0.82, idleT: [0.58, 0.40], walk: [20, 26],
+    leap: { T: 0.9, vy: 675, clamp: 300 },
+    charge: { v: [240, 300], maxT: 1.5, maxX: 300 },
+    barrage: { v: 115, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },
+    blink: { hideT: 0.28, dx: 100, after: 0.32 },
+    // 圣辉轮（halo）：三圈 8 向弹，逐圈转 15°，弹速 92（比 nova 慢）——慢弹才能「走位穿缝」，
+    // 三圈之间留 0.35s，玩家有窗口换位置；这是光系 Boss 的主招，必须可躲。
+    halo: { v: 92, t: [0.45, 0.80, 1.15], endT: 1.5 },
+    scythe: { wv: 150, life: 0.6, w: 16, h: 22 },
+    nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
+    summon: { type: 'ghost', n: 2, off: [-44, 44] },
+    stagger: 1.4, enrage: 1.2, dying: 2.6, revive: 0.9,
+    recover: { blink: 0.4, barrage: 0.5, halo: 0.6, summon: 0.5, nova: 0.6,
+               scythe: 0.6, leap: 0.7, charge: 0.4, dive: 0.65 },
+    poolNear: ['halo', 'blink', 'summon', 'halo'],
+    poolFar: ['barrage', 'blink', 'halo', 'barrage'],
+    p2Add: ['nova', 'dive'],
+    contactDmg: 2, drop1: 'yao1', drop2: 'yao2' },
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 14 }, ghost: { hp: 12 } }, // v7 §8：精英怪
   flow:  { acc: 600, cap: 170 },  // v7 §8：水流 §4.1（cap 170>maxRun 120<逆流冲刺，数值推导见设计书）
   econ:  { coin: 1, gem: 5, puzzle: 5, brick: 1, heartChance: 0.30, heartHeal: 1, dropGrav: 1200, dropFall: 360, chestGem: 5 }, // v7 §8：chestGem
@@ -298,6 +356,10 @@ const BAL = {
     // v7 §8 追加六表（权重和=100，序=白/绿/蓝/紫/金）
     jiao1: [30, 28, 20, 14, 8],  jiao2: [16, 28, 26, 18, 12],
     gui1:  [22, 26, 24, 18, 10], gui2: [12, 24, 28, 22, 14],
+    // v7.9 终章双 Boss 掉落（权重和=100，序=白/绿/蓝/紫/金）：最终战必须给得起东西——
+    // 紫+金占比 40%/46%，两棒各必掉 1 件 + 30% 追加 1 件，打完一趟基本能填满一个空槽。
+    ming1: [10, 22, 28, 26, 14], ming2: [4, 18, 32, 28, 18],
+    yao1:  [6, 18, 30, 28, 18],  yao2:  [2, 12, 30, 32, 24],
     hidden: [15, 25, 25, 22, 13], eliteK: [25, 30, 25, 20, 0],
     // v7.8：普通怪掉落（补齐装备供给）。此前装备只有 Boss 必掉 + 10% 精英掉，而前 6 关没有 Boss，
     // 玩家打完 L1~L6 背包仍是空的——升阶要 3 碎片，碎片只能靠分解装备，整条养成链压根跑不起来。
@@ -809,6 +871,27 @@ function puzzleSolved(idx) { // 谜题解开结算（ui 在覆盖层校验全对
   game.sfxQueue.push('puzzle'); game.sfxQueue.push('gem'); // 解谜音 + 得宝石音（只入队，engine 不发声）
   const p = game.player;
   if (p) _engAddParts(p.x + 5, p.y - 6, 24, '#f8d048', 130, 150); // 玩家位置上方金色烟花 ≈24 粒（#f8d048=美术金色印章色）
+  // ===== v7.9 解谜奖励改成「装备」=====
+  // 谜题改为可选之后（终点不再被神龛卡住），只给 5 金币没有任何理由让人坐下来解——
+  // 5 金币在这个游戏里买不到任何东西。改成必掉 1 件该进度档位的装备，且优先补玩家最弱的槽，
+  // 让「解谜」直接变成一条能感知的养成支线（而不是一个摆设景点）。
+  if (p) {
+    const li = game.levelIdx | 0;
+    const r = li >= 12 ? 3 : li >= 6 ? 2 : 1;      // L13+ 紫 / L7~L12 蓝 / L1~L6 绿（不低于当关怪物的掉落档）
+    const slot = _engWeakSlot();
+    if (game.gearDrops.length < _engGearCap)
+      game.gearDrops.push(_engMkGear(p.x + 5 - 5, p.y - 4, slot, r));
+    // 掉落实体在神龛脚下弹一下再落地：直接落在玩家格子里会被瞬间拾取、失去「这是奖励」的仪式感。
+  }
+}
+
+function _engWeakSlot() { // 内部（v7.9）：玩家三个槽位里最弱的那个——解谜掉落优先补短板
+  // 只读 game.equip 的聚合数值（ui 写入），不碰 localStorage、不读存档结构：
+  // 按各槽的上限归一化后取最小（武器→atk/6、头饰→hp/4、披风→移速与冷却取较大/12）。
+  const eq = game.equip || { atk: 0, hp: 0, spd: 0, cd: 0 };
+  const w = (eq.atk || 0) / 6, h = (eq.hp || 0) / 4;
+  const c = Math.max(eq.spd || 0, eq.cd || 0) / 12;
+  return w <= h && w <= c ? 'w' : (h <= c ? 'h' : 'c');
 }
 
 /* ==================== v3：HP 伤害 / Boss AI / 技能（内部） ==================== */
@@ -825,7 +908,9 @@ function _engShieldBreak() { // 内部（v5 §3.3）：破盾事件——吸收�
   }
 }
 
-function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（工单 B；即死物不走这里，见 _engHazardHit）
+function _engHurtPlayer(fromX, dmg) { // 内部：一切 HP 伤害的唯一入口（工单 B；即死物不走这里，见 _engHazardHit）
+  // v7.9：加可选伤害值（缺省 1）。终章双 Boss 的 contactDmg=2 终于被真的消费——
+  // 原来的表里的 contactDmg 是个没人读的死字段，写 2 也只是自我安慰。
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return false;
   if (p.invT > 0) return false;                    // 无敌帧：伤害与击退全免
@@ -834,7 +919,7 @@ function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（�
     if (p.shieldHp <= 0) _engShieldBreak();        // 吸收耗尽 → 破盾事件（sfx+碎裂 fx+清盾）
     return false;
   }
-  p.hp--; p.invT = BAL.player.invT;
+  p.hp -= (dmg || 1); p.invT = BAL.player.invT;
   p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * BAL.player.hurtKbX;   // 击退方向=离伤害源
   p.vy = -BAL.player.hurtKbY; p.dashT = 0; p.atkT = 0;
   p.airJumps = 1; p.springAir = false;             // v5 §1.1：受击重置二段跳/解锁弹簧锁
@@ -908,9 +993,10 @@ function _engOnScreen(e) { // 内部：实体矩形是否在视口内（连斩�
          e.y + e.h > game.cam.y && e.y < game.cam.y + _engVH;
 }
 
-function _engBossTable(kind) { // 内部：v7 Boss 参数表选择（kind 0/1=星核巨兽，2=蛟龙·敖渊，3=幽冥判官）
-  // R4：三 Boss 差异只允许来自本选择器命中的参数表；禁止第二份 Boss 状态机 switch。
-  return kind === 2 ? BAL.boss2 : kind === 3 ? BAL.boss3 : BAL.boss;
+function _engBossTable(kind) { // 内部：v7 Boss 参数表选择（kind 0/1=星核巨兽，2=蛟龙·敖渊，3=幽冥判官，4=冥古龙，5=曜光·圣裁者）
+  // R4：全部 Boss 差异只允许来自本选择器命中的参数表；禁止第二份 Boss 状态机 switch。
+  return kind === 2 ? BAL.boss2 : kind === 3 ? BAL.boss3
+       : kind === 4 ? BAL.boss4 : kind === 5 ? BAL.boss5 : BAL.boss;
 }
 
 function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, py=锚点行顶；v7 §6.1 参数化）
@@ -921,9 +1007,13 @@ function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, 
     // 与 engine.md A 节「落地脚底 y=208」及设计 §1「脚底站在地面瓦片顶」/§6「落地脚 y=208」矛盾。
     // 按「落地脚底=锚点下一行的地板顶面」实现：y=(锚点行+1)*16-h（随表高推导；kind1 即原 48 值，零回归）。
     y: py + _engTile - T.h,
+    homeX: cx - T.w / 2, homeY: py + _engTile - T.h, // v7.9：双 Boss 接力时第二棒按首发锚点重算落点（不跟着尸身下沉）
     w: T.w, h: T.h, vx: 0, vy: 0, face: -1,
-    kind: kind, hidden: false,     // v7 §6.1：kind 1/2/3；§6.3：blinkCast 隐身位
-    hp: T.hp, maxHp: T.hp, phase: 1,
+    kind: kind, hidden: false,     // v7 §6.1：kind 1..5；§6.3：blinkCast 隐身位
+    // v7.9 三段血：hp 语义改成「当前段内剩余 HP」（0..bandMax），maxHp 仍是总 HP——
+    // 门禁断言（gate engine：maxHp 必须等于参数表 hp）与存档口径不受影响。
+    hp: T.hp / 3, maxHp: T.hp, bandMax: T.hp / 3, bandBreak: 0, bandFlashT: 0,
+    phase: 1,
     state: 'dormant', t: 0,        // t：当前状态已累计秒数
     next: '', lastPattern: '', pickN: 0,
     flashT: 0, chargeDir: 1, chargeFrom: 0, landX: 0, fireN: 0
@@ -952,13 +1042,28 @@ function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不�
 function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
   const b = game.boss;
   if (!b || b.state === 'dormant' || b.state === 'intro' || b.state === 'enrage'
-        || b.state === 'dying' || b.state === 'dead'
-        || (b.state === 'blinkCast' && b.hidden)) return false; // v7 §6.3：blink 隐身期免伤
+        || b.state === 'dying' || b.state === 'dead' || b.state === 'revive'
+        || (b.state === 'blinkCast' && b.hidden)) return false; // v7 §6.3：blink 隐身期免伤；v7.9：revive 假死期免伤
   const T = _engBossTable(b.kind || 0); // v7 §6：P2 线/掉落表读表
   b.hp -= dmg; b.flashT = 0.12;
   game.hitStop = Math.max(game.hitStop, _engHitStop); // v5 §1.6：Boss 承伤 hit-stop 同步 0.10
   game.shake = Math.max(game.shake, 3);
   game.sfxQueue.push('bosshit');
+  if (b.hp <= 0 && b.bandBreak < 2) { // ===== v7.9 段击破：不死，假死演出后满段复活 =====
+    // 血条分三段（每段 T.hp/3），打空一段只算「击破」，第三段打空才真死。
+    // 复活瞬间必须清场：残留弹幕/贴地波会把刚站起来的玩家当场打死——这是最典型的一类「交互有问题」。
+    b.bandBreak++; b.bandFlashT = 1.0; b.hp = b.bandMax;
+    b.state = 'revive'; b.t = 0; b.vx = 0; b.vy = 0; b.hidden = false;
+    game.bullets = []; game.waves = [];
+    game.shake = 10; game.sfxQueue.push('roar');
+    _engFx(b.x + b.w / 2, b.y + b.h / 2, { ring: 1, r: 6, r1: 52, life: 0.45, color: '#f86020' });
+    _engAddParts(b.x + b.w / 2, b.y + b.h - 8, 18, '#f8d048', 130, 240);
+    _engFloat(b.x + b.w / 2, b.y - 6, '击破 ' + b.bandBreak + '/3', '#f8d048', 1);
+    // 每击破一段掉 1 件（drop2 权重）：三次击杀打下来必须持续有反馈，不能全堆到最后一棒。
+    if (game.gearDrops.length < _engGearCap)
+      game.gearDrops.push(_engMkGear(b.x + b.w / 2 - 5, b.y + b.h - 16, _engSlot(), _engRollTier(BAL.gear[T.drop2])));
+    return true;
+  }
   if (b.hp <= 0) { b.hp = 0; b.state = 'dying'; b.t = 0;
     // v6 波2 §2①：Boss 掉落——进入 dying 瞬间生成（levelClear 在死亡演出后才触发，此处先掉，
     // 玩家可在演出期内拾取；漏捡由 levelClear 开头的 H4 兜底转 pickups）。第 1 件必掉（T.drop1 权重）、
@@ -969,8 +1074,8 @@ function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨
     if (Math.random() < BAL.gear.bossExtra && game.gearDrops.length < _engGearCap)
       game.gearDrops.push(_engMkGear(b.x + b.w / 2 + 14, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear[T.drop2])));
     game.bullets = []; game.waves = []; game.shake = 10; return true; } // 死亡优先：大伤害一刀斩不得被狂暴吸收卡 1 血
-  if (b.hp <= T.p2At && b.phase === 1) { b.phase = 2; b.state = 'enrage'; b.t = 0;
-    game.sfxQueue.push('roar'); game.shake = 6; return true; }
+  // v7.9：P2（狂暴 + p2Add 新招）不再按血量百分比切，改由「进入最后一段」触发——
+  // 见 _engUpdateBoss 的 revive 收尾（bandBreak>=2 → enrage）。T.p2At 保留在表里但已不消费。
   return true;
 }
 
@@ -984,12 +1089,14 @@ function _engBossPhysX(dt, b) { // 内部：Boss X 轴解算（撞墙返回 true
   return false;
 }
 
-function _engBossNovaRing(b, deg) { // 内部：nova 8 向放射弹（第二环 deg=22.5 转角）；v6 §F 弹速收编、v7 §6 改读本 Boss 表
+function _engBossNovaRing(b, deg, v) { // 内部：8 向放射弹（第二环 deg=22.5 转角）；v6 §F 弹速收编、v7 §6 改读本 Boss 表
+  // v7.9：第三参 v 可覆盖弹速——halo（92，慢）/dive（105）都复用本发射器，
+  // 坚持「一种视觉 = 一种判定」，不引入新弹种，玩家看到的每一颗星弹规则都相同。
   const T = _engBossTable(b.kind || 0);
-  const bcx = b.x + b.w / 2, bcy = b.y + 20;
+  const bcx = b.x + b.w / 2, bcy = b.y + 20, spd = v || T.nova.v;
   for (let i = 0; i < 8; i++) { const a = (i * 45 + deg) * Math.PI / 180;
     game.bullets.push({ x: bcx - 4, y: bcy - 4, w: 8, h: 8,
-      vx: Math.cos(a) * T.nova.v, vy: Math.sin(a) * T.nova.v, star: true }); }
+      vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, star: true }); }
 }
 
 function _engBossSummon(T) { // 内部：v7 §6.2 参数化召唤（type/n/off 全读表；实体走 _engMkEnemy 工厂）
@@ -1012,6 +1119,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
   const L = game.level, p = game.player;
   const T = _engBossTable(b.kind || 0); // v7 §6：本 Boss 参数表
   b.flashT -= dt; b.t += dt;
+  if (b.bandFlashT > 0) b.bandFlashT -= dt;   // v7.9：击破闪白倒计时（UI 读它做整条闪光，不自己计时）
   const pcx = p.x + p.w / 2, bcx = b.x + b.w / 2;
 
   switch (b.state) {
@@ -1053,6 +1161,14 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'blinkCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'scythe') { if (b.t >= _engBossDur('scythe', b.phase)) { // v7 §6.3：判官·镰刀横扫
         b.state = 'scytheCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'breath') { if (b.t >= _engBossDur('breath', b.phase)) { // v7.9：冥古龙·炼狱吐息
+        b.state = 'breathCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'halo') { if (b.t >= _engBossDur('halo', b.phase)) {   // v7.9：圣裁者·圣辉轮
+        b.state = 'haloCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'dive') { if (b.t >= _engBossDur('dive', b.phase)) {   // v7.9：跳劈（落点甩环）
+        b.landX = _engClamp(pcx, bcx - T.leap.clamp, bcx + T.leap.clamp);
+        b.vx = (b.landX - bcx) / T.leap.T; b.vy = -T.leap.vy;
+        b.state = 'leapAir'; b.t = 0; } }
     break;
 
   case 'leapAir': {
@@ -1066,6 +1182,9 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         _engAddParts(bcx, b.y + b.h, 16, '#a890f8', 100, 300);
         for (const d of [-1, 1]) game.waves.push({ x: bcx + d * 20, y: b.y + b.h - 10,
           w: 12, h: 10, vx: d * (b.phase === 2 ? 115 : 90), life: 1.2 });   // 双向贴地冲击波（波速沿用现行，工单 §4-3）
+        // v7.9 dive：落地额外甩一圈 8 向弹。落点在前摇结束时就锁定了玩家位置（landX），
+        // 所以玩家「看到起跳 → 横移一步」就能让环从身边擦过去——有解，不是必吃。
+        if (b.next === 'dive' && T.dive) _engBossNovaRing(b, 0, T.dive.ringV);
         b.state = 'recover'; b.t = 0; break; } }
     break; }
 
@@ -1141,6 +1260,36 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= 0.25) { b.state = 'recover'; b.t = 0; }
     break; }
 
+  case 'revive': { // v7.9 段击破后的假死复活：0.9s 跪地→站起；期间免伤免接触（_engBossHurt / 接触判定都挡）
+    b.vx = 0;
+    if (b.t >= (T.revive || 0.9)) {
+      b.flashT = 0.12;
+      if (b.bandBreak >= 2 && b.phase === 1) { // 进入最后一段 = 狂暴（p2Add 新招 + p2WindMul 前摇缩短）
+        b.phase = 2; b.state = 'enrage'; b.t = 0; game.sfxQueue.push('roar'); game.shake = 6;
+      } else { b.state = 'idle'; b.t = 0; }
+    }
+    break; }
+
+  case 'breathCast': { // v7.9 冥古龙·炼狱吐息：贴地三段双向推进波（波高 14px，跳上台即躲）
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const want = Math.floor(b.t / T.breath.gap);
+    while (b.fireN < want && b.fireN < T.breath.rounds) {
+      for (const d of [-1, 1]) game.waves.push({ x: b.x + b.w / 2 + d * 22, y: b.y + b.h - T.breath.wh,
+        w: 12, h: T.breath.wh, vx: d * T.breath.wv, life: T.breath.life });
+      game.sfxQueue.push('sweep'); _engShake(4, 0); b.fireN++;
+    }
+    if (b.fireN >= T.breath.rounds && b.t >= T.breath.rounds * T.breath.gap + 0.2) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'haloCast': { // v7.9 圣裁者·圣辉轮：三圈 8 向弹，逐圈转 15°，弹速慢（92）以便穿缝
+    b.vx = 0;
+    for (let i = 0; i < T.halo.t.length; i++)
+      if (b.fireN === i && b.t >= T.halo.t[i]) {
+        _engBossNovaRing(b, i * 15, T.halo.v); b.fireN = i + 1; game.sfxQueue.push('shot');
+      }
+    if (b.fireN >= T.halo.t.length && b.t >= T.halo.endT) { b.state = 'recover'; b.t = 0; }
+    break; }
+
   case 'recover':  b.vx = 0;
     // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
     if (b.t >= (T.recover[b.next] || 0.5))
@@ -1156,14 +1305,26 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         ['#f8d048', '#f86020', '#48d8e8'][((b.t * 10) | 0) % 3], 110, 60);
       game.shake = Math.max(game.shake, 4);
     }
-    if (b.t >= T.dying) { b.state = 'dead'; levelClear(); }  // 复用 v2 通关（含彩带粒子；时长读表）
+    if (b.t >= T.dying) {
+      if (T.nextKind) { // v7.9 终章双 Boss：第一棒倒下不算通关，第二棒接管同一个 game.boss
+        const nb = _engMkBoss(b.homeX + b.w / 2, b.homeY + b.h - _engTile, T.nextKind);
+        nb.state = 'intro'; nb.t = 0; nb.face = -1;   // 直接进登场演出（UI 的横幅/名字/血条全跟着换）
+        game.boss = nb;
+        game.bullets = []; game.waves = [];
+        game.shake = 12; game.sfxQueue.push('roar');
+        _engFx(nb.x + nb.w / 2, nb.y + nb.h / 2, { ring: 1, r: 8, r1: 120, life: 0.7, color: '#fff3c0' });
+        _engFloat(nb.x + nb.w / 2, nb.y - 12, '曜光·圣裁者 降临', '#fff3c0', 1);
+        return;   // 本帧结束：新 Boss 从 intro 起跑，旧 b 不再是 game.boss
+      }
+      b.state = 'dead'; levelClear();   // 复用 v2 通关（含彩带粒子；时长读表）
+    }
     break; }
   }
 
   /* 接触伤害（除休眠/演出/死亡态/blink 隐身期）：吃玩家无敌帧（工单 C 伪代码口径；v7 §6.3 追加隐身跳过） */
   if (b.state !== 'dormant' && b.state !== 'intro' && b.state !== 'dying' && b.state !== 'dead'
-      && !(b.state === 'blinkCast' && b.hidden)
-      && !p.dead && _engAabb(b, p)) _engHurtPlayer(bcx);
+      && b.state !== 'revive' && !(b.state === 'blinkCast' && b.hidden)
+      && !p.dead && _engAabb(b, p)) _engHurtPlayer(bcx, T.contactDmg || 1);
 }
 
 function _engSkillTargetX(p) { // 内部：星陨目标 x——Boss 中心 / 200px 内最近敌 / 面向 44px（设计 §4）
@@ -1596,6 +1757,9 @@ function _engUpdatePlayer(dt, L, p) {
     if (p.dashCd <= 0) {
       p.dashCd = _engDashCd; p.dashT = _engDashDur; // v5 §B：总时长 0.28（原 0.18）；v7.7：冷却回到基础值 0.5s（局外成长已删）
       p.dashDir = dir !== 0 ? dir : p.face; // 有方向输入用输入向，否则用面向
+      // v7.9：起手 0.10s 无敌帧（与受伤无敌同一套 invT 判定，伤害/击退/即死物全部覆盖——
+      // 走 _engHurtPlayer 与 _engHazardHit 两条既有路径，不另开分支，避免出现「闪了但照样死」的交互不一致）。
+      p.invT = Math.max(p.invT, BAL.dash.inv);
       game.sfxQueue.push('dash');
       _engAddParts(p.x + 5 - p.dashDir * 6, p.y + 7, 6, '#48d8e8', 60, 0);
     }
@@ -1962,19 +2126,10 @@ function updateWorld(dt) {
     }
   }
 
-  /* ⑤ 终点判定（v7.3 谜题门：本关有谜题神龛且存在未解者 → 终点不通关，每 2.5s 推送一次引导事件；
-        solvedPuzzles 已由 ui 在 startLevel 时从存档回填（跨会话正确），Boss 关无神龛天然直通） */
-  if (!p.dead && L.goal && _engAabb(p, L.goal)) {
-    const unsolved = (L.shrines || []).filter(function (sh) { return !game.solvedPuzzles[sh.idx]; });
-    if (unsolved.length) {
-      game.puzzleGateT = (game.puzzleGateT || 0) - dt;
-      if (game.puzzleGateT <= 0) {
-        game.puzzleGateT = 2.5;
-        game.sfxQueue.push('select');
-        _engFloat(p.x + 5, p.y - 12, '先解开谜题神龛！（' + unsolved.length + ' 处未解）', '#f8d048');
-      }
-    } else { levelClear(); return; }
-  }
+  /* ⑤ 终点判定（v7.9：谜题不再是通关前置——玩家明确要求「数独/数织别强制做」。
+        神龛降级为可选支线：解开必掉 1 件当档装备（见 puzzleSolved），不解也能直接通关。
+        旧的 v7.3 谜题门（未解神龛 → 终点不通关 + 每 2.5s 引导浮字）整段移除。） */
+  if (!p.dead && L.goal && _engAabb(p, L.goal)) { levelClear(); return; }
 
   /* ⑥ 移动平台：先动并记录本帧 dx,dy；水平推挤，推入实心则死亡（契约算法 3） */
   for (const pl of L.plats) {

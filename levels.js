@@ -616,8 +616,9 @@ function validateLevels(){
   for(let li=0;li<ALL_LEVELS.length;li++){
     const meta=ALL_LEVELS[li];
     const isBoss=!!meta.boss; // v3：BOSS 关豁免终点 P 断言（胜利由 Boss 死亡触发，goal=null 时引擎终点判定自动跳过）
-    if(meta.boss!==undefined && ![true,2,3].includes(meta.boss))   // v7 §10-8：boss 值域断言（meta 级；true≡kind1，2=蛟龙，3=判官）
-      errs.push('L'+(li+1)+' boss 值必须为 true|2|3');
+    if(meta.boss!==undefined && ![true,2,3,4,5].includes(meta.boss))   // v7 §10-8：boss 值域断言（meta 级；true≡kind1，2=蛟龙，3=判官；
+                                                   // v7.9 追加 4=冥古龙 5=曜光·圣裁者，终章 L18 双 Boss 的首发锚点用 4）
+      errs.push('L'+(li+1)+' boss 值必须为 true|2|3|4|5');
     if(!meta.build)continue;
     const g=new LG(meta.w,meta.h);
     meta.build(g);
