@@ -251,3 +251,55 @@ Y 幽焰法师(12×18,hp2,站桩读条火球,下方2格内须支撑,城堡/回�
 ### 敌人技能语义（设计书 §3）
 - 史莱姆弹跳压顶/蝙蝠俯冲撕咬/骑士盾击冲锋(+0.7s 破绽 guardDown 正面失效)/法师读条火球
   （追踪弹 fire:true, home 计时, 可斩碎）；全部前摇 ≥0.5s，伤害统一走 _engHurtPlayer。
+
+---
+
+## 附记（v7 章节化，2026-10-25 · 设计师录入）
+
+> 依据：docs/specs/2026-10-24-v7-brief.md 与 docs/specs/2026-10-24-v7-design.md（下称"设计书"，
+> 唯一设计基准）。本附记只增不改上文任何条款（v4~v6 先例）。六队并行施工，跨文件依赖以本附记+设计书 §1 为准。
+
+### 加载顺序（第 1 节修订）
+```
+art.js → levels.js → chapter2.js → chapter3.js → engine.js → ui.js
+```
+章节文件缺失时浏览器静默跳过（游戏以已合入章节运行）；gate.js 对缺失章节文件跳过拼接。
+
+### levels.js 新契约导出（第 2 节追加）
+- `const CHAPTERS` —— 章节注册表：chapter2.js/chapter3.js 顶层 `CHAPTERS.push({id, name, levels:[…], puzzles:{…}})`；
+  levels 与 puzzles 键=全局 1 基关号；LEVELS 前 10 关与 PUZZLES 键 1..10 一字不动。
+- `var ALL_LEVELS` —— 聚合视图（aggregateLevels 调用前缺省=LEVELS）；engine/ui/gate 关卡遍历一律读它。
+- `function aggregateLevels()` —— **唯一聚合入口**：`ALL_LEVELS = LEVELS.concat(各章 levels)` 并
+  `Object.assign(PUZZLES, 各章 puzzles)`；幂等；levels.js 顶层不调用（调用点=ui.js 启动时一次、
+  gate.js 桩内一次、validateLevels 首行一次）。
+
+### 章节文件纪律（第 0 节追加）
+- chapter2.js/chapter3.js：纯数据文件（同 levels.js "不含行为逻辑"）；顶层只许 `'use strict'`、
+  注释、一个 IIFE 与 IIFE 内 `CHAPTERS.push(...)`；谜题数据为 IIFE 内部局部量。
+- 新全局符号白名单（本章全部）：`CHAPTERS`/`ALL_LEVELS`/`aggregateLevels`（均在 levels.js）。
+
+### engine.js 读侧与新增字段
+- `Level` 构造读 `ALL_LEVELS[idx] || LEVELS[idx]`（聚合前两者同一数组，v6 行为不变）。
+- `Level` 新字段：`chests[]`（'g' 宝箱 {x,y,w:16,h:14,opened,t}）、`lanterns[]`（'R' 灯笼 {x,y,w:16,h:24}）。
+- `game.boss` 新字段 `kind`（1/2/3）；Boss 参数表 `BAL.boss`（kind1 收编现行硬编码）/
+  `BAL.boss2`（蛟龙）/`BAL.boss3`（判官），状态机共用 `_engUpdateBoss`（R4：禁止第二份 Boss 状态机）。
+- 敌人新字段：`elite`（放大变体：scale 1.75/hp 按表/速度×0.8/击退×0.25/踩踏扣 1 不秒杀/必掉装备）。
+
+### 瓦片/实体字符表（第 2 节追加）
+```
+G 隐藏砖(实心,仅攻击可碎,无金币,碎后永久)  g 宝箱(实体,接触开启:装备1件+宝石等价金币)
+{ 左向水流区(非实心,玩家专属水平加速)  } 右向水流区   R 灯笼(实体,nether 光源,纯渲染)
+N 枪虾哨兵(12×14,地面,突刺)  J 水母(12×12,悬浮,脉冲电环)  T 幽灵(12×14,穿墙漂移,唤醒150px)  E 魂火(10×10,爬行自爆)
+x 精英·枪虾王(放大枪虾,必掉装备)  z 精英·幽灵王(放大幽灵,必掉装备)
+```
+
+### 关卡 meta（第 2 节追加）
+- `boss: 2|3` —— 章节 Boss kind（`boss:true`≡kind1 星核巨兽，语义不变）。
+
+### sfx 事件表追加
+- `'chest','boom','blink','sweep'`（engine 只 push，ui 消费）。
+
+### gate.js 覆盖口径（第 3 节门禁环境说明追加）
+- levels/engine 两模式拼接已存在的章节文件并调用 aggregateLevels()；engine 模式构造+空转循环、
+  Boss 冒烟（遍历全部 boss 关，断言 kind 与 maxHp）、谜题链路（全量关）均覆盖 ALL_LEVELS；
+  THEMES 桩补 `sea`/`nether` 两键。

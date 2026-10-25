@@ -1,7 +1,10 @@
 // 确定性门禁：node gate.js <art|levels|engine>
 // art: 语法编译 + 导出符号核对；levels: 执行 + validateLevels 断言；
-// engine: 桩环境执行 levels+engine，七关构造 + 空转不崩 + L7 Boss 冒烟（v3）+
-//         v4 谜题冒烟（PUZZLES 数据/数独唯一解/神龛提取/puzzleSolved 奖励链路，全部条件守卫）。
+// engine: 桩环境执行 levels+章节+engine，全关构造 + 空转不崩 + 逐 Boss 关冒烟（kind/maxHp，v3/v7）+
+//         谜题冒烟（PUZZLES 数据/数独唯一解/全量关神龛链路，全部条件守卫）。
+// v7 §1.5（框架队）：两模式拼接已存在的 chapter2.js/chapter3.js 并 aggregateLevels()；
+//   契约块（levels.js `const CHAPTERS`）未合入时跳过拼接、自动回落 v6 旧口径（10 关），
+//   engine 模式注入 `var ALL_LEVELS=LEVELS` 桩保证引擎读侧可执行。
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +18,14 @@ function read(f) {
 function need(src, names, label) {
   const missing = names.filter(n => !new RegExp('\\b' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(src));
   if (missing.length) { console.error(label + ' 缺少导出/符号: ' + missing.join(', ')); process.exit(1); }
+}
+// ---- v7 §1.5：章节源码辅助（框架队） ----
+// 已存在的章节文件按固定顺序拼接（缺失跳过——与浏览器 404 静默跳过同口径）；
+// 返回 null=levels.js 契约块未合入（CHAPTERS.push 会 ReferenceError，禁止拼接）。
+function chapterState() {
+  const hasContract = /const CHAPTERS/.test(read('levels.js'));
+  const files = ['chapter2.js', 'chapter3.js'].filter(f => fs.existsSync(path.join(ROOT, f)));
+  return { hasContract: hasContract, n: files.length, src: files.map(f => read(f)).join('\n') };
 }
 // ---- v4 数独校验辅助（界面队；仅 gate 内部使用，不属游戏导出） ----
 // 块尺寸候选 [块行高,块列宽]：4×4=2×2、9×9=3×3 固定；6×6 工单写作「块2×3」，行列书写有歧义，
@@ -69,23 +80,47 @@ try {
     console.log('art.js OK: 语法通过, 导出齐全');
   } else if (mod === 'levels') {
     const src = read('levels.js');
-    const sandbox = new Function(src + '\n;return {LG,LEVELS,validateLevels};')();
-    if (!(sandbox.LEVELS && sandbox.LEVELS.length >= 6)) { console.error('LEVELS 至少 6 关'); process.exit(1); }
-    const meta = sandbox.LEVELS.map(l => l.theme + '/' + l.w + 'x' + l.h).join(', ');
+    const ch = chapterState(); // v7 §1.5：契约就绪守卫（未合入时回落 v6 旧口径）
+    const chapterSrc = ch.hasContract ? ch.src : '';
+    const body = src + (chapterSrc ? '\n' + chapterSrc : '')
+      + (ch.hasContract ? '\n;aggregateLevels();' : '');
+    const sandbox = new Function(body + '\n;return {LG,LEVELS,'
+      + 'CHAPTERS:(typeof CHAPTERS==="undefined")?undefined:CHAPTERS,'
+      + 'ALL_LEVELS:(typeof ALL_LEVELS==="undefined")?undefined:ALL_LEVELS,'
+      + 'validateLevels};')();
+    const levels = sandbox.ALL_LEVELS || sandbox.LEVELS;
+    if (!(levels && levels.length >= 6)) { console.error('LEVELS 至少 6 关'); process.exit(1); }
+    if (ch.hasContract) { // v7 §1.5：聚合关数断言 = 10 + 3×已合入章数
+      const want = 10 + 3 * ch.n;
+      if (levels.length !== want) {
+        console.error('ALL_LEVELS.length=' + levels.length + '（应 ' + want + ' = 10 + 3×' + ch.n + ' 已合入章数）');
+        process.exit(1);
+      }
+      console.log('v7 聚合: ' + levels.length + ' 关（10 + 3×' + ch.n + ' 章）');
+    }
+    const meta = levels.map(l => l.theme + '/' + l.w + 'x' + l.h).join(', ');
     const v = sandbox.validateLevels();
     if (!v.ok) { console.error('validateLevels 未通过: ' + v.msg); process.exit(1); }
     console.log('levels.js OK: ' + meta + ' | 断言: ' + v.msg);
   } else if (mod === 'engine') {
     const levelsSrc = read('levels.js');
     const engineSrc = read('engine.js');
-    const themes = {}; ['grass','cave','sky','factory','lava','tower','boss','wind','castle','star'].forEach(k => themes[k] = {}); // v3 §F①桩补第 7 主题；v5 §D③补 wind/castle/star
-    // v4：附带导出 PUZZLES/puzzleSolved（未合入时为 undefined，供下方 v4 冒烟块条件守卫）
-    const glue = '\n;return {PHY,Level,game,loadLevel,respawn,killPlayer,levelClear,updateWorld,LEVELS,'
+    const ch = chapterState(); // v7 §1.5：契约就绪守卫（关键——保证无论平衡队/章节队进度都可控）
+    const chapterSrc = ch.hasContract ? ch.src : '';
+    // 契约未合入窗口：注入 ALL_LEVELS 桩（engine 读侧引用该符号；聚合前语义=LEVELS）
+    const stub = ch.hasContract ? '' : '\n;var ALL_LEVELS = LEVELS;';
+    const agg = ch.hasContract ? '\n;aggregateLevels();' : '';
+    const themes = {}; ['grass','cave','sky','factory','lava','tower','boss','wind','castle','star','sea','nether'].forEach(k => themes[k] = {}); // v3 §F①桩补第 7 主题；v5 §D③补 wind/castle/star；v7 §1.5 补 sea/nether
+    // v4：附带导出 PUZZLES/puzzleSolved（未合入时为 undefined，供下方 v4 冒烟块条件守卫）；
+    // v7：追加 ALL_LEVELS 与 BAL（Boss 冒烟 maxHp 断言读 BAL.boss/boss2/boss3）
+    const glue = '\n;return {PHY,Level,game,loadLevel,respawn,killPlayer,levelClear,updateWorld,LEVELS,ALL_LEVELS,'
+      + "BAL:(typeof BAL==='undefined')?undefined:BAL,"
       + "PUZZLES:(typeof PUZZLES==='undefined')?undefined:PUZZLES,"
       + "puzzleSolved:(typeof puzzleSolved==='undefined')?undefined:puzzleSolved};";
-    const sandbox = new Function('THEMES', levelsSrc + '\n' + engineSrc + glue)(themes);
+    const sandbox = new Function('THEMES', levelsSrc + (chapterSrc ? '\n' + chapterSrc : '') + stub + agg + '\n' + engineSrc + glue)(themes);
     need(engineSrc, ['PHY', 'Level', 'game', 'loadLevel', 'respawn', 'killPlayer', 'levelClear', 'updateWorld'], 'engine.js');
-    const nLevels = sandbox.LEVELS.length;
+    const nLevels = sandbox.ALL_LEVELS.length; // v7 §1.5：覆盖全部 10~16 关
+    // ① 构造+空转循环（120 帧静止 + 60 帧右移起跳）
     for (let i = 0; i < nLevels; i++) {
       sandbox.loadLevel(i, false);
       const g = sandbox.game;
@@ -99,22 +134,40 @@ try {
       const pos = '玩家@(' + Math.round(g.player.x) + ',' + Math.round(g.player.y) + ')';
       console.log('engine L' + (i + 1) + ' OK: ' + L.meta.name + ' ' + pos + ' 金币总' + L.totalCoin + ' 帧稳定');
     }
-    // v3 §F②（界面队追加）：Boss 冒烟——设计硬约束 H1：激活半径 176px 保证
-    // 空转 180 帧玩家不得死亡、Boss 保持 dormant。v5 §D②：Boss 关按 boss 元数据定位
-    // （7→10 关后不再假设"最后一关=Boss 关"），找不到 boss 元数据时整块跳过。
-    const bossIdx = sandbox.LEVELS.findIndex(function (l) { return !!l.boss; });
-    if (bossIdx >= 0) {
-      sandbox.loadLevel(bossIdx, false);
-      sandbox.game.state = 'play';
-      if (sandbox.game.boss) {
-        for (let f = 0; f < 180; f++) sandbox.updateWorld(1 / 60);   // 纯空转 180 帧
-        const g = sandbox.game;
-        if (g.player.dead || (g.player.hp !== undefined && g.player.hp < 5) || g.boss.state !== 'dormant') {
-          console.error('L7 Boss 违约: 空转180帧 dead=' + g.player.dead + ' hp=' + g.player.hp + ' boss=' + g.boss.state);
-          process.exit(1);
-        }
-        console.log('engine L7 Boss 冒烟 OK: 空转180帧 玩家存活 Boss=dormant');
+    // ② Boss 冒烟——v3 §F②（激活半径 176px 保证空转 180 帧不死不激活）；
+    //    v7 §1.5：由 findIndex 单关改为遍历全部 !!l.boss 关，逐关断言 kind 与 maxHp。
+    const bossIdxs = [];
+    for (let i = 0; i < nLevels; i++) if (sandbox.ALL_LEVELS[i] && !!sandbox.ALL_LEVELS[i].boss) bossIdxs.push(i);
+    const SBAL = sandbox.BAL;
+    for (const bi of bossIdxs) {
+      const meta = sandbox.ALL_LEVELS[bi];
+      const kind = meta.boss === true ? 1 : meta.boss; // v7 §6.1：boss:true≡kind1
+      if (!(kind >= 1 && kind <= 3)) {
+        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2|3）');
+        process.exit(1);
       }
+      sandbox.loadLevel(bi, false);
+      sandbox.game.state = 'play';
+      if (!sandbox.game.boss) {
+        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss 存在但 game.boss=null（缺 X 锚点?）');
+        process.exit(1);
+      }
+      for (let f = 0; f < 180; f++) sandbox.updateWorld(1 / 60);   // 纯空转 180 帧
+      const g = sandbox.game;
+      if (g.player.dead || (g.player.hp !== undefined && g.player.hp < 5) || g.boss.state !== 'dormant') {
+        console.error('L' + (bi + 1) + ' Boss 违约: 空转180帧 dead=' + g.player.dead + ' hp=' + g.player.hp + ' boss=' + g.boss.state);
+        process.exit(1);
+      }
+      if (g.boss.kind !== kind) {
+        console.error('L' + (bi + 1) + ' Boss kind 违约: 实际 ' + g.boss.kind + '（应 ' + kind + '）');
+        process.exit(1);
+      }
+      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3][kind - 1].hp; // v7 §1.5：maxHp 与参数表一致
+      if (g.boss.maxHp !== wantHp) {
+        console.error('L' + (bi + 1) + ' Boss maxHp 违约: 实际 ' + g.boss.maxHp + '（应 BAL 表 ' + wantHp + '）');
+        process.exit(1);
+      }
+      console.log('engine L' + (bi + 1) + ' Boss 冒烟 OK: kind=' + kind + ' maxHp=' + g.boss.maxHp + ' 空转180帧 玩家存活 Boss=dormant');
     }
     // v4（界面队追加）：谜题神龛冒烟——全部条件守卫，levels v4 未合入（无 PUZZLES）时整块跳过，
     // v2/v3 输出不变；shrine/puzzleSolved 链路再按 engine v4 符号存在性二级守卫。
@@ -149,16 +202,21 @@ try {
         } else probs.push('P' + k + ' 未知类型 ' + p.type);
       }
       // ② 神龛提取 + puzzleSolved 奖励链路（engine v4 就绪才跑）
-      let shrineRan = false;
+      // v7 §1.5：Math.min(6,nLevels) → nLevels 全量（新关神龛 idx=11/12/14/15 逐关验证链路；
+      // Boss 关无神龛，循环跳过、下方对全部 Boss 关做零神龛负例断言）
+      let shrineRan = false, shrineN = 0;
       if (typeof sandbox.puzzleSolved === 'function') {
         shrineRan = true;
-        for (let i = 0; i < Math.min(6, nLevels); i++) {
+        for (let i = 0; i < nLevels; i++) {
+          const m = sandbox.ALL_LEVELS[i];
+          if (m && !!m.boss) continue; // Boss 关零神龛（负例断言在下方统一做）
           sandbox.loadLevel(i, false);
           const g = sandbox.game;
           g.state = 'play';
           const shr = g.level.shrines;
           if (!shr) { probs.push('L' + (i + 1) + ' level.shrines 缺失(engine v4 未合入?)'); break; }
           if (shr.length !== 1) { probs.push('L' + (i + 1) + ' 神龛数=' + shr.length + '(应为1)'); continue; }
+          shrineN++;
           if (shr[0].idx !== i + 1) probs.push('L' + (i + 1) + ' 神龛 idx=' + shr[0].idx + '(应为' + (i + 1) + ')');
           if (g.puzzleNear !== undefined && typeof g.puzzleNear !== 'number') probs.push('L' + (i + 1) + ' puzzleNear 应为 number');
           const c0 = g.coins, q0 = g.sfxQueue.length;
@@ -168,12 +226,11 @@ try {
           const q = g.sfxQueue.slice(q0);
           if (!q.includes('puzzle') || !q.includes('gem')) probs.push('L' + (i + 1) + ' sfxQueue 缺 puzzle/gem: [' + q.join(',') + ']');
         }
-        // v5 §D②：神龛终检只对 Boss 关执行（"Boss 关不应有神龛"照旧对 L7 生效；
-        // L10 有神龛不再被"最后一关"假设误检）
-        if (bossIdx >= 0 && sandbox.LEVELS[bossIdx].boss === true) {
-          sandbox.loadLevel(bossIdx, false);
-          const shr7 = sandbox.game.level.shrines;
-          if (shr7 && shr7.length) probs.push('L7 不应有神龛(实有 ' + shr7.length + ')');
+        // 神龛负例：全部 Boss 关不应有神龛（v3 对 L7 / v7 对 L13/L16 同口径）
+        for (const bi of bossIdxs) {
+          sandbox.loadLevel(bi, false);
+          const shrB = sandbox.game.level.shrines;
+          if (shrB && shrB.length) probs.push('L' + (bi + 1) + ' Boss 关不应有神龛(实有 ' + shrB.length + ')');
         }
       }
       if (probs.length) {
@@ -181,10 +238,10 @@ try {
         process.exit(1);
       }
       console.log('engine v4 谜题冒烟 OK: ' + (shrineRan
-        ? 'PUZZLES 六题数据/唯一解 + 神龛六关各一 + puzzleSolved 奖励链路'
-        : 'PUZZLES 六题数据/唯一解（神龛与 puzzleSolved 链路待 engine v4 合入后生效）'));
+        ? 'PUZZLES ' + Object.keys(PZ).length + ' 题数据/唯一解 + 神龛 ' + shrineN + ' 非Boss关各一 + puzzleSolved 奖励链路'
+        : 'PUZZLES 数据/唯一解（神龛与 puzzleSolved 链路待 engine v4 合入后生效）'));
     }
-    console.log('engine.js OK: 六关构造与空转全部通过');
+    console.log('engine.js OK: ' + nLevels + ' 关构造与空转全部通过');
   } else {
     console.error('用法: node gate.js <art|levels|engine>'); process.exit(1);
   }

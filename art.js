@@ -65,6 +65,17 @@
  *   12×12 灰阶基准稿（ui source-atop 叠稀有度色）+ 背包钮 icoBag；合成在 ui（cape→基础帧→
  *   weapon/hat，攻冲家族 dx=+1）；分区红线 hat rows0..4×cols4..11 / weapon rows7..15×cols10..15
  *   （剑身不出右缘）/ cape rows5..15×cols0..6（_v6_look_check.js 逐像素断言）；既有键零改动。
+ * —— v7 美术队（设计书 2026-10-24-v7-design.md，工单 docs/workorders/v7-art.md）——
+ *   A. THEMES 十二键：+sea 东海龙宫（decor coral-shell-kelp，不设 dark）/+nether 幽冥地府（dark:true，
+ *      decor ghostflame-bone-skull）；母题 sea 珊瑚礁/nether 玄武岩骨刻；sea '~'=热泉、nether '~'=岩浆。
+ *   B. tiles 新三键（仅 sea/nether，ui 守卫式读取）：hidden（'G' 砖=block 同色系+2px 裂纹暗记）、
+ *      waterL/waterR（'{'/'}' 水流=半透明水底 #2a8ad0 系+2px 白箭头）。
+ *   C. makeBG：sea=深海渐变+光柱+龙宫飞檐/海藻+鱼群；nether=幽暗渐变+远山鬼火+奈何桥+彼岸花/锁链+浮灯。
+ *   D. 新精灵：SPR.lancer[2] 14×14（面左，帧2 矛前伸 1px）/jelly[2]/ghost[2]/boomer[2]/eliteCrown/
+ *      chest[2] 16×14/lantern[2] 12×16。
+ *   E. SPR.boss2 蛟龙（body 64×40，青金）/SPR.boss3 判官（body 40×52，暗紫+鬼火绿）——键集合=SPR.boss
+ *      全键+coreRage；boss2White/boss3White={body,arm,jaw} 沿 bossWhite 先例；jaw/eye/pupil/core 复用
+ *      既有网格+新调色板（对齐 renderBoss 装配，设计书 §9.3）。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -1545,6 +1556,395 @@ const _ICO_BAG = [ // HUD 背包钮：囊袋（提手+盖 flap l+袋身 m）+ �
   'kddddddddddk',
   '.kkkkkkkkkk.'];
 
+/* ==================== v7 美术队：新敌/机关素材（工单 §3/§5） ====================
+ * H4 方向：lancer 面左（ui e.face>0 flipCache 沿 mage/knight 惯例），jelly/ghost/boomer 对称构图。 */
+const _P_LANCER = { k: '#4a140c', r: '#e85830', R: '#b03818', L: '#f89068', m: '#f8c8a0', w: '#e8ecf4', W: '#ffffff', e: '#f8f0e0', p: '#281018' }; // 枪虾
+const _LANCER_1 = [ // 枪虾帧1 面左
+  '....kkkkkk....',
+  '..kkrrrrrrkk..',
+  '.krLLrrrrrrRk.',
+  '.krLrrrrrrrRk.',
+  'krrrperrrrRk..',
+  'krrrperrrrRk..',
+  'wWkrrrrrrrRk..',
+  'wWkrrrmmrrRk..',
+  '.wWkmmmrrrRk..',
+  '..kmmmmrrRk...',
+  '..krrrrrRk....',
+  '...krrrRk.....',
+  '...kRk.kRk....',
+  '..............'];
+const _LANCER_2 = _LANCER_1.slice(0, 8).concat(['wwWkmmmrrrRk..'], _LANCER_1.slice(9)); // 帧2：矛前伸 1px
+const _P_JELLY = { k: '#1a3a5c', c: '#8ad8f8', C: '#48a8e0', D: '#2878b8', w: '#e8fcff', t: '#a8e8ff', T: '#58b8e8' }; // 水母
+const _JELLY_1 = [ // 水母帧1
+  '...kkkkkk...',
+  '..kcwwccCk..',
+  '.kcwccccCCk.',
+  '.kcccccCCDk.',
+  'kcccccccCCDk',
+  'kDccccccCDDk',
+  '.kkkkkkkkkk.',
+  '.t..t..t..t.',
+  '.t..t..t..t.',
+  '.t..t..t..t.',
+  '.T..T..T..T.',
+  '.T..T..T..T.'];
+const _JELLY_2 = _JELLY_1.slice(0, 5).concat([ // 帧2 伞缘收缩
+  '.kDccccCCDk.',
+  '..kTkkkkTk..',
+  '..t.t..t.t..',
+  '..t.t..t.t..',
+  '..T.T..T.T..',
+  '..T.T..T.T..',
+  '............']);
+const _P_GHOST = { k: '#241436', P: '#b8a8f0', p: '#8868d8', D: '#5848a0', w: '#f0f4ff' }; // 幽灵
+const _GHOST_1 = [ // 幽灵帧1
+  '...kkkkkk...',
+  '..kPPwwPPk..',
+  '.kPPwwwwPPk.',
+  '.kPkkwwkkPk.',
+  '.kPkkwwkkPk.',
+  '.kPwwwwwwPk.',
+  '.kpwwwwwwpk.',
+  '.kppwwwwppk.',
+  '.kppppppppk.',
+  '.kDppppppDk.',
+  '.kDDppppDDk.',
+  '.kDDkDDkDDk.',
+  '.k..k..k..k.',
+  '............'];
+const _GHOST_2 = _GHOST_1.slice(0, 11).concat([ // 帧2：下摆右移 1px
+  '..kDkDDkDDk.',
+  '..k..k..k..k',
+  '............']);
+const _P_BOOMER = { k: '#16304a', b: '#58b8f8', B: '#2878c8', w: '#e8f8ff' }; // 魂火
+const _BOOMER_1 = [ // 魂火帧1
+  '....w.....',
+  '...kwk....',
+  '...kwbk...',
+  '..kwwbk...',
+  '..kwwbbk..',
+  '.kbwwbbk..',
+  '.kbbwbbBk.',
+  '.kbbbbBBk.',
+  '..kbbBBk..',
+  '...kkkk...'];
+const _BOOMER_2 = [ // 魂火帧2（膨胀+1px 外焰）
+  '....w.....',
+  '...kwk....',
+  '..kwwbk...',
+  '.kwwwbbk..',
+  '.kwwbbBk..',
+  'kbbwwbbBk.',
+  'kbbbwbbBBk',
+  'kbbbbBBBk.',
+  '.kbbBBBk..',
+  '..kkkkkk..'];
+const _P_CROWN = { k: '#7a4a10', y: '#f8d048', Y: '#c89010', r: '#f86048' }; // 精英金冠
+const _V7_CROWN = [ // 精英金冠 8×6（ui 覆盖敌头顶，可选件）
+  'yy.yy.yy',
+  'yyyyyyyy',
+  'yYyyyyYy',
+  'yYyrryYy',
+  'kYYYYYYk',
+  '.kkkkkk.'];
+const _P_CHEST = { k: '#4a2c10', m: '#a87848', M: '#7a5430', l: '#c89858', y: '#f8d048', Y: '#c89010', w: '#fff8c8', G: '#f8e8a0' }; // 宝箱
+const _CHEST_1 = [ // 宝箱帧1（闭合：金箍+锁扣）
+  '..kkkkkkkkkkkk..',
+  '.kllllllllllllk.',
+  '.kmmyymmyymmmmk.',
+  '.kmmyymmyymmmmk.',
+  '.kmmmmmmmmmmMMk.',
+  '.kYYYYYYYYYYYYk.',
+  '.kMMMMMMMMMMMMk.',
+  '.kmmyymmyymmmmk.',
+  '.kmmyymmyymmmmk.',
+  '.kMMMMyyyyMMMMk.',
+  '.kMMMMywwyMMMMk.',
+  '.kMMMMyyyyMMMMk.',
+  '.kMMMMMMMMMMMMk.',
+  '..kkkkkkkkkkkk..'];
+const _CHEST_2 = [ // 宝箱帧2（开启：内金光）
+  '..kkkkkkkkkkkk..',
+  '.kMMMMMMMMMMMMk.',
+  '.kGyyyyyyyyyyGk.',
+  '.kyGyyyyyyyyGyk.',
+  '.kGyyyyyyyyyyGk.',
+  '.kYYYYYYYYYYYYk.'].concat(_CHEST_1.slice(6)); // y6..13 同帧1
+const _P_LANTERN = { k: '#4a0e0e', r: '#e84838', R: '#b02818', L: '#f88868', y: '#f8d048', w: '#fff8c8', Y: '#c89010', t: '#c8a038' }; // 灯笼
+const _LANTERN_1 = [ // 灯笼帧1（内焰黄）
+  '.....kk.....',
+  '....kYYk....',
+  '..krLLLLRk..',
+  '..krLLrrRk..',
+  '..krLrrrRk..',
+  '..krLyyrRk..',
+  '..krLyyrRk..',
+  '..krryyrRk..',
+  '..krrrrrRk..',
+  '..krLrrrRk..',
+  '..kRrrrRRk..',
+  '...kRRRRk...',
+  '....kYYk....',
+  '.....kt.....',
+  '.....tt.....',
+  '....kttk....'];
+const _LANTERN_2 = _LANTERN_1.slice(0, 5).concat([ // 帧2 内焰白
+  '..krLywrRk..',
+  '..krLwwrRk..',
+  '..krrywrRk..'], _LANTERN_1.slice(8));
+
+/* —— v7 sea/nether 装饰网格（_buildDecor 消费；摆放由引擎决定）—— */
+const _V7_CORAL = [ // 珊瑚枝 12×14
+  '...w....w...',
+  '..kwk..kwk..',
+  '..kck..kck..',
+  '...kckkkck..',
+  '....kCCk....',
+  '....kCCk....',
+  '...kcCck....',
+  '...kcCck....',
+  '...kCCck....',
+  '...kcCck....',
+  '...kcCck....',
+  '...kcCCck...',
+  '...kcCCck...',
+  '....kkkk....'];
+const _V7_SHELL = [ // 海星 10×8
+  '....kk....',
+  '...kwsk...',
+  '...kssk...',
+  'kkkksskkkk',
+  'kssssssssk',
+  '.ksswwssk.',
+  '..kssssk..',
+  '.kkk..kkk.'];
+const _V7_KELP1 = [ // 海草帧1 10×16
+  '......gg..',
+  '.....ggG..',
+  '....ggG...',
+  '....ggG...',
+  '...ggG....',
+  '...ggGl...',
+  '...ggG....',
+  '..ggG.....',
+  '..ggGl....',
+  '..ggG.....',
+  '..ggG.....',
+  '.ggG......',
+  '.ggGl.....',
+  '.ggG......',
+  '.ggG......',
+  'ggG.......'];
+const _V7_KELP2 = [ // 海草帧2 上半右摆
+  '.......gg.',
+  '......ggG.',
+  '.....ggG..',
+  '.....ggG..',
+  '....ggG...',
+  '....ggGl..',
+  '....ggG...',
+  '...ggG....',
+  '...ggG....',
+  '...ggG....',
+  '..ggG.....',
+  '..ggGl....',
+  '..ggG.....',
+  '..ggG.....',
+  '.ggG......',
+  '.ggG......'];
+const _V7_GFLAME1 = [ // 鬼火帧1 8×10
+  '...f....',
+  '..kfwk..',
+  '.kffwfk.',
+  '.kfwffk.',
+  'kfffFffk',
+  'kffFFffk',
+  '.kffffk.',
+  '.kFffFk.',
+  '..kkkk..',
+  '........'];
+const _V7_GFLAME2 = [ // 鬼火帧2（焰尖偏摆）
+  '....f...',
+  '..kfwk..',
+  '.kfwffk.',
+  '.kfffwk.',
+  'kffFfffk',
+  'kfFFfffk',
+  '.kffffk.',
+  '.kFffFk.',
+  '..kkkk..',
+  '........'];
+const _V7_BONE = [ // 骸骨 14×6
+  '.kk........kk.',
+  'kbwk......kbwk',
+  'kbbkbbbbbbkbbk',
+  'kBBkbbbbbbkBBk',
+  'kbwk......kbwk',
+  '.kk........kk.'];
+
+/* —— v7 Boss 调色板（蛟龙=青金 / 判官=暗紫+鬼火绿；描边=加深版禁纯黑）—— */
+const _P_DRAGON = { k: '#0e2a38', S: '#1878a8', L: '#38a8d0', D: '#0f4a70', b: '#b8e8c8', m: '#0a2438', C: '#f8d048', c: '#c89010', W: '#fff8c8', t: '#68e8f0' }; // 蛟龙常态（青金）
+const _P_DRAGON_RAGE = { k: '#081820', S: '#10689a', L: '#2890c0', D: '#0a3a58', b: '#a8d8c0', m: '#061828', C: '#f86838', c: '#b03018', W: '#ffd8c8', t: '#f8a030' }; // 蛟龙狂暴
+const _P_DRAGON_EYE = { k: '#0e2a38', e: '#68e8f0', w: '#e8fcff' };
+const _P_DRAGON_EYE_R = { k: '#081820', E: '#f86838', w: '#ffd8c8' };
+const _P_DRAGON_PUPIL = { k: '#0e2a38', p: '#082838' };
+const _P_DRAGON_CORE = { k: '#0e2a38', C: '#f8d048', c: '#c89010', W: '#fff8c8' };
+const _P_DRAGON_CORE2 = { k: '#0e2a38', C: '#c89010', c: '#a87818', W: '#f8d048' };
+const _P_DRAGON_CORE_R = { k: '#081820', C: '#f86838', c: '#b03018', W: '#ffd8c8' };
+const _P_DRAGON_CORE_R2 = { k: '#081820', C: '#b03018', c: '#802010', W: '#f86838' };
+const _P_JUDGE = { k: '#140a24', S: '#3a2a50', L: '#54406e', D: '#241a38', b: '#8868d8', m: '#0a0616', C: '#68e8a0', c: '#38a870', W: '#d8ffe8', t: '#68e8a0' }; // 判官常态（暗紫+鬼火绿）
+const _P_JUDGE_RAGE = { k: '#0a0414', S: '#4a2038', L: '#683048', D: '#2a1020', b: '#c85888', m: '#080208', C: '#f86030', c: '#a82810', W: '#ffd8c8', t: '#f8a030' }; // 判官狂暴
+const _P_JUDGE_EYE = { k: '#140a24', e: '#68e8a0', w: '#d8ffe8' };
+const _P_JUDGE_EYE_R = { k: '#0a0414', E: '#f86030', w: '#ffd8c8' };
+const _P_JUDGE_PUPIL = { k: '#140a24', p: '#0a0518' };
+const _P_JUDGE_CORE = { k: '#140a24', C: '#68e8a0', c: '#38a870', W: '#d8ffe8' };
+const _P_JUDGE_CORE2 = { k: '#140a24', C: '#38a870', c: '#207848', W: '#68e8a0' };
+const _P_JUDGE_CORE_R = { k: '#0a0414', C: '#f86030', c: '#a82810', W: '#ffd8c8' };
+const _P_JUDGE_CORE_R2 = { k: '#0a0414', C: '#a82810', c: '#701808', W: '#f86030' };
+
+/* —— v7 Boss 身体程序化画法（行跨+椭圆，沿 _buildBossBody 十步口径：填充→明暗→描边→光栅；狂暴=同网格换装）—— */
+function _rimShade(G, set, get, xFrom, y0, y1, dith) { // 内部：Boss 右下缘 2px 阴影带（dith=第三像素棋盘）
+  const W = G[0].length;
+  for (let y = y0; y <= y1; y++) {
+    let xr = -1;
+    for (let x = W - 1; x > xFrom; x--) { const ch = get(x, y); if (ch === 'S' || ch === 'L') { xr = x; break; } }
+    if (xr < 0) continue;
+    set(xr, y, 'D');
+    if (get(xr - 1, y) === 'S' || get(xr - 1, y) === 'L') set(xr - 1, y, 'D');
+    if (dith && get(xr - 2, y) === 'S' && ((xr + y) & 1) === 0) set(xr - 2, y, 'D');
+  }
+}
+function _rasterGrid(G, pal) { // 内部：Boss 网格收尾（描边 4 邻空→k + 调色板光栅）
+  const H = G.length, W = G[0].length;
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const ch = G[y][x];
+    if (ch !== 'S' && ch !== 'L' && ch !== 'D' && ch !== 'b') continue;
+    if (get(x - 1, y) === '.' || get(x + 1, y) === '.' || get(x, y - 1) === '.' || get(x, y + 1) === '.') G[y][x] = 'k';
+  }
+  const c = _makeCanvas(W, H), g = c.getContext('2d');
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const ch = G[y][x];
+    if (ch !== '.' && pal[ch]) { g.fillStyle = pal[ch]; g.fillRect(x, y, 1, 1); }
+  }
+  return c;
+}
+function _buildDragonBody(pal) { // 内部：蛟龙身体 64×40（长躯+背鳍棘+腹甲+鳍桩；core 覆盖 (26,16)）
+  const W = 64, H = 40;
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const set = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  const top = new Array(W).fill(-1);
+  // ① 躯干宽椭圆 (31,18) rx30 ry12
+  for (let y = 6; y <= 30; y++) {
+    const t = (y - 18) / 12;
+    const hw = Math.round(30 * Math.sqrt(Math.max(0, 1 - t * t)));
+    if (hw < 1) continue;
+    for (let x = 31 - hw; x <= 30 + hw; x++) { if (G[y][x] === '.') G[y][x] = 'S'; if (top[x] < 0) top[x] = y; }
+  }
+  // ② 背鳍棘 5 枚
+  [12, 22, 32, 42, 52].forEach(function (cx) {
+    const ty = top[cx];
+    if (ty < 1) return;
+    set(cx, ty - 3, 'L');
+    for (let dx = -1; dx <= 1; dx++) set(cx + dx, ty - 2, 'L');
+    for (let dx = -2; dx <= 2; dx++) if (get(cx + dx, ty - 1) === '.') set(cx + dx, ty - 1, 'L');
+  });
+  // ③ 腹甲椭圆 + 肋线 D 三道
+  for (let y = 23; y <= 37; y++) {
+    const t = (y - 30) / 7;
+    const hw = Math.round(22 * Math.sqrt(Math.max(0, 1 - t * t)));
+    if (hw < 1) continue;
+    for (let x = 31 - hw; x <= 30 + hw; x++) G[y][x] = 'b';
+  }
+  for (let x = 12; x <= 50; x++) {
+    if (G[28][x] === 'b') G[28][x] = 'D';
+    if (G[32][x] === 'b') G[32][x] = 'D';
+    if (G[36][x] === 'b') G[36][x] = 'D';
+  }
+  // ④ 鳍桩（四肢残鳍）y36..39，底行 D
+  for (let y = 36; y <= 39; y++) {
+    for (let x = 16; x <= 25; x++) G[y][x] = 'S';
+    for (let x = 38; x <= 47; x++) G[y][x] = 'S';
+  }
+  for (let x = 16; x <= 25; x++) G[39][x] = 'D';
+  for (let x = 38; x <= 47; x++) G[39][x] = 'D';
+  // ⑤ 龙珠座 m
+  for (let y = 16; y <= 27; y++) for (let x = 26; x <= 37; x++) G[y][x] = 'm';
+  // ⑥ 眼窝 D
+  for (let y = 8; y <= 17; y++) {
+    for (let x = 12; x <= 23; x++) G[y][x] = 'D';
+    for (let x = 40; x <= 51; x++) G[y][x] = 'D';
+  }
+  // ⑦ 裂纹 t
+  [[20, 8], [21, 9], [42, 7], [43, 8], [31, 7], [32, 8]].forEach(function (p) { set(p[0], p[1], 't'); });
+  // ⑧ 明暗：受光带+右下阴影缘（_rimShade/_rasterGrid）
+  for (let x = 0; x < 31; x++) {
+    const tp = top[x];
+    if (tp < 0) continue;
+    for (let y = tp; y <= tp + 3; y++) if (get(x, y) === 'S') set(x, y, 'L');
+    if (get(x, tp + 4) === 'S' && ((x + tp + 4) & 1) === 0) set(x, tp + 4, 'L');
+  }
+  _rimShade(G, set, get, 31, 12, 29, true);
+  return _rasterGrid(G, pal);
+}
+function _buildJudgeBody(pal) { // 内部：判官身体 40×52（官帽+兜帽虚影+高袍摆缘；core 覆盖 (14,26)）
+  const W = 40, H = 52;
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const set = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  const get = function (x, y) { return (x >= 0 && x < W && y >= 0 && y < H) ? G[y][x] : '.'; };
+  // ① 官帽：冠 y0..2 x∈[14,25] + 两翼 x∈[9,13]∪[26,30]
+  for (let y = 0; y <= 2; y++) for (let x = 14; x <= 25; x++) G[y][x] = 'S';
+  for (let y = 1; y <= 2; y++) {
+    for (let x = 9; x <= 13; x++) G[y][x] = 'S';
+    for (let x = 26; x <= 30; x++) G[y][x] = 'S';
+  }
+  // ② 兜帽/头：椭圆 中心(19,12) rx=12 ry=9（y3..21）
+  for (let y = 3; y <= 21; y++) {
+    const t = (y - 12) / 9;
+    const hw = Math.round(12 * Math.sqrt(Math.max(0, 1 - t * t)));
+    if (hw < 1) continue;
+    for (let x = 19 - hw; x <= 18 + hw; x++) if (G[y][x] === '.') G[y][x] = 'S';
+  }
+  // ③ 脸部虚影 m
+  for (let y = 8; y <= 18; y++) for (let x = 8; x <= 31; x++) if (G[y][x] === 'S') G[y][x] = 'm';
+  // ④ 眼窝 D
+  for (let y = 8; y <= 16; y++) {
+    for (let x = 8; x <= 17; x++) G[y][x] = 'D';
+    for (let x = 22; x <= 31; x++) G[y][x] = 'D';
+  }
+  // ⑤ 高袍梯形；⑥ 肩垫 y17..21
+  for (let y = 20; y <= 45; y++) {
+    const hw = 10 + Math.round((y - 20) * 7 / 25);
+    for (let x = 19 - hw; x <= 18 + hw; x++) G[y][x] = 'S';
+  }
+  for (let y = 17; y <= 21; y++) {
+    for (let x = 5; x <= 10; x++) if (G[y][x] === '.') G[y][x] = 'S';
+    for (let x = 29; x <= 34; x++) if (G[y][x] === '.') G[y][x] = 'S';
+  }
+  // ⑦ 摆缘+底行 D；⑧ 官印座 m
+  for (let y = 46; y <= 47; y++) for (let x = 3; x <= 36; x++) G[y][x] = 'S';
+  for (let y = 48; y <= 51; y++) for (let x = 5; x <= 34; x++) G[y][x] = 'S';
+  for (let x = 5; x <= 34; x++) G[51][x] = 'D';
+  for (let y = 26; y <= 37; y++) for (let x = 14; x <= 25; x++) G[y][x] = 'm';
+  // ⑨ 鬼火镶边+侧缝 D
+  for (let x = 12; x <= 27; x++) if (G[22][x] === 'S') G[22][x] = 't';
+  for (let x = 6; x <= 33; x++) if (G[46][x] === 'S') G[46][x] = 't';
+  for (let y = 25; y <= 45; y++) { G[y][11] = 'D'; G[y][28] = 'D'; }
+  // ⑩ 明暗：左上受光带+右缘阴影（_rimShade/_rasterGrid）
+  for (let x = 0; x < 20; x++) {
+    let tp = -1;
+    for (let y = 0; y < H; y++) if (G[y][x] === 'S') { tp = y; break; }
+    if (tp < 0) continue;
+    for (let y = tp; y <= tp + 2; y++) if (get(x, y) === 'S') set(x, y, 'L');
+  }
+  _rimShade(G, set, get, 20, 24, 45, false);
+  return _rasterGrid(G, pal);
+}
+
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
@@ -1883,6 +2283,61 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.icoH = _makeSprite(_ICO_H, _P_ICO);         // 头饰槽图标
   SPR.icoC = _makeSprite(_ICO_C, _P_ICO);         // 披风槽图标
   SPR.icoBag = _makeSprite(_ICO_BAG, _P_ICO_BAG); // HUD 背包钮图标（金棕+金扣，非灰阶不叠色）
+  // —— v7（工单 §3/§5）：新敌/机关精灵，既有键零改动 ——
+  SPR.lancer = [ // 枪虾 14×14 两帧（面左；帧2 矛前伸 1px；ui e.face>0 flipCache，wind 用帧 2）
+    _makeSprite(_LANCER_1, _P_LANCER), _makeSprite(_LANCER_2, _P_LANCER)];
+  SPR.jelly = [ // 水母 12×12 两帧（帧2 伞缘收缩；电弧=ui 程序化）
+    _makeSprite(_JELLY_1, _P_JELLY), _makeSprite(_JELLY_2, _P_JELLY)];
+  SPR.ghost = [ // 幽灵 12×14 两帧（帧2 下摆偏摆；ui globalAlpha 0.78）
+    _makeSprite(_GHOST_1, _P_GHOST), _makeSprite(_GHOST_2, _P_GHOST)];
+  SPR.boomer = [ // 魂火 10×10 两帧（帧2 膨胀；自爆演出=引擎粒子）
+    _makeSprite(_BOOMER_1, _P_BOOMER), _makeSprite(_BOOMER_2, _P_BOOMER)];
+  SPR.eliteCrown = _makeSprite(_V7_CROWN, _P_CROWN); // 精英金冠 8×6（缺省 ui 跳过）
+  SPR.chest = [ // 宝箱 16×14 两帧（'g' 隐藏房奖励）
+    _makeSprite(_CHEST_1, _P_CHEST), _makeSprite(_CHEST_2, _P_CHEST)];
+  SPR.lantern = [ // 灯笼 12×16 两帧（内焰黄/白；'R' 光源实体）
+    _makeSprite(_LANTERN_1, _P_LANTERN), _makeSprite(_LANTERN_2, _P_LANTERN)];
+  // —— v7（工单 §4）：Boss 部件组，键集合=SPR.boss+coreRage；ui 按
+  //      [SPR.boss,SPR.boss2,SPR.boss3][kind] 装配（§9.3）；白剪影沿 bossWhite 先例。
+  function _mkV7Boss(bodyFn, P) { // 内部：Boss 部件组装配（蛟龙/判官共用，差异=调色/体建器）
+    const body = bodyFn(P.b), bodyR = bodyFn(P.bR);
+    return {
+      body: [body, _bossBreath(body)], bodyRage: [bodyR, _bossBreath(bodyR)],             // ×2 帧2 呼吸
+      arm: _buildBossArm(P.b), armRage: _buildBossArm(P.bR),                              // 20×16 右臂=翻转
+      jaw: [_makeSprite(_BOSS_JAW_C, P.b), _makeSprite(_BOSS_JAW_O, P.b)],                // 闭/开 20×8
+      jawRage: [_makeSprite(_BOSS_JAW_C, P.bR), _makeSprite(_BOSS_JAW_O, P.bR)],
+      eye: _glow(_makeSprite(_BOSS_EYE, P.e), P.eyeRim, true),                            // 12×10
+      eyeRage: _glow(_makeSprite(_BOSS_EYE_RAGE, P.eR), '#ffd8c8', true),
+      eyeDizzy: _makeSprite(_BOSS_EYE_DIZZY, P.eR),
+      pupil: _makeSprite(_BOSS_PUPIL, P.u),                                               // 4×4
+      core: [_glow(_makeSprite(_BOSS_CORE1, P.c1), P.coreRim),
+             _glow(_makeSprite(_BOSS_CORE1, P.c2), P.coreRim)],                           // 12×12 ×2
+      coreRage: [_glow(_makeSprite(_BOSS_CORE1, P.c1r), '#ffd8c8'),
+                 _glow(_makeSprite(_BOSS_CORE1, P.c2r), '#ffd8c8')]
+    };
+  }
+  SPR.boss2 = _mkV7Boss(_buildDragonBody, { // 蛟龙·敖渊（64×40 长躯，青金配色；kind=2）
+    b: _P_DRAGON, bR: _P_DRAGON_RAGE,
+    e: _P_DRAGON_EYE, eR: _P_DRAGON_EYE_R, u: _P_DRAGON_PUPIL,
+    c1: _P_DRAGON_CORE, c2: _P_DRAGON_CORE2, c1r: _P_DRAGON_CORE_R, c2r: _P_DRAGON_CORE_R2,
+    eyeRim: '#c8fcff', coreRim: '#fff3c0'
+  });
+  SPR.boss3 = _mkV7Boss(_buildJudgeBody, { // 幽冥判官（40×52 高袍+官帽，暗紫+鬼火绿；kind=3）
+    b: _P_JUDGE, bR: _P_JUDGE_RAGE,
+    e: _P_JUDGE_EYE, eR: _P_JUDGE_EYE_R, u: _P_JUDGE_PUPIL,
+    c1: _P_JUDGE_CORE, c2: _P_JUDGE_CORE2, c1r: _P_JUDGE_CORE_R, c2r: _P_JUDGE_CORE_R2,
+    eyeRim: '#c8ffe0', coreRim: '#d8ffe8'
+  });
+  SPR.boss2White = { // 白剪影三件（沿 bossWhite 先例）
+    body: _whiteVariant(SPR.boss2.body[0]),
+    arm: _whiteVariant(SPR.boss2.arm),
+    jaw: _whiteVariant(SPR.boss2.jaw[1])
+  };
+  SPR.boss3White = {
+    body: _whiteVariant(SPR.boss3.body[0]),
+    arm: _whiteVariant(SPR.boss3.arm),
+    jaw: _whiteVariant(SPR.boss3.jaw[1])
+  };
   return SPR;
 }
 
@@ -1923,7 +2378,13 @@ const THEMES = {
   castle: _th('落日王城', '#f8a850', '#fce8b8', '#d8c8b0', '#f0b848', '#b0885c', '#e86038',
     ['flagbanner', 'candelabra', 'torch', 'urn', 'boulder'], '#ffe8c0', '#ffd080'),
   star: _th('星空回廊', '#0e1238', '#2c3472', '#5a6ac0', '#8ea0ff', '#4a5a9a', '#f8e8a0',
-    ['starflower', 'crystal', 'urn', 'chain'], '#a8b4ff', '#8ea0ff', { dark: true })
+    ['starflower', 'crystal', 'urn', 'chain'], '#a8b4ff', '#8ea0ff', { dark: true }),
+  // —— v7（工单 §1）：cap/plank/accent=注释钉值（贝壳砂/沉船木/金，专名同设计书 §3.1）；
+  //      sea speck 经 ex 覆盖；dust/band 未钉自选。sea 不设 dark。
+  sea: _th('东海龙宫', '#1a5ac8', '#7ed8f0', '#2a7ac0', '#d8c8a0', '#6a4a30', '#ffd870',
+    ['coral', 'shell', 'kelp'], '#c8f0ff', '#a8e0f0', { speck: '#f8f0c8' }),
+  nether: _th('幽冥地府', '#101828', '#2c3448', '#3a3450', '#68e8a0', '#5a4a6a', '#f86048',
+    ['ghostflame', 'bone', 'skull'], '#88e8b0', '#3a9a6c', { dark: true })
 };
 
 /* ==================== 内部：主题材质母题（画进瓦片本体，v5 三阶 cel 硬边） ==================== */
@@ -1978,6 +2439,25 @@ const _TILE_MOTIF = { // v5：图形不变，色值对齐新色板，斑块硬�
     g.fillRect(12, 11, 1, 2);
     g.fillStyle = '#2c8a96'; g.fillRect(6, 6, 1, 1);
     g.fillStyle = th.capD; g.fillRect(4, 13, 1, 1); g.fillRect(12, 5, 1, 1); g.fillRect(13, 6, 1, 1);
+  },
+  sea: function (g, th, rnd) { // v7 珊瑚礁：多孔+贝壳金+珊瑚芽
+    g.fillStyle = th.blockS;
+    g.fillRect(4, 6, 2, 1); g.fillRect(5, 7, 1, 1); g.fillRect(10, 10, 2, 1); g.fillRect(3, 12, 1, 1); g.fillRect(12, 4, 1, 2);
+    g.fillStyle = th.accent;
+    g.fillRect(7, 9, 2, 1); g.fillRect(12, 8, 1, 1);
+    g.fillStyle = '#f8f0c8'; g.fillRect(7, 9, 1, 1);
+    g.fillStyle = '#f86078';
+    g.fillRect(2, 5, 1, 1); g.fillRect(13, 12, 1, 1);
+    g.fillStyle = '#c83858'; g.fillRect(2, 6, 1, 1);
+  },
+  nether: function (g, th, rnd) { // v7 玄武岩：节理+骨白刻痕+鬼火苔点
+    g.fillStyle = th.blockS;
+    g.fillRect(3, 4, 1, 3); g.fillRect(4, 7, 1, 1); g.fillRect(10, 8, 3, 1); g.fillRect(9, 9, 1, 2);
+    g.fillStyle = '#e8e8d8';
+    g.fillRect(6, 5, 2, 1); g.fillRect(12, 11, 2, 1);
+    g.fillStyle = '#b8b8a8'; g.fillRect(5, 10, 2, 1);
+    g.fillStyle = '#68e8a0';
+    g.fillRect(2, 12, 1, 1); g.fillRect(13, 5, 1, 1);
   }
 };
 
@@ -2158,6 +2638,65 @@ function conveyorTile(dir) { // 传送带（dir=1 右 / -1 左）：带体三阶
   for (let i = 0; i < heads.length; i++) g.fillRect(heads[i][0], heads[i][1], 2, 2);
   g.fillStyle = '#a86810'; // 箭头暗部（右下 1px）
   for (let i = 0; i < heads.length; i++) g.fillRect(heads[i][0] + 1, heads[i][1] + 2, 1, 1);
+  return c;
+}
+
+/* —— v7 美术队：sea/nether 主题瓦片（工单 §2；沿既有瓦片三阶硬边口径，抖动仅远景）—— */
+const _SPIKES_SEA = { body: '#d86888', light: '#f898b0', shade: '#a03858', tip: '#ffd8e8', rock: '#8a4a68', rockL: '#a86888', rockD: '#5a3450' };  // 珊瑚刺
+const _SPIKES_NETHER = { body: '#d8d8c8', light: '#f8f8e8', shade: '#a0a088', tip: '#ffffff', rock: '#6a6a58', rockL: '#8a8a70', rockD: '#4a4a3c' }; // 骨刺
+function _themeSpikesTile(sp, down) { // 内部：主题尖刺 '^'/'v'（沿既有版式三阶硬边）
+  const c = _makeCanvas(16, 16), g = c.getContext('2d');
+  for (let i = 0; i < 2; i++) {
+    const bx = i * 8, by = down ? 0 : 10, ty = down ? 10 : 6;
+    g.fillStyle = sp.body;
+    g.fillRect(bx + 2, by, 4, 6); g.fillRect(bx + 3, ty, 2, 4);
+    g.fillStyle = sp.light; g.fillRect(bx + 2, by, 1, 6); g.fillRect(bx + 3, ty, 1, 4);
+    g.fillStyle = sp.shade; g.fillRect(bx + 5, by, 1, 6); g.fillRect(bx + 4, ty, 1, 4);
+    g.fillStyle = sp.tip; g.fillRect(bx + 3, down ? ty : ty - 1, 1, 1);
+  }
+  g.fillStyle = sp.rock; g.fillRect(0, down ? 0 : 13, 16, 3);
+  g.fillStyle = sp.rockL; g.fillRect(0, down ? 0 : 13, 16, 1);
+  g.fillStyle = sp.rockD; g.fillRect(0, down ? 2 : 15, 16, 1);
+  return c;
+}
+function _hotLiquidTile(f, P) { // 内部：v7 '~' 热液两帧（沿 lavaTile 版式；sea 热泉/nether 岩浆）
+  const c = _makeCanvas(16, 16), g = c.getContext('2d');
+  g.fillStyle = P.base; g.fillRect(0, 0, 16, 16);
+  g.fillStyle = P.surf; g.fillRect(0, 0, 16, 3);
+  g.fillStyle = P.spark;
+  g.fillRect(f ? 3 : 8, 0, 3, 1); g.fillRect(f ? 10 : 2, 2, 4, 1); g.fillRect(f ? 6 : 12, 1, 2, 1);
+  g.fillStyle = P.mid; g.fillRect(0, 12, 16, 1);
+  g.fillRect(f ? 5 : 9, 8, 3, 1); g.fillRect(f ? 11 : 4, 10, 2, 1);
+  g.fillStyle = P.deep; g.fillRect(0, 14, 16, 2);
+  g.fillStyle = P.crust;
+  g.fillRect(f ? 2 : 6, 6, 4, 2); g.fillRect(f ? 9 : 3, 10, 3, 2);
+  g.fillStyle = P.crustL;
+  g.fillRect(f ? 2 : 6, 6, 4, 1); g.fillRect(f ? 9 : 3, 10, 3, 1);
+  if (P.bubble) { g.fillStyle = '#e8fcff'; g.fillRect(f ? 5 : 11, 5, 2, 2); g.fillRect(f ? 12 : 4, 8, 1, 1); }
+  return c;
+}
+const _VENT_P = { base: '#1878c0', surf: '#48b8e8', spark: '#a8ecff', mid: '#1058a0', deep: '#0a3a70', crust: '#0e4a80', crustL: '#48b8e8', bubble: 1 }; // sea 热泉
+const _HELL_P = { base: '#a81808', surf: '#e84818', spark: '#f8a030', mid: '#701008', deep: '#480a08', crust: '#200608', crustL: '#e84818' }; // nether 岩浆
+function hiddenTile(th) { // v7：'G' 隐藏砖——block 同色系三阶硬边+2px 深色裂纹暗记（近观可辨/扫屏不辨）
+  const c = _makeCanvas(16, 16), g = c.getContext('2d');
+  _paintBlock(g, th, null, 5591);                            // 无母题独立种子
+  g.fillStyle = _mixHex(th.blockS, '#0a0e22', 0.4);
+  g.fillRect(7, 5, 2, 2); g.fillRect(8, 7, 1, 2); g.fillRect(6, 4, 1, 1);
+  return c;
+}
+function waterTile(dir) { // v7：'{'/'}' 水流瓦片——半透明水底（钉色 #2a8ad0 系）+2px 白箭头×2
+  const c = _makeCanvas(16, 16), g = c.getContext('2d');
+  g.fillStyle = _rgba('#2a8ad0', 0.55); g.fillRect(0, 0, 16, 16);
+  g.fillStyle = _rgba('#7ed8f0', 0.5); g.fillRect(0, 0, 16, 3);
+  g.fillStyle = _rgba('#1a5ac8', 0.5); g.fillRect(0, 13, 16, 3);
+  for (let i = 0; i < 2; i++) {
+    const y = 5 + i * 6;
+    g.fillStyle = '#ffffff';                                 // 箭头（杆+三段尖，指向 dir）
+    if (dir > 0) { g.fillRect(3, y, 8, 2); g.fillRect(9, y - 2, 2, 2); g.fillRect(9, y + 2, 2, 2); g.fillRect(11, y, 2, 2); }
+    else { g.fillRect(5, y, 8, 2); g.fillRect(5, y - 2, 2, 2); g.fillRect(5, y + 2, 2, 2); g.fillRect(3, y, 2, 2); }
+    g.fillStyle = '#c8e8f8';
+    g.fillRect(dir > 0 ? 4 : 6, y + 2, 7, 1);
+  }
   return c;
 }
 
@@ -2623,6 +3162,14 @@ function _buildDecor() { // 内部：全部装饰物一次构建
     ], f ? { c: '#bffff2', W: '#ffffff', k: '#3aa898', y: '#fff8c8', g: '#4a9a68', G: '#35785a' }
          : { c: '#8ae8d8', W: '#d8fff8', k: '#2c8878', y: '#f8d048', g: '#3c8858', G: '#2a6848' });
   });
+  /* —— v7：sea/nether 新装饰（键名同 THEMES.decor/engine 兜底表；skull 复用）—— */
+  d.coral = _makeSprite(_V7_CORAL, { k: '#8a2440', C: '#d84878', c: '#f87898', w: '#ffc8d8' }); // 珊瑚枝
+  d.shell = _makeSprite(_V7_SHELL, { k: '#8a4a18', s: '#f8a850', w: '#ffd8a0' });               // 海星
+  d.kelp = [_makeSprite(_V7_KELP1, { g: '#38a860', G: '#287848', l: '#68d888' }),
+    _makeSprite(_V7_KELP2, { g: '#38a860', G: '#287848', l: '#68d888' })];                      // 海草 10×16×2
+  d.ghostflame = [_makeSprite(_V7_GFLAME1, { k: '#0a3a28', f: '#68e8a0', F: '#38a870', w: '#d8ffe8' }),
+    _makeSprite(_V7_GFLAME2, { k: '#0a3a28', f: '#68e8a0', F: '#38a870', w: '#d8ffe8' })];      // 鬼火 8×10×2
+  d.bone = _makeSprite(_V7_BONE, { k: '#6a6a58', b: '#e8e8d8', B: '#b8b8a8', w: '#ffffff' });   // 骸骨
   return d;
 }
 
@@ -2995,6 +3542,92 @@ function makeBG(th, key) { // 远/近两层背景（契约导出名）：far 内
         gn.fillStyle = '#f8e8a0'; gn.fillRect(x + ox, y + len, 1, 1);
       });
     }
+  } else if (key === 'sea') { // v7 东海龙宫：深海渐变+光柱+龙宫飞檐/海藻+鱼群
+    for (let i = 0; i < 4; i++) { // 深海渐变 4 阶
+      gf.fillStyle = _mixHex(th.skyT, th.skyB, i / 3);
+      gf.fillRect(0, i * 56, W, 56);
+    }
+    for (let i = 0; i < 4; i++) { // 光柱 4 道
+      const x0 = 48 + i * 128;
+      gf.fillStyle = _rgba('#e8fcff', 0.14);
+      gf.fillRect(x0, 0, 2, 150); gf.fillRect(x0 + 3, 0, 1, 110);
+      gf.fillStyle = _rgba('#e8fcff', 0.08);
+      gf.fillRect(x0 - 2, 0, 1, 90);
+    }
+    gf.fillStyle = th.far; // 龙宫飞檐剪影 3 座
+    [[40, 132], [216, 120], [400, 138]].forEach(function (p) {
+      const bx = p[0], by = p[1];
+      gf.fillRect(bx, by, 72, H - by);
+      gf.fillRect(bx - 8, by - 6, 88, 6);
+      gf.fillRect(bx - 14, by - 12, 8, 6); gf.fillRect(bx + 78, by - 12, 8, 6);
+      gf.fillRect(bx - 10, by - 12, 84, 6);
+      gf.fillRect(bx + 26, by - 24, 20, 12);
+      gf.fillRect(bx + 20, by - 30, 32, 6);
+    });
+    gf.fillStyle = midC;
+    for (let x = 0; x < W; x += 128) {
+      gf.fillRect(x + 30, 190, 26, H - 190);
+      gf.fillRect(x + 40, 178, 12, 14);
+    }
+    for (let i = 0; i < 12; i++) { // 气泡
+      const x = Math.floor(rnd() * W), y = 20 + Math.floor(rnd() * 150);
+      gf.fillStyle = _rgba('#e8fcff', i % 3 ? 0.35 : 0.6);
+      _wrap3(gf, W, function (ox) { gf.fillRect(x + ox, y, 2, 2); });
+    }
+    gn.fillStyle = th.near; // 海藻剪影
+    for (let x = 0; x < W; x += 32) {
+      const h2 = 30 + (x / 32 % 3) * 14;
+      for (let j = 0; j < h2; j += 2) gn.fillRect(x + 8 + ((j >> 2) & 1), H - h2 + j, 3, 2);
+    }
+    gf.fillStyle = _mixHex(th.near, '#0a0e22', 0.3); // 鱼群 3 小队
+    [[70, 60], [250, 90], [430, 50]].forEach(function (p) {
+      [[0, 0], [8, 2], [16, 0], [8, -2], [4, 1], [12, 1]].forEach(function (fs) {
+        _wrap3(gf, W, function (ox) { gf.fillRect(p[0] + ox + fs[0], p[1] + fs[1], 3, 2); });
+      });
+    });
+  } else if (key === 'nether') { // v7 幽冥地府：幽暗渐变+远山鬼火+奈何桥+彼岸花 / 锁链+浮灯+地雾
+    for (let i = 0; i < 4; i++) {
+      gf.fillStyle = _mixHex(th.skyT, th.skyB, i / 3);
+      gf.fillRect(0, i * 56, W, 56);
+    }
+    gf.fillStyle = th.far; // 远山 3 座
+    for (let i = 0; i < 3; i++) {
+      const cx = 80 + i * 176, r = 70 + i * 14;
+      for (let dx = -r; dx <= r; dx += 4) {
+        const hh = Math.round(Math.sqrt(Math.max(0, r * r - dx * dx)) * 0.5);
+        gf.fillRect(cx + dx, 120 - hh, 4, hh + 24);
+      }
+    }
+    gf.fillStyle = _rgba('#68e8a0', 0.7); // 山脊鬼火
+    [60, 150, 240, 330, 420, 480].forEach(function (x, i) { gf.fillRect(x, 96 + (i % 3) * 10, 2, 2); });
+    gf.fillStyle = midC; // 奈何桥（拱洞镂空）
+    gf.fillRect(96, 140, 320, 10);
+    gf.fillRect(116, 150, 12, 30); gf.fillRect(384, 150, 12, 30);
+    gf.save();
+    gf.globalCompositeOperation = 'destination-out';
+    gf.beginPath(); gf.arc(256, 150, 36, Math.PI, Math.PI * 2); gf.fill();
+    gf.restore();
+    [[60, 190], [150, 200], [360, 196], [460, 188]].forEach(function (p) { // 彼岸花 4 簇
+      gf.fillStyle = '#8a1828';
+      gf.fillRect(p[0], p[1], 2, 12);
+      for (let a = 0; a < 6; a++) {
+        const ang = a * Math.PI / 3;
+        gf.fillRect(p[0] + Math.round(Math.cos(ang) * 3) - 1, p[1] - 2 + Math.round(Math.sin(ang) * 2), 2, 2);
+      }
+      gf.fillStyle = '#c82838'; gf.fillRect(p[0] - 1, p[1] - 2, 4, 2);
+    });
+    gn.fillStyle = th.near; // 垂锁链 3 条
+    [64, 256, 448].forEach(function (x) {
+      for (let j = 0; j < H - 44; j += 6) { gn.fillRect(x, j, 2, 4); gn.fillRect(x + 2, j + 2, 2, 4); }
+    });
+    [[120, 70], [200, 110], [300, 60], [380, 120], [470, 84]].forEach(function (p) { // 浮灯 5 盏
+      gn.fillStyle = '#8a2428';
+      gn.fillRect(p[0], p[1], 6, 8);
+      gn.fillStyle = '#c84838'; gn.fillRect(p[0] + 1, p[1] + 1, 4, 3);
+      gn.fillStyle = '#f8d048'; gn.fillRect(p[0] + 2, p[1] + 3, 2, 2);
+    });
+    gn.fillStyle = _rgba('#2c3448', 0.5); // 地雾
+    gn.fillRect(0, H - 16, W, 16);
   } else { // tower
     _skyBands(gf, W, th.band); // 夜空紫晕带
     // 远景：月晕（两圈半透明）+ 弯月 + 大小星
@@ -3041,7 +3674,7 @@ function buildThemeArt(themeKey) { // 参数=THEMES 键名；未知键回退 gra
   const known = Object.prototype.hasOwnProperty.call(THEMES, themeKey);
   const th = known ? THEMES[themeKey] : THEMES.grass;
   const key = known ? themeKey : 'grass';
-  return {
+  const art = {
     tiles: {
       block: blockTile(th, false, key),            // 实心砖（含主题母题）
       blockCap: blockTile(th, true, key),          // 地表砖（盖层）
@@ -3050,9 +3683,14 @@ function buildThemeArt(themeKey) { // 参数=THEMES 键名；未知键回退 gra
       crumble: crumbleTile(th),                    // 崩塌砖 'C'
       toggleA: toggleTile('#e88830', '#b05818'),   // 切换砖·橙 'a'
       toggleB: toggleTile('#4890d8', '#2c5c9c'),   // 切换砖·蓝 'b'
-      spikes: spikesTile(),                        // 上尖刺 '^'
-      spikesD: _spikesDownTile(),                  // 吊刺 'v'
-      lava: [lavaTile(0), lavaTile(1)],            // 熔岩 '~' 两帧
+      // v7：sea 珊瑚刺/nether 骨刺（其余沿用通用灰岩刺）
+      spikes: key === 'sea' ? _themeSpikesTile(_SPIKES_SEA, false)
+            : key === 'nether' ? _themeSpikesTile(_SPIKES_NETHER, false) : spikesTile(),
+      spikesD: key === 'sea' ? _themeSpikesTile(_SPIKES_SEA, true)
+             : key === 'nether' ? _themeSpikesTile(_SPIKES_NETHER, true) : _spikesDownTile(),
+      // v7：sea 热泉/nether 岩浆（其余沿用通用熔岩）
+      lava: key === 'sea' ? [_hotLiquidTile(0, _VENT_P), _hotLiquidTile(1, _VENT_P)]
+          : key === 'nether' ? [_hotLiquidTile(0, _HELL_P), _hotLiquidTile(1, _HELL_P)] : [lavaTile(0), lavaTile(1)],
       door: [doorTile(true), doorTile(false)],     // 门 'D'：[上段(带锁孔), 下段]
       convL: conveyorTile(-1),                     // 左传送带 '('
       convR: conveyorTile(1),                      // 右传送带 ')'
@@ -3061,6 +3699,12 @@ function buildThemeArt(themeKey) { // 参数=THEMES 键名；未知键回退 gra
     decor: _buildDecor(),                          // 装饰物全套（摆放由引擎决定）
     bg: makeBG(th, key)                            // {far, near} 512×224 可平铺
   };
+  if (key === 'sea' || key === 'nether') { // v7：两新主题各追加三键（其余主题不设，ui 守卫式读取）
+    art.tiles.hidden = hiddenTile(th); // 'G' 砖：block 同色系+2px 裂纹暗记
+    art.tiles.waterL = waterTile(-1);  // '{' 水流（白箭头←）
+    art.tiles.waterR = waterTile(1);   // '}' 水流（→）
+  }
+  return art;
 }
 
 /* 自测：量化自查（色阶/抖动/描边/装饰计数等 227 项）见工作区 _art_check.js（node 可跑）；

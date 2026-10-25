@@ -601,12 +601,15 @@ const PUZZLES={
 
 // ---------- 几何断言（尽力而为的静态检查；误报优于漏报，但不得误报正常设计） ----------
 function validateLevels(){
-  const SOLIDISH=new Set(['#','I','a','b','C','D','B']);   // B=可碎木箱(v2)：实心
-  const STAND=new Set(['#','I','a','b','C','D','B','=','(',')']);
+  aggregateLevels();   // v7 §10-1：先聚合（幂等）；遍历对象=ALL_LEVELS（章未合入时=LEVELS 10 关）
+  const SOLIDISH=new Set(['#','I','a','b','C','D','B','G']);   // B=可碎木箱(v2)：实心；v7 §10-2：追加 G 隐藏砖（实心）
+  const STAND=new Set(['#','I','a','b','C','D','B','G','=','(',')']);   // v7 §10-2：追加 'G'
   const errs=[],warns=[];
-  for(let li=0;li<LEVELS.length;li++){
-    const meta=LEVELS[li];
+  for(let li=0;li<ALL_LEVELS.length;li++){
+    const meta=ALL_LEVELS[li];
     const isBoss=!!meta.boss; // v3：BOSS 关豁免终点 P 断言（胜利由 Boss 死亡触发，goal=null 时引擎终点判定自动跳过）
+    if(meta.boss!==undefined && ![true,2,3].includes(meta.boss))   // v7 §10-8：boss 值域断言（meta 级；true≡kind1，2=蛟龙，3=判官）
+      errs.push('L'+(li+1)+' boss 值必须为 true|2|3');
     if(!meta.build)continue;
     const g=new LG(meta.w,meta.h);
     meta.build(g);
@@ -615,8 +618,9 @@ function validateLevels(){
     const isStand=(x,y)=>STAND.has(at(x,y))&&!STAND.has(at(x,y-1));
     // 1) 出生点/终点唯一且有支撑
     let nAt=0,nP=0,nB=0,nQ=0,nE=0;   // v4：nQ=谜题神龛计数；v5：nE=传送门计数（'Q'/'e' 为实体字符，不入 SOLIDISH/STAND）
+    const farEnemies=[],flows=[],atSpawns=[];   // v7 §10-4/5：'T'/'E'/'z' 与 '{'/'}' 坐标、'@' 坐标（'@' 不保证先出现，单遍收集后统一判）
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-      if(gr[y][x]==='@'){nAt++;
+      if(gr[y][x]==='@'){nAt++;atSpawns.push([x,y]);   // v7 §10-4：出生点坐标（供新敌距离/水流断言）
         let sup=false;for(let d=1;d<=2;d++)if(SOLIDISH.has(at(x,y+d)))sup=true;
         if(!sup)errs.push('L'+(li+1)+' 出生点('+x+','+y+')下方2格内无支撑');}
       if(gr[y][x]==='P'){nP++;
@@ -642,7 +646,24 @@ function validateLevels(){
         let sup=false;
         for(let d=1;d<=2;d++)if(STAND.has(at(x,y+d)))sup=true;
         if(!sup)errs.push('L'+(li+1)+' '+(gr[y][x]==='A'?'骑士':'幽焰法师')+'('+x+','+y+')下方2格内无支撑');}
+      if(gr[y][x]==='N'||gr[y][x]==='x'||gr[y][x]==='g'){   // v7 §10-3：枪虾/精英枪虾王/宝箱脚下 2 格内应有支撑（同 A/Y 口径；
+                                                            //   'J'/'T'/'E'/'z' 为悬空/穿墙型，无支撑要求）
+        let sup=false;
+        for(let d=1;d<=2;d++)if(STAND.has(at(x,y+d)))sup=true;
+        if(!sup)errs.push('L'+(li+1)+' '+(gr[y][x]==='N'?'枪虾':gr[y][x]==='x'?'精英枪虾王':'宝箱')+'('+x+','+y+')下方2格内无支撑');}
+      if(gr[y][x]==='T'||gr[y][x]==='E'||gr[y][x]==='z')    // v7 §10-4：近身触发型新敌（幽灵唤醒150/魂火爬行120px），坐标入列
+        farEnemies.push({c:gr[y][x],x:x,y:y});              //   距 '@' ≥176px 断言在格循环后统一判（'N'/'J'/'x' 触发半径小/方向背向，不要求）
+      if(gr[y][x]==='{'||gr[y][x]==='}')                     // v7 §10-5：水流区瓦片坐标入列（不入 SOLIDISH/STAND、不入辅助扫描 §10-9）
+        flows.push({x:x,y:y});
     }
+    // v7 §10-4：'T'/'E'/'z' 距出生点像素距离 ≥176px（门禁空转 120 帧静止+60 帧右移≈110px，保证零触发零接触）
+    for(const s of farEnemies)for(const a of atSpawns)
+      if(Math.hypot((s.x-a[0])*16,(s.y-a[1])*16)<176)
+        errs.push('L'+(li+1)+' '+s.c+'('+s.x+','+s.y+') 距出生点<176px（门禁空转会触发）');
+    // v7 §10-5：水流 '{'/'}' 与出生点曼哈顿距离必须 >3 格（关内空转零副作用）
+    for(const f of flows)for(const a of atSpawns)
+      if(Math.abs(f.x-a[0])+Math.abs(f.y-a[1])<=3)
+        errs.push('L'+(li+1)+' 水流('+f.x+','+f.y+') 距出生点≤3 格');
     if(nAt!==1)errs.push('L'+(li+1)+' 出生点数量='+nAt+'(应为1)');
     if(!isBoss && nP!==1)errs.push('L'+(li+1)+' 终点数量='+nP+'(应为1)');
     if(isBoss && nP!==0)errs.push('L'+(li+1)+' BOSS关不应设终点P(胜利由Boss死亡触发)');
@@ -712,6 +733,52 @@ function validateLevels(){
         if(!ok)errs.push('L'+(li+1)+' 拉杆('+x+','+y+')附近12格内无切换砖');
       }
   }
+  // v7 §10-7：章节内容断言（守卫式——章未合入即跳过；10/13/15/16 关口径全合法）
+  if(ALL_LEVELS.length>=13){                     // 第二章三关合入（框架队 gate 拼接 chapter2.js 后）
+    for(let li=10;li<=12;li++)
+      if(ALL_LEVELS[li].theme!=='sea')errs.push('L'+(li+1)+' 第二章新关 theme 应为 sea');
+    if(ALL_LEVELS[12].boss!==2)errs.push('L13 meta.boss 应为 2（蛟龙）');
+    let nX=0,nG2=0,nChest=0;                     // 三关合计：精英①/隐藏房①恰一（对 li 10..12 网格重扫计数）
+    for(let li=10;li<=12;li++){
+      const m=ALL_LEVELS[li];if(!m.build)continue;
+      const gg=new LG(m.w,m.h);m.build(gg);
+      for(let y=0;y<m.h;y++)for(let x=0;x<m.w;x++){
+        const c=gg.g[y][x];
+        if(c==='x')nX++; if(c==='G')nG2++; if(c==='g')nChest++;
+      }
+    }
+    if(nX!==1)errs.push('L11~L13 精英x合计='+nX+'(应为1)');
+    if(nG2<1)errs.push('L11~L13 隐藏砖G合计='+nG2+'(应≥1)');
+    if(nChest!==1)errs.push('L11~L13 宝箱g合计='+nChest+'(应为1)');
+  }
+  if(ALL_LEVELS.length>=16){                     // 第三章三关合入
+    for(let li=13;li<=15;li++)
+      if(ALL_LEVELS[li].theme!=='nether')errs.push('L'+(li+1)+' 第三章新关 theme 应为 nether');
+    if(ALL_LEVELS[15].boss!==3)errs.push('L16 meta.boss 应为 3（判官）');
+    let nZ=0,nG3=0,nChest=0;                     // 三关合计：精英②/隐藏房②恰一（对 li 13..15 网格重扫计数）
+    for(let li=13;li<=15;li++){
+      const m=ALL_LEVELS[li];if(!m.build)continue;
+      const gg=new LG(m.w,m.h);m.build(gg);
+      for(let y=0;y<m.h;y++)for(let x=0;x<m.w;x++){
+        const c=gg.g[y][x];
+        if(c==='z')nZ++; if(c==='G')nG3++; if(c==='g')nChest++;
+      }
+    }
+    if(nZ!==1)errs.push('L14~L16 精英z合计='+nZ+'(应为1)');
+    if(nG3<1)errs.push('L14~L16 隐藏砖G合计='+nG3+'(应≥1)');
+    if(nChest!==1)errs.push('L14~L16 宝箱g合计='+nChest+'(应为1)');
+  }
   if(errs.length)return{ok:false,msg:'失败 '+errs.length+' 处: '+errs.slice(0,5).join('; ')};
-  return{ok:true,msg:LEVELS.length+'关断言全部通过'+(warns.length?('; 警告'+warns.length+'处(宽间隙按支线处理)'):'')};   // v5 §C-7：关数动态
+  return{ok:true,msg:ALL_LEVELS.length+'关断言全部通过'+(warns.length?('; 警告'+warns.length+'处(宽间隙按支线处理)'):'')};   // v5 §C-7：关数动态；v7 §10-1：ALL_LEVELS
+}
+
+// ---------- v7 章节注册表（契约附记 v7；本文件只声明不聚合——聚合唯一入口=aggregateLevels 函数本体，
+//             调用点三处：ui.js 启动时 / gate.js 桩内 / validateLevels 首行；重复调用幂等无害） ----------
+const CHAPTERS = [];        // 章节注册表：chapter2.js/chapter3.js 顶层 push
+                           // 注册对象：{id, name, levels:[LEVELS 同构 meta 数组], puzzles:{键=全局 1 基关号}}
+var ALL_LEVELS = LEVELS;    // 聚合视图（aggregateLevels 调用前缺省=第一章 10 关；engine/ui/gate 只读本符号）
+function aggregateLevels(){ // 唯一聚合入口（幂等）
+  ALL_LEVELS = LEVELS.concat(CHAPTERS.reduce(function(a,c){return a.concat(c.levels||[]);},[]));
+  for(const c of CHAPTERS) if(c.puzzles) Object.assign(PUZZLES, c.puzzles); // 谜题就地并入全局 PUZZLES
+  return ALL_LEVELS;
 }

@@ -102,9 +102,31 @@
 //   §G 悬停扩展：背包内 bag:0..11/slot:w|h|c/btn:* 白描边；HUD 背包钮「背包 · B」卡。
 //   硬约束：H4 loot/look 未合入时 gearDrops 恒空、SPR.look/ico* 缺失全部程序化兜底零异常；
 //   H2 pq_progress 只增键（equip/inv/shards/nextId）不改不删既有键；H5 pq_hint_fall 等不动。
+// v7 增量·界面队（docs/workorders/v7-ui.md，基准 docs/specs/2026-10-24-v7-design.md §9/§2.3/§1）：
+//   §1 启动聚合 aggregateLevels()（硬依赖 H4 不守卫）+ 全部 LEVELS 读取点改聚合视图；
+//   §9.2 章节化选关屏（三章 46×44 卡行 pitch53/Boss 红边卡/新关金点/章锁灰化；↑↓ 跨章保持列号；
+//        鼠标悬停矩阵同步，hover id 仍=select:i）；
+//   §9.3 Boss 血条/登场横幅参数化（BOSS_NAME/BOSS_P2TIP/BOSS_P2FRAC）+ renderBoss 部件表
+//        [boss,boss2,boss3] 与白剪影同索引、body 按部件图尺寸对齐、sweepCast/blinkCast(hidden 跳过)/
+//        scytheCast 三姿态；
+//   §9.4 新敌渲染 lancer/jelly/ghost/boomer 四分支 + 精英通用层（×1.75 拉伸/4 段旋转金弧/头顶血条/
+//        可选金冠；全守卫式+程序化兜底）；
+//   §9.5 新机关渲染：'{'/'}' 水流瓦、'w' sea 主题气泡柱、'G' 隐藏砖、'g' 宝箱（L.chests）、
+//        'R' 灯笼（L.lanterns，非黑暗层 6px 暖光晕）；
+//   §9.7 黑暗层（nether：模块级离屏单例 + 玩家 r64/灯笼 r80 摇曳/检查点神龛 r24 微光开洞）；
+//        开关=L.theme.dark===true 且 L.meta.theme==='nether'（现行 THEMES 的 cave/factory/lava/tower/
+//        boss/star 自 v5 起即带 dark:true 但从未被消费，若单判 dark 会压暗六个既有主题违背 R8，故双条件）；
+//   §9.8 隐藏房微提示（未碎 'G' 近距 24px 每 90tick 落 1 粒尘；G 列表每 8 帧节流重扫）；
+//   §9.9 sfx chest/boom/blink/sweep；§2.3 存档迁移一行（stars['9']>=1→unlocked≥11，幂等只增）；
+//   §9.10 v7 致谢文案 + renderVictory 遗留文案对齐。
+//   硬约束：H2 存档只增；H3 全部新符号守卫式（game.boss.kind||0、L.chests/lanterns||[]、
+//   tiles.hidden/waterL/waterR、SPR.boss2/3、SPR.lancer/jelly/ghost/boomer/chest/lantern/eliteCrown
+//   缺省走程序化兜底）；H5 键盘/鼠标等价延续。
 // ============================================================
 'use strict';
 (function(){
+
+aggregateLevels(); // v7 §9.1/H4：启动聚合（levels.js 契约块=唯一实现；硬依赖不守卫——未合入时启动报错属预期集成信号）
 
 const canvas=document.getElementById('game');
 const ctx=canvas.getContext('2d');
@@ -250,6 +272,11 @@ const SFX={
   equip(){[523,784,1046].forEach((f,i)=>tone({f,d:0.1,v:0.18,at:i*0.05}));},              // 穿上短琶音
   unequip(){[1046,784].forEach((f,i)=>tone({f,d:0.1,v:0.16,at:i*0.06}));},                // 卸下反向两音
   shard(){[784,988,1175,1568].forEach((f,i)=>tone({f,d:0.09,v:0.16,at:i*0.045}));},       // 升阶/分解快琶音（更亮）
+  // v7 §9.9 新音效（合成与设计书 §9.9 表逐字一致；engine v7 未合入时无人入队，静默待命）
+  chest(){[392,523,659,784].forEach((f,i)=>tone({f,d:0.14,v:0.2,at:i*0.06}));noiseSfx({d:0.08,v:0.1});}, // 宝箱开启
+  boom(){tone({f:90,f2:36,d:0.35,v:0.3,type:'sawtooth'});noiseSfx({d:0.3,v:0.28});},      // 魂火自爆
+  blink(){tone({f:680,f2:120,d:0.22,v:0.16,type:'sine'});},                               // 判官传送
+  sweep(){noiseSfx({d:0.18,v:0.22});tone({f:200,f2:90,d:0.18,v:0.14,type:'square'});},    // 扫尾/镰刀宽波
 };
 const MUSIC_LEAD=[440,523,659,0,587,659,784,0,659,523,440,0,494,587,494,0,
  440,523,659,0,587,659,784,0,880,784,659,523,587,494,440,0];
@@ -289,6 +316,9 @@ function migrateProgress(p){
   if (!Array.isArray(p.inv))    p.inv = [];
   if (!p.shards)  p.shards = {};
   if (typeof p.nextId !== 'number' || p.nextId < 1) p.nextId = 1;
+  // v7 §2.3（设计书代码照抄；R2/H2：幂等只增、无标记位）：老玩家已通关旧终关 L10（stars['9']>=1）
+  // → 直接解锁 L11（不必重打 L10）。不落盘：迁移幂等，重复执行同值，下次任意 saveProgress 自然持久化。
+  if (p.stars && p.stars['9'] >= 1) p.unlocked = Math.max(p.unlocked, 11);
   return p;
 }
 let progress=migrateProgress(loadProgress()); // v6 波2 §A：新档回退对象同样补 v6 缺省字段（幂等）
@@ -647,7 +677,7 @@ function startLevel(idx){
   loadLevel(idx,false);
   uiState='play';game.state='play';
   hintT=3.5;lastLevelIdx=idx;menuSel=idx;
-  themeArt=buildThemeArt(LEVELS[idx].theme);
+  themeArt=buildThemeArt(ALL_LEVELS[idx].theme); // v7 §9.1：LEVELS→ALL_LEVELS（聚合视图）
   fade=1;fadeDir=-1;
   // v2 P1：进关清残留输入锁存，防止上一状态的边沿在新关卡被缓冲触发
   game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0;
@@ -708,10 +738,12 @@ function computeHover(){
   const mx=mouse.x,my=mouse.y;
   if(uiState==='title'){ // §A.4：title 开始钮（键盘等价=回车）
     if(ptIn(mx,my,VIEW_W/2-52,146,104,22))hover='titleStart';
-  }else if(uiState==='select'){ // §A.4：选关卡（键盘等价=方向+回车）
-    for(let i=0;i<LEVELS.length;i++){
-      const col=i%5,row=Math.floor(i/5);
-      if(ptIn(mx,my,6+col*75,32+row*64,68,52)){hover='select:'+i;break;}
+  }else if(uiState==='select'){ // §A.4：选关卡（键盘等价=方向+回车）；v7 §9.2：章节布局矩阵（与渲染同源 _chapters）
+    chsLoop:for(const ch of _chapters()){
+      for(let j=0;j<ch.len;j++){
+        const xy=_cardXY(ch,j);
+        if(ptIn(mx,my,xy[0],xy[1],46,44)){hover='select:'+(ch.first+j);break chsLoop;}
+      }
     }
   }else if(uiState==='play'&&game.level){
     if(bagOpen){ // v6 波2 §G：背包内悬停（面板覆盖全屏，屏蔽世界/HUD 目标；格/槽/按钮白描边由渲染画）
@@ -779,6 +811,7 @@ function render(){
     renderFloats();   // v5 §A：浮动文字（伤害/金币/KO）
     renderPuzzleHint(tick); // v4 §界面④：puzzleNear 时头顶浮动"↑ 解谜/查看"提示（世界坐标最上层）
     ctx.restore();
+    renderDarkness(tick); // v7 §9.7：黑暗层（nether 专属；世界渲染完成后、HUD 前）
     renderHUD();
     renderIntro();  // v3 §D1：登场横幅（intro 态）
     renderUlt();    // v5 §D：O 流星连斩 1.2s 演出覆盖层（屏幕坐标系，renderFlash 之前）
@@ -867,9 +900,42 @@ function renderTiles(L,tick){
         ctx.drawImage(img,dx-off,dy);ctx.drawImage(img,dx-off+16,dy);
         break;}
       case 'w':{ // v5 §E1：风柱流纹（特效队 windStreak[2] 未合入时程序化细流兜底；流纹向上滚动）
-        if(SPR.windStreak){const f=SPR.windStreak[(game.tick*8|0)%2];
+        // v7 §9.5：sea 主题渲染为上升气泡柱（引擎 'w' 语义零变化，纯 ui 渲染分支）
+        if(L.meta&&L.meta.theme==='sea'){
+          for(let i=0;i<2;i++){
+            const by=dy+16-((tick*1.5+i*8)%16); // y=(tick*1.5+i*8)%16 相位，白青 1×2px
+            ctx.fillStyle='rgba(224,248,255,0.75)';ctx.fillRect(dx+4+i*7,px(by),1,2);
+          }
+        }else if(SPR.windStreak){const f=SPR.windStreak[(game.tick*8|0)%2];
           ctx.globalAlpha=0.5;ctx.drawImage(f,dx,dy-((game.tick*2+ty*3)%16|0)+0);ctx.globalAlpha=1;}
         else{ctx.fillStyle='rgba(220,255,255,0.28)';ctx.fillRect(dx+6,dy+2,1,12);ctx.fillRect(dx+10,dy+6,1,9);}
+        break;}
+      case 'G':{ // v7 §4.2/§9.5：隐藏砖（实心；tiles.hidden 缺失→主题 block+深色裂纹暗记兜底）
+        if(T.hidden)ctx.drawImage(T.hidden,dx,dy);
+        else{ctx.drawImage(T.block,dx,dy);
+          ctx.fillStyle='rgba(18,14,30,0.8)';
+          ctx.fillRect(dx+4,dy+8,4,1);ctx.fillRect(dx+8,dy+7,3,1);ctx.fillRect(dx+11,dy+9,2,1);}
+        break;}
+      case '{':case '}':{ // v7 §4.1/§9.5：水流区域瓦片（非实心区域层，与 'w' 风柱同层；tiles 缺图→半透蓝块+白箭头）
+        const wImg=ch==='{'?T.waterL:T.waterR;
+        if(wImg)ctx.drawImage(wImg,dx,dy);
+        else{ctx.fillStyle='rgba(42,138,208,0.45)';ctx.fillRect(dx,dy,16,16);
+          ctx.fillStyle='rgba(240,252,255,0.8)';
+          const hx=ch==='{'?dx+4:dx+9;                        // 白色 2px 箭头（指向水流方向）
+          ctx.fillRect(hx,dy+7,3,2);ctx.fillRect(ch==='{'?hx-2:hx+3,dy+6,2,4);}
+        break;}
+      case 'g':{ // v7 §4.3/§9.5：宝箱（引擎未提取 'g' 时过渡渲染；正常路径=renderEntities 的 L.chests）
+        if(SPR.chest)ctx.drawImage(SPR.chest[0],dx,dy);
+        else{ctx.fillStyle='#8a5a30';ctx.fillRect(dx+2,dy+4,12,10);
+          ctx.fillStyle='#f0b850';ctx.fillRect(dx+2,dy+4,12,3);
+          ctx.fillStyle='#f8d048';ctx.fillRect(dx+7,dy+8,2,3);}
+        break;}
+      case 'R':{ // v7 §4.4/§9.5：灯笼（引擎未提取 'R' 时过渡渲染；正常路径=renderEntities 的 L.lanterns）
+        if(SPR.lantern)ctx.drawImage(SPR.lantern[(tick*4|0)%2],dx,dy-8);
+        else{ctx.fillStyle='#5a4a30';ctx.fillRect(dx+6,dy-6,4,2);
+          ctx.fillStyle='#c03028';ctx.fillRect(dx+4,dy-4,8,9);
+          ctx.fillStyle='#f86048';ctx.fillRect(dx+5,dy-3,2,2);
+          ctx.fillStyle='#5a4a30';ctx.fillRect(dx+6,dy+5,4,2);}
         break;}
     }
   }
@@ -1010,6 +1076,78 @@ function renderEntities(L,tick){
           ctx.drawImage(img,-img.width/2,-img.height);
           ctx.restore();
         }else ctx.drawImage(img,px(e.x-1+jit),px(e.y));}
+    }else if(e.type==='lancer'){ // v7 §9.4：枪虾哨兵（SPR.lancer[2] 14×14 基准面左，face>0 flipCache；
+      // wind 态=帧 2+矛前伸 1px；SPR 缺失→橙红甲壳矩形+白矛条兜底）
+      const wind=e.ai&&!e.dead&&e.ai.st==='wind';
+      let img=null;
+      if(!e.dead&&SPR.lancer){const f=SPR.lancer[wind?1:(tick*6|0)%2];img=e.face>0?flipCache(f):f;}
+      if(img&&e.flashT>0)img=whiteOf(img);
+      if(img)_drawNewEnemyImg(img,e,jit,fadeA,-1,0,'foot');
+      else{ctx.globalAlpha=fadeA;
+        ctx.fillStyle='#c85830';ctx.fillRect(px(e.x+jit),px(e.y),e.w,e.h);
+        ctx.fillStyle='#e87848';ctx.fillRect(px(e.x+jit),px(e.y),e.w,3);
+        ctx.fillStyle='#f0f4ff';
+        ctx.fillRect(px((e.face>0?e.x+e.w-2:e.x)+(wind?e.face:0)+jit),px(e.y+2),2,e.h-4);
+        ctx.globalAlpha=1;}
+    }else if(e.type==='jelly'){ // v7 §9.4：水母（SPR.jelly[2] 12×12；wind 态 scaleY1.15 膨胀（中心锚定）；
+      // shock 态电弧=4 条 1px 折线从中心到 r18 圆周（#a8e8ff，tick%4<2 闪）；缺失→浅蓝圆伞兜底）
+      const wind=e.ai&&!e.dead&&e.ai.st==='wind',shock=e.ai&&!e.dead&&e.ai.st==='shock';
+      let img=null;
+      if(!e.dead&&SPR.jelly)img=SPR.jelly[(tick*4|0)%2];
+      if(img&&e.flashT>0)img=whiteOf(img);
+      if(img){
+        if(wind){ctx.save();ctx.translate(px(e.x+e.w/2+jit),px(e.y+e.h/2));
+          ctx.scale(1,1.15);ctx.drawImage(img,-img.width/2,-img.height/2);ctx.restore();}
+        else _drawNewEnemyImg(img,e,jit,fadeA,0,0,'mid');
+      }else{ctx.globalAlpha=fadeA;
+        ctx.fillStyle='#7ec8f0';ctx.beginPath();
+        ctx.arc(px(e.x+e.w/2+jit),px(e.y+5),e.w/2,Math.PI,0);ctx.fill();
+        ctx.fillStyle='#a8e0ff';ctx.fillRect(px(e.x+1+jit),px(e.y+5),e.w-2,2);
+        ctx.fillStyle='#48a8e8';
+        ctx.fillRect(px(e.x+3+jit),px(e.y+7),1,4);ctx.fillRect(px(e.x+e.w-4+jit),px(e.y+7),1,4);
+        ctx.globalAlpha=1;}
+      if(shock&&game.tick%4<2){ // 放电电弧（每步检查由引擎判定伤害；ui 只画演出）
+        const cx0=e.x+e.w/2,cy0=e.y+e.h/2;
+        ctx.strokeStyle='#a8e8ff';ctx.lineWidth=1;ctx.globalAlpha=0.9;
+        for(let i=0;i<4;i++){const a=(i/4)*Math.PI*2+tick*0.05;
+          const ex1=cx0+Math.cos(a)*18,ey1=cy0+Math.sin(a)*18;
+          ctx.beginPath();ctx.moveTo(px(cx0),px(cy0));
+          ctx.lineTo(px((cx0+ex1)/2+((i%2)?3:-3)),px((cy0+ey1)/2));
+          ctx.lineTo(px(ex1),px(ey1));ctx.stroke();}
+        ctx.globalAlpha=1;
+      }
+    }else if(e.type==='ghost'){ // v7 §9.4：幽灵（SPR.ghost[2] 12×14，globalAlpha=0.78；active 态
+      // 拖尾=每 3 帧 1 枚 fx（#b0c8ff size1 life0.3）；缺失→半透紫白椭圆兜底）
+      const act=e.ai&&!e.dead&&e.ai.st==='active';
+      let img=null;
+      if(!e.dead&&SPR.ghost)img=SPR.ghost[(tick*4|0)%2];
+      if(img&&e.flashT>0)img=whiteOf(img);
+      if(img){
+        _drawNewEnemyImg(img,e,jit,fadeA*0.78,0,0,'mid');
+        if(act&&game.fxParts&&game.fxParts.length<60&&game.tick%3===0)
+          game.fxParts.push({x:e.x+e.w/2-1,y:e.y+e.h/2-1,vx:0,vy:-8,life:0.3,color:'#b0c8ff',size:1});
+      }else{ctx.globalAlpha=fadeA*0.6;
+        ctx.fillStyle='#b096dc';ctx.beginPath();
+        ctx.ellipse(px(e.x+e.w/2+jit),px(e.y+e.h/2),e.w/2+1,e.h/2+1,0,0,Math.PI*2);ctx.fill();
+        ctx.fillStyle='rgba(240,240,255,0.75)';
+        ctx.fillRect(px(e.x+3+jit),px(e.y+4),2,2);ctx.fillRect(px(e.x+e.w-5+jit),px(e.y+4),2,2);
+        ctx.globalAlpha=1;}
+    }else if(e.type==='boomer'){ // v7 §9.4：魂火（SPR.boomer[2] 10×10；wind 态白闪（引擎 flashT 复用）+
+      // scale 1+0.15*sin(t*20) 膨胀脉冲；缺失→蓝白火苗矩形兜底）
+      const wind=e.ai&&!e.dead&&e.ai.st==='wind';
+      let img=null;
+      if(!e.dead&&SPR.boomer)img=SPR.boomer[(tick*6|0)%2];
+      if(img&&e.flashT>0)img=whiteOf(img);
+      if(img){
+        if(wind){const s=1+0.15*Math.sin((e.t||0)*20);
+          ctx.save();ctx.translate(px(e.x+e.w/2+jit),px(e.y+e.h/2));ctx.scale(s,s);
+          ctx.drawImage(img,-img.width/2,-img.height/2);ctx.restore();}
+        else _drawNewEnemyImg(img,e,jit,fadeA,0,0,'mid');
+      }else{ctx.globalAlpha=fadeA;
+        ctx.fillStyle='#4888e8';ctx.fillRect(px(e.x+2+jit),px(e.y),e.w-4,e.h);
+        ctx.fillStyle='#a8d0ff';ctx.fillRect(px(e.x+3+jit),px(e.y+2),e.w-6,e.h-4);
+        ctx.fillStyle='#ffffff';ctx.fillRect(px(e.x+4+jit),px(e.y+4),2,3);
+        ctx.globalAlpha=1;}
     }else{
       if(e.dead>0){ctx.globalAlpha=0.5*fadeA;ctx.drawImage(SPR.bat[0],px(e.x),px(e.y));ctx.globalAlpha=1;}
       else{const img=SPR.bat[(tick*8|0)%3];
@@ -1024,6 +1162,7 @@ function renderEntities(L,tick){
         }
       }
     }
+    if(e.elite&&!e.dead)_eliteFx(e); // v7 §9.4：精英通用层（4 段旋转金弧/头顶血条/可选金冠）
   }
   // v3 §B2：流星（v5 §D：delay 期画金色瞄准圈——m.ring=落点地面 y 由 v5 引擎写入；
   // v3/v4 引擎无 ring 字段 → 保持现状 delay 期不画）（拖尾粒子由引擎 fxParts 推，renderFx 自动画）
@@ -1091,6 +1230,32 @@ function renderEntities(L,tick){
     else{ctx.fillStyle='#48d8e8';ctx.beginPath();ctx.arc(px(w.bx),px(w.by),5,0,Math.PI*2);ctx.fill();
       ctx.strokeStyle='#f8d048';ctx.lineWidth=1;ctx.stroke();}
   }
+  // v7 §9.5：宝箱（L.chests 引擎 v7 提取，守卫 ||[]；SPR.chest[2] 闭/开，缺失→棕金矩形兜底；
+  // opened 后仍渲染开箱+顶部微光；respawn 不复位=引擎职责）
+  for(const c of L.chests||[]){
+    const img=SPR.chest?SPR.chest[c.opened?1:0]:null;
+    if(img)ctx.drawImage(img,px(c.x),px(c.y));
+    else{ctx.fillStyle='#8a5a30';ctx.fillRect(px(c.x),px(c.y+2),16,12);
+      ctx.fillStyle='#f0b850';ctx.fillRect(px(c.x),px(c.y+2),16,4);
+      ctx.fillStyle=c.opened?'#5a3a18':'#f8d048';ctx.fillRect(px(c.x+7),px(c.y+7),2,3);}
+    if(c.opened){ctx.globalAlpha=0.25+0.15*Math.sin(tick*0.15); // 开箱微光
+      ctx.fillStyle='#f8d048';ctx.fillRect(px(c.x+3),px(c.y-1),10,2);ctx.globalAlpha=1;}
+  }
+  // v7 §9.5：灯笼（L.lanterns 纯光源实体，守卫 ||[]；SPR.lantern[2] 内焰 2 帧，缺失→红灯笼矩形兜底；
+  // 非黑暗层时叠加 6px 暖光晕 radial alpha .25——nether 黑暗层下由黑暗层光圈承担，不叠画）
+  for(const lt of L.lanterns||[]){
+    const lcx=lt.x+lt.w/2,lcy=lt.y+lt.h/2;
+    if(!(L.theme&&L.theme.dark===true)){
+      const g3=ctx.createRadialGradient(px(lcx),px(lcy),1,px(lcx),px(lcy),6);
+      g3.addColorStop(0,'rgba(248,160,80,0.25)');g3.addColorStop(1,'rgba(248,160,80,0)');
+      ctx.fillStyle=g3;ctx.fillRect(px(lcx-6),px(lcy-6),12,12);
+    }
+    if(SPR.lantern)ctx.drawImage(SPR.lantern[(tick*4|0)%2],px(lt.x),px(lt.y));
+    else{ctx.fillStyle='#5a4a30';ctx.fillRect(px(lt.x+6),px(lt.y+2),4,2);
+      ctx.fillStyle='#c03028';ctx.fillRect(px(lt.x+4),px(lt.y+4),8,9);
+      ctx.fillStyle='#f86048';ctx.fillRect(px(lt.x+5),px(lt.y+5),2,2);
+      ctx.fillStyle='#5a4a30';ctx.fillRect(px(lt.x+6),px(lt.y+13),4,2);}
+  }
   // v6 §G1：星刃回旋（renderEntities 末尾、弹幕之后；守卫式——game.blades 缺失整块空转，H4）。
   // 12×12 双帧取帧 (tick*14|0)%2，回程帧序反转；右向基准、dir<0 用 flipCache；
   // SPR.blade 缺失程序化兜底：金色四芒星+白芯（§10.1 视觉口径）
@@ -1102,6 +1267,34 @@ function renderEntities(L,tick){
       ctx.fillRect(bcx-5,bcy-1,11,3);ctx.fillRect(bcx-1,bcy-5,3,11);
       ctx.fillStyle='#fff8c8';ctx.fillRect(bcx-1,bcy-1,3,3);}
   }
+}
+
+// v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
+// 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
+// 悬浮型中心对齐（'mid'）；alpha 由调用方给（含死亡渐隐/幽灵 0.78）。BAL 缺省回退 1.75。
+function _drawNewEnemyImg(img,e,jit,alpha,ox,oy,anchor){
+  const es=e.elite?(((typeof BAL!=='undefined')&&BAL&&BAL.elite&&BAL.elite.scale)||1.75):1;
+  ctx.globalAlpha=alpha;
+  if(e.elite){
+    const w=img.width*es,h=img.height*es;
+    const dx0=e.x+e.w/2-w/2+jit,dy0=anchor==='foot'?e.y+e.h-h:e.y+e.h/2-h/2;
+    ctx.drawImage(img,px(dx0),px(dy0),Math.round(w),Math.round(h));
+  }else ctx.drawImage(img,px(e.x+ox+jit),px(e.y+oy));
+  ctx.globalAlpha=1;
+}
+// v7 §9.4 内部：精英通用层——圆心敌中心 r=(max(w,h)/2+5) 的 4 段弧随 tick 旋转（#f8d048 alpha .7）+
+// 头顶血条 24×3（底 #3a2020 / 填 #f84848 按 hp/maxHp，maxHp=BAL.elite[type].hp 缺省=当前 hp）+
+// 可选 SPR.eliteCrown 8×6 覆盖头顶（缺失跳过）。
+function _eliteFx(e){
+  const cx=e.x+e.w/2,cy=e.y+e.h/2,r=Math.max(e.w,e.h)/2+5,rot=game.tick*0.05;
+  ctx.strokeStyle='#f8d048';ctx.lineWidth=1;ctx.globalAlpha=0.7;
+  for(let i=0;i<4;i++){const a0=rot+i*(Math.PI/2);
+    ctx.beginPath();ctx.arc(px(cx),px(cy),r,a0,a0+Math.PI/3.2);ctx.stroke();}
+  ctx.globalAlpha=1;
+  const mx=((typeof BAL!=='undefined')&&BAL&&BAL.elite&&BAL.elite[e.type]&&BAL.elite[e.type].hp)||e.hp||1;
+  ctx.fillStyle='#3a2020';ctx.fillRect(px(cx-12),px(e.y-8),24,3);
+  ctx.fillStyle='#f84848';ctx.fillRect(px(cx-12),px(e.y-8),Math.round(24*clamp(e.hp/mx,0,1)),3);
+  if(SPR.eliteCrown)ctx.drawImage(SPR.eliteCrown,px(cx-4),px(e.y-16));
 }
 
 // v3 §B2：翻转帧缓存——同一画布只 flipSprite 一次（冲击波/右臂共用）
@@ -1164,15 +1357,27 @@ function tintOf(img,color){
   return t;
 }
 
+// v7 §9.3：Boss 名/提示/刻度参数化（kind：0/1=星核巨兽、2=蛟龙·敖渊、3=幽冥判官；旧引擎无 kind → 0 零回归）。
+// BOSS_P2FRAC=P2 阶段刻度占条宽比例（=设计书 §6.4 的 50%/40%/40%）。
+const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官'];
+const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%'];
+const BOSS_P2FRAC=[0.5,0.4,0.4];
 // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前调用）。
 // 画序 body→armL/armR→jaw→eyes+瞳孔→core→白闪覆盖；状态偏移表 [bodyDy,armDy,jaw开?,eyeType]，
 // eyeType：eye 普通眼 / rage 红眼 / dizzy 晕眼（不画瞳）/ dark 暗眼（alpha .5）。
+// v7 §9.3：部件表 [SPR.boss,boss2,boss3] 按 kind 索引（该 kind 部件组缺失→整块 return，现行守卫保留）；
+// 白闪 bossWhite2/3 同索引选择；姿态表追加 sweepCast/blinkCast（hidden 整帧跳过渲染）/scytheCast；
+// body 偏移按部件图尺寸对齐 x=b.x+(b.w-img.width)/2（kind1 body 图 64×48：(52-64)/2=-6=现行 b.x-6，
+// 逐像素一致）；y kind1 保留现行 b.y-2（设计书"52×48 与框相同→零回归"的声明按现状核对为 64×48，
+// 若套底对齐公式会整体下移 2px——kind1 走原偏移保证 R8 零回归，kind2/3 走 y=b.y+b.h-img.height+dy）。
 function renderBoss(tick){
   const b=game.boss; if(!b||b.state==='dead')return;
-  if(!SPR.boss)return; // 美术 v3 未合入兜底（合入序 art→engine→ui，正常不命中）
+  const P=[SPR.boss,SPR.boss2,SPR.boss3][b.kind||0];
+  if(!P)return; // 美术 v7 未合入兜底（该 kind 部件组缺失→整块不画）
+  if(b.state==='blinkCast'&&b.hidden)return; // v7 §9.3：blink 隐身期整帧跳过渲染（免伤免接触由引擎管）
   const p=game.player,R=b.phase===2;                 // 换装组选择
-  const B=R?SPR.boss.bodyRage:SPR.boss.body,A=R?SPR.boss.armRage:SPR.boss.arm,
-        J=R?SPR.boss.jawRage:SPR.boss.jaw;
+  const B=R?(P.bodyRage||P.body):P.body,A=R?(P.armRage||P.arm):P.arm,
+        J=R?(P.jawRage||P.jaw):P.jaw;
   // §D3 nova 预警环：Boss 中心扩张圆环，玩家可读的躲避提示（世界坐标，画在身体之下层）
   if(b.state==='novaCast'){
     ctx.strokeStyle='#f86030';
@@ -1186,7 +1391,7 @@ function renderBoss(tick){
     case 'windup':
       if(b.next==='leap'){dy=3;ad=6;jaw=1;}                               // +3/6/开/眼
       else if(b.next==='charge'){dy=2;ad=18;eye='rage';}                  // +2/18/闭/红眼
-      else{ad=10;jaw=1;eye='rage';}                                       // barrage|nova: 0/10/开/红眼
+      else{ad=10;jaw=1;eye='rage';}                                       // barrage|nova|sweep|blink|scythe: 0/10/开/红眼
       break;
     case 'leapAir': dy=-4;ad=0;jaw=1;break;                               // -4/0/开/眼
     case 'chargeRun': dy=1;ad=16;jaw=1;eye='rage';break;                  // +1/16/开/红眼
@@ -1196,32 +1401,37 @@ function renderBoss(tick){
     case 'summonCast': ad=8;jaw=1;break;                                  // 0/8/开/眼
     case 'intro': case 'enrage': dy=-2;ad=4;jaw=1;eye='rage';break;       // -2/4/开/红眼
     case 'dying': dy=12;ad=12;jaw=1;eye='dizzy';break;                    // 随引擎 y 下沉 +12/12/开/晕眼
+    case 'sweepCast': dy=2;ad=20;jaw=1;eye='rage';break;                  // v7 §9.3：蛟龙扫尾
+    case 'scytheCast': dy=-2;ad=2;jaw=1;eye='rage';break;                 // v7 §9.3：判官镰刀
   }
   const baseA=(b.state==='dying'&&(tick%8<4))?0.5:1; // dying：(tick%8<4) 整体 alpha .5
   ctx.globalAlpha=baseA;
-  ctx.drawImage(B[(tick*3|0)%B.length],px(b.x-6),px(b.y-2+dy));          // body（呼吸帧=B 慢周期取 0/1）
+  const bimg=B[(tick*3|0)%B.length];                                     // body（呼吸帧=B 慢周期取 0/1）
+  const bdx=b.x+(b.w-bimg.width)/2;                                      // 尺寸对齐 x（kind1=-6=现行一致）
+  const bdy=(b.kind||0)<=1?b.y-2:b.y+b.h-bimg.height;                    // kind1 保留现行 -2（零回归）；kind2/3 底对齐
+  ctx.drawImage(bimg,px(bdx),px(bdy+dy));
   ctx.drawImage(A,px(b.x-10),px(b.y+12+ad));                             // armL
   ctx.drawImage(flipCache(A),px(b.x+b.w-10),px(b.y+12+ad));              // armR=翻转帧
-  ctx.drawImage(J[jaw?1:0],px(b.x+16),px(b.y+36));                       // jaw 闭/开
-  const eyeImg=eye==='rage'?SPR.boss.eyeRage:eye==='dizzy'?SPR.boss.eyeDizzy:SPR.boss.eye;
+  if(J)ctx.drawImage(J[jaw?1:0],px(b.x+16),px(b.y+36));                  // jaw 闭/开
+  const eyeImg=eye==='rage'?(P.eyeRage||P.eye):eye==='dizzy'?(P.eyeDizzy||P.eye):P.eye;
   for(const ex0 of[b.x+8,b.x+b.w-20]){                                   // eyeL / eyeR
     ctx.globalAlpha=baseA*(eye==='dark'?0.5:1);
     ctx.drawImage(eyeImg,px(ex0),px(b.y+10));
-    if(eye!=='dizzy'&&p&&SPR.boss.pupil){                                // 瞳孔 ±2px 追踪（晕眼不画瞳）
+    if(eye!=='dizzy'&&p&&P.pupil){                                // 瞳孔 ±2px 追踪（晕眼不画瞳）
       const cx=ex0+6,cy=b.y+15;
       const ox=clamp((p.x-cx)/40,-1,1)*2,oy=clamp((p.y-cy)/40,-1,1)*2;
-      ctx.drawImage(SPR.boss.pupil,px(cx-2+ox),px(cy-2+oy));
+      ctx.drawImage(P.pupil,px(cx-2+ox),px(cy-2+oy));
     }
   }
   ctx.globalAlpha=baseA;
-  ctx.drawImage(SPR.boss.core[(tick*(R?10:6)|0)%SPR.boss.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
-  if(b.flashT>0&&SPR.bossWhite){                                         // 白闪：同偏移再画一遍
+  if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
+  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White][b.kind||0]; // v7：白剪影同索引（art 实际交付键=boss2White/boss3White；缺失不闪白）
+  if(b.flashT>0&&PW){                                         // 白闪：同偏移再画一遍
     ctx.globalAlpha=baseA*clamp(b.flashT/0.12,0,1);
-    const W=SPR.bossWhite;
-    ctx.drawImage(W.body,px(b.x-6),px(b.y-2+dy));
-    ctx.drawImage(W.arm,px(b.x-10),px(b.y+12+ad));
-    ctx.drawImage(flipCache(W.arm),px(b.x+b.w-10),px(b.y+12+ad));
-    ctx.drawImage(W.jaw,px(b.x+16),px(b.y+36)); // bossWhite.jaw=开口白剪影单张（art.js §C5，非数组）
+    ctx.drawImage(PW.body,px(bdx),px(bdy+dy));
+    ctx.drawImage(PW.arm,px(b.x-10),px(b.y+12+ad));
+    ctx.drawImage(flipCache(PW.arm),px(b.x+b.w-10),px(b.y+12+ad));
+    ctx.drawImage(PW.jaw,px(b.x+16),px(b.y+36)); // bossWhite.jaw=开口白剪影单张（art.js §C5，非数组）
   }
   ctx.globalAlpha=1;
 }
@@ -1327,11 +1537,11 @@ function renderGhosts(){
   ctx.globalAlpha=1;
 }
 
-// v5 §A：UI 层演出池推进——floats/fxParts/scars 引擎只写、ui 每步推进+修剪（工单 §A：
-// step() 内 updateGhosts(dt) 旁调用，play 态推进；pause/谜题层不推进）。要点：本函数不感知
-// 引擎 hitStop/ult 冻结（updateWorld 提前 return 不影响它）——冻结期数字与火花仍在动。
-// v5 封面队 §B：title 态也推进（封面流星尾迹/落字金 fx 走 fxParts 渲染管线）。
-// 守卫：三字段为 v5 引擎产出，不存在（v4）时对应循环空转，不抛异常（H4）。
+  // v5 §A：UI 层演出池推进——floats/fxParts/scars 引擎只写、ui 每步推进+修剪（工单 §A：
+  // step() 内 updateGhosts(dt) 旁调用，play 态推进；pause/谜题层不推进）。要点：本函数不感知
+  // 引擎 hitStop/ult 冻结（updateWorld 提前 return 不影响它）——冻结期数字与火花仍在动。
+  // v5 封面队 §B：title 态也推进（封面流星尾迹/落字金 fx 走 fxParts 渲染管线）。
+  // 守卫：三字段为 v5 引擎产出，不存在（v4）时对应循环空转，不抛异常（H4）。
 function simUiFx(dt){
   if((uiState!=='play'&&uiState!=='title')||game.paused||puzzle.open)return;
   const fl=game.floats;
@@ -1345,6 +1555,32 @@ function simUiFx(dt){
   const sc=game.scars;
   if(sc)for(let i=sc.length-1;i>=0;i--){const s=sc[i];
     s.t+=dt; if(s.t>0.6)sc.splice(i,1);}
+}
+
+// v7 §9.8：隐藏房微提示——玩家距任一未碎 'G' 瓦片 ≤24px 且 game.tick%90<2 时，自该瓦片底缘
+// 落 1 粒 1×1 尘 fx（#c8c8d8, vy 30, life 0.5）——极轻量，不做光柱（保持"需要观察"的探索感）。
+// 工单硬性要求：G 列表每 8 帧节流重扫缓存（视口+2 瓦余量），勿每帧全图扫；_gLastDust 保证
+// 每 90 tick 至多一粒（%90<2 的两帧窗口只落首粒）。引擎碎 'G' 后重扫自然剔除（tiles 已置 '.'）。
+let _gScanTick=-999,_gTiles=[],_gLastDust=-999;
+function simHiddenHint(){
+  const L=game.level,p=game.player;
+  if(!L||!L.tiles||!p||p.dead)return;
+  if(game.tick-_gScanTick>=8){
+    _gScanTick=game.tick;_gTiles=[];
+    const x0=Math.max(0,(game.cam.x/16|0)-2),x1=Math.min(L.tw-1,((game.cam.x+VIEW_W)/16|0)+2);
+    const y0=Math.max(0,(game.cam.y/16|0)-2),y1=Math.min(L.th-1,((game.cam.y+VIEW_H)/16|0)+2);
+    for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++)if(L.tiles[ty][tx]==='G')_gTiles.push([tx,ty]);
+  }
+  if(!_gTiles.length||game.tick%90>=2||game.tick-_gLastDust<90)return;
+  for(const g of _gTiles){
+    if(Math.hypot(p.x+p.w/2-(g[0]*16+8),p.y+p.h/2-(g[1]*16+8))<=24){
+      _gLastDust=game.tick;
+      if(game.fxParts&&game.fxParts.length<60)
+        game.fxParts.push({x:g[0]*16+6+Math.random()*4,y:g[1]*16+15,vx:0,vy:30,life:0.5,
+          color:'#c8c8d8',size:1});
+      break;
+    }
+  }
 }
 
 // v5 §B：冲刺爆发段速度线（renderGhosts 之后、renderPlayer 之前；爆发窗口 0.05~0.23）
@@ -1490,6 +1726,43 @@ function renderUlt(){
   // ⑤ 白闪复用 game.flashT（引擎已在 t=0.9 置 0.1，renderFlash 现有逻辑不动）
 }
 
+// v7 §9.7：黑暗层（nether 专属）——模块级 384×224 离屏单例（勿每帧新建）；世界渲染完成后、HUD 前调用。
+// rgba(4,8,18,0.78) 铺底 → destination-out 径向渐变开洞：玩家中心 r64 + 每个 L.lanterns 中心
+// r80×(0.92+0.08*sin(tick*0.13)) 摇曳 + 检查点/神龛 r24 微光（partial punch 0.55）→ drawImage 到主画布。
+// Boss 关（L16）同样生效（竞技场灯笼由关卡摆放保证可读性）；光源按视口过滤控制 radial 渐变数量。
+// 开关守卫（H3/R8）：L.theme.dark===true 且 L.meta.theme==='nether' 双条件——现行 THEMES 的
+// cave/factory/lava/tower/boss/star 自 v5 起即带 dark:true（数据标记，此前从未被消费），单判 dark
+// 会把这六个既有主题一并压暗，违背 R8 既有内容零回归；nether 未合入（THEMES 桩无 dark）时整块跳过。
+let _darkCv=null;
+function renderDarkness(tick){
+  const L=game.level;
+  if(!L||!L.theme||L.theme.dark!==true||!L.meta||L.meta.theme!=='nether')return;
+  if(!_darkCv){_darkCv=document.createElement('canvas');_darkCv.width=VIEW_W;_darkCv.height=VIEW_H;}
+  const o=_darkCv.getContext('2d'),cam=game.cam;
+  o.globalCompositeOperation='source-over';
+  o.clearRect(0,0,VIEW_W,VIEW_H);
+  o.fillStyle='rgba(4,8,18,0.78)';o.fillRect(0,0,VIEW_W,VIEW_H);
+  o.globalCompositeOperation='destination-out';
+  const hole=(x,y,r,a)=>{ // 径向渐变开洞（中心 a→边缘 0；r 下限 1 防 0 半径异常）
+    const rr=Math.max(1,r);
+    const g=o.createRadialGradient(x,y,Math.max(1,rr*0.2),x,y,rr);
+    g.addColorStop(0,'rgba(0,0,0,'+a+')');g.addColorStop(1,'rgba(0,0,0,0)');
+    o.fillStyle=g;o.fillRect(x-rr,y-rr,rr*2,rr*2);
+  };
+  const vis=(x,y,r)=>x>cam.x-r&&x<cam.x+VIEW_W+r&&y>cam.y-r&&y<cam.y+VIEW_H+r;
+  const p=game.player;
+  if(p)hole(px(p.x+p.w/2-cam.x),px(p.y+p.h/2-cam.y),64,1);
+  for(const lt of L.lanterns||[]){ // 灯笼摇曳（§4.4：'R' 实体=光源，80px 光圈）
+    const cx=lt.x+lt.w/2,cy=lt.y+lt.h/2;
+    if(vis(cx,cy,90))hole(px(cx-cam.x),px(cy-cam.y),80*(0.92+0.08*Math.sin(tick*0.13)),1);
+  }
+  const glow=(x,y)=>{if(vis(x,y,30))hole(px(x-cam.x),px(y-cam.y),24,0.55);}; // 检查点/神龛 r24 微光
+  for(const c of L.checkpoints||[])glow(c.x+8,c.y+12);
+  for(const s of L.shrines||[])glow(s.x+8,s.y+12);
+  o.globalCompositeOperation='source-over';
+  ctx.drawImage(_darkCv,0,0);
+}
+
 function renderHUD(){
   const L=game.level;
   // v5 §A-1/§E：顶栏换肤——深蓝半透底+下缘 1px 金细线；文字色按 §5.5 色系
@@ -1545,18 +1818,20 @@ function renderHUD(){
     if(p.hp<=2&&game.tick%30<15){ctx.strokeStyle='#f84848';ctx.strokeRect(2.5,17.5,101,11);} // 低血红框脉冲（随新面板宽）
   }
   // v3 §C②：Boss 血条（仅 boss 存在且非 dormant 显示）；v5 §A-4：名牌/条底改深蓝+金细线
+  // v7 §9.3：名字/P2 刻度线按 b.kind 参数化（旧引擎无 kind → 0=星核巨兽，零回归）
   const b=game.boss;
   if(b&&b.state!=='dormant'){
+    const bk=b.kind||0;
     ctx.globalAlpha=b.state==='dying'?clamp(1-b.t/2.2,0,1):1; // dying：随 2.2s 渐隐
     ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(82,17,52,11);          // 名牌深蓝底
     ctx.strokeStyle='#f0c860';ctx.lineWidth=1;ctx.strokeRect(82.5,17.5,51,10);
-    drawCNText('星核巨兽',84,18,8,'#f8d048');
+    drawCNText(BOSS_NAME[bk],84,18,8,'#f8d048');
     ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(128,19,174,9);          // 条底深蓝
     ctx.strokeStyle='#f0c860';ctx.strokeRect(128.5,19.5,173,8);
     const mx=b.maxHp||60,bw=clamp(172*b.hp/mx,0,172);
     ctx.fillStyle=b.phase===2?'#f84848':'#f8d048';                          // P2 变红
     ctx.fillRect(128,19,px(bw),9);
-    ctx.fillStyle='#f0f4ff';ctx.fillRect(128+86,19,1,9);                    // 50% 刻度线
+    ctx.fillStyle='#f0f4ff';ctx.fillRect(128+Math.round(172*(1-(BOSS_P2FRAC[bk]||0.5))),19,1,9); // P2 刻度线（50%/40%/40% 按 kind）
     if(b.flashT>0.09){ctx.fillStyle='#ffffff';ctx.fillRect(128,19,174,9);}  // 受击 2 帧整条白
     ctx.globalAlpha=1;
   }
@@ -1639,7 +1914,7 @@ function renderHUD(){
       if(hover==='hearts'&&game.player)
         drawTipCard(r,'生命 '+game.player.hp+' / '+(game.player.maxHp||5)+'　吃心回复');
       else if(hover==='bossbar'&&game.boss)
-        drawTipCard(r,'星核巨兽 · 阶段'+(game.boss.phase||1)+'　狂暴于 50%');
+        drawTipCard(r,BOSS_NAME[game.boss.kind||0]+' · 阶段'+(game.boss.phase||1)+'　'+BOSS_P2TIP[game.boss.kind||0]); // v7 §9.3 同参数化
       else if(hover==='coins')
         drawTipCard(r,'金币 '+game.coins+' / 总'+game.level.totalCoin+'　全收得星');
       else if(hover==='shrinehud'){
@@ -1838,8 +2113,8 @@ function renderIntro(){
   ctx.fillRect(0,0,VIEW_W,px(h));ctx.fillRect(0,VIEW_H-px(h),VIEW_W,px(h));
   let bx=VIEW_W/2;
   if(b.t<0.3)bx+=Math.random()*4-2; // 名字打入抖动
-  drawCNText('星核巨兽',bx,86,26,'#f8d048','center');
-  drawPixelText('STARCORE BEHEMOTH',VIEW_W/2,120,1,'#f0f0f8','center');
+  drawCNText(BOSS_NAME[b.kind||0],bx,86,26,'#f8d048','center'); // v7 §9.3：登场横幅随 Boss kind 参数化
+  if((b.kind||0)<=1)drawPixelText('STARCORE BEHEMOTH',VIEW_W/2,120,1,'#f0f0f8','center'); // 英文副标=星核专属（新 Boss 无译名，不杜撰）
 }
 
 // v3 §D2：流星连斩全屏演出——白屏渐隐 + 两条对角斩线随 flashT 衰减退场
@@ -1883,7 +2158,7 @@ function renderClear(tick){
     }
     if(clearShown>1){
       const blink=tick%50<32;
-      if(blink)drawCNText(game.levelIdx<LEVELS.length-1?'回车 · 下一关　Esc · 选关':'回车 · 通关结算',
+      if(blink)drawCNText(game.levelIdx<ALL_LEVELS.length-1?'回车 · 下一关　Esc · 选关':'回车 · 通关结算',
         VIEW_W/2,138,11,'#ffffff','center');
     }
   }
@@ -2022,6 +2297,29 @@ function renderTitleCover(tick){
   ctx.restore();
 }
 
+// ---------- v7 §9.2：章节化选关屏（384×224；章头 12px + 卡行 46×44 pitch 53） ----------
+// 章首表 [章首 0 基 idx, 章长]；CH_NAME/CH_HEAD_Y/CH_CARD_Y 下标=章号（y=章头 24/86/148、卡行 34/96/158）。
+// 截断规则（工单任务2 过渡期兼容）：ALL_LEVELS.length≤10（章节文件未合入）→ 单章画**全部**关卡
+// （"10 关时只画第一章"：若只画 7 卡则 L8~L10 不可选，违背"选关屏必须照常可用"，交付说明记录），
+// 并按 7 列换行（第二行 y=34+62=96——一章 7 卡后越出 384 画布，wrap 由 _cardXY 消费）；
+// ≥11 关按表截断：章显示条件=章首 idx<length，章长=min(声明,余量)——13 关=两章、16 关=三章、
+// 15 关=第三章 2 卡；13 关时第三章头=13 但空章不显示。
+const CH_HEAD=[[0,7],[7,6],[13,3]];
+const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章'];
+const CH_HEAD_Y=[24,86,148],CH_CARD_Y=[34,96,158];
+function _chapters(){
+  const n=ALL_LEVELS.length,out=[];
+  if(n<=10)return[{i:0,first:0,len:n,wrap:7}];
+  for(let c=0;c<CH_HEAD.length&&CH_HEAD[c][0]<n;c++)
+    out.push({i:c,first:CH_HEAD[c][0],len:Math.min(CH_HEAD[c][1],n-CH_HEAD[c][0]),wrap:0});
+  return out;
+}
+function _cardXY(ch,j){ // 卡左上角：多章=单行 x=6+j*53；单章过渡=7 列换行（行距 62）
+  if(ch.wrap){const col=j%ch.wrap,row=(j/ch.wrap)|0;return[6+col*53,CH_CARD_Y[ch.i]+row*62];}
+  return[6+j*53,CH_CARD_Y[ch.i]];
+}
+const _cardName=n=>String(n).replace(/^\d+\s*·\s*/,''); // 卡面关名去序号前缀（序号另画 y+34；'7 · BOSS·星核巨兽'→'BOSS·星核巨兽'）
+
 function renderMenu(th,tick){
   if(uiState==='title'){renderTitleCover(tick);return;} // v5 §B：封面重做（夜空渐变取代主题渐变；瓦片地面行删除，云海接底）
   _prevMenuUi='select'; // 离开标题（进选关）→ 重进标题时逐字弹入 logo 重播
@@ -2033,47 +2331,65 @@ function renderMenu(th,tick){
   // 地面
   const T=themeArt.tiles;
   for(let x=0;x<VIEW_W;x+=16){ctx.drawImage(T.blockCap,x,VIEW_H-24);ctx.drawImage(T.block,x,VIEW_H-8);}
-  // v5 §C：选关屏 5 列×2 行十卡（LEVELS.length 自适应，关卡队 10 关合入后自动 5×2 满）
-  drawCNText('选择关卡',VIEW_W/2,14,15,'#f0f4ff','center');
-  for(let i=0;i<LEVELS.length;i++){
-    const col=i%5,row=Math.floor(i/5);
-    const x=6+col*75,y=32+row*64;                                // 卡 68×52
-    const locked=i+1>progress.unlocked,sel=menuSel===i;
-    _panel(x,y,68,52,{alpha:locked?0.7:0.85,cut:3});
-    if(sel){ctx.strokeStyle='#fff8c8';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,66,50);
-      if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-7,y+25,4,2);ctx.fillRect(x+71,y+25,4,2);}}
-    else if(hover==='select:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮（选中框同语言）
-      ctx.strokeRect(x+0.5,y+0.5,67,51);}
-    drawCNText(locked?'???':LEVELS[i].name,x+34,y+7,9,
-      locked?'#5a6488':'#f0f4ff','center');                      // 名≤6 字×9px=54 ✓
-    const st=progress.stars[i]||0;
-    drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+34,y+26,12,
-      locked?'#3a4468':'#f8d048','center');
-    drawPixelText(''+(i+1),x+34,y+42,1,locked?'#5a6488':'#a8b4d8','center');
+  // v7 §9.2：章节化选关屏（标题 y=12；章头 y=24/86/148；卡行 y=34/96/158；卡 46×44、x=6+col*53，
+  // 7 列末卡右缘 370；卡内 关名 7px y+5 / 星 12px y+22 / 序号 y+34；Boss 卡红描边+金字+BOSS 角标；
+  // 新关（L11+）名右上 2×2 金点；章锁定=章头灰 #3a4468+全部卡 ???+章名后挂锁形 6×8）
+  drawCNText('选择关卡',VIEW_W/2,12,15,'#f0f4ff','center');
+  for(const ch of _chapters()){
+    const hy=CH_HEAD_Y[ch.i];
+    const chLocked=progress.unlocked<ch.first+1; // 章锁定=章首关未解锁
+    drawCNText(CH_NAME[ch.i],6,hy,12,chLocked?'#3a4468':'#f0f4ff');
+    if(chLocked){ // 章名后挂锁形 6×8 程序化（锁钩+锁体）
+      const lx=6+Math.ceil(_textW(CH_NAME[ch.i],12))+6,ly=hy+1;
+      ctx.strokeStyle='#3a4468';ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(lx+3,ly+3,2,Math.PI,0);ctx.stroke();
+      ctx.fillStyle='#3a4468';ctx.fillRect(lx,ly+3,6,5);
+    }
+    for(let j=0;j<ch.len;j++){
+      const i=ch.first+j,xy=_cardXY(ch,j),x=xy[0],y=xy[1];
+      const locked=chLocked||i+1>progress.unlocked,sel=menuSel===i;
+      const boss=!!ALL_LEVELS[i].boss;
+      _panel(x,y,46,44,{alpha:locked?0.7:0.85,cut:3});
+      if(boss){ctx.strokeStyle='#f86048';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,45,43);} // Boss 卡红描边
+      if(sel){ctx.strokeStyle='#fff8c8';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,44,42);
+        if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-6,y+21,4,2);ctx.fillRect(x+48,y+21,4,2);}}
+      else if(hover==='select:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮
+        ctx.strokeRect(x+0.5,y+0.5,45,43);}
+      drawCNText(locked?'???':_cardName(ALL_LEVELS[i].name),x+23,y+5,7,
+        locked?'#5a6488':(boss?'#f8d048':'#f0f4ff'),'center');              // 关名 7px（Boss 金色）
+      const st=progress.stars[i]||0;
+      drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+23,y+22,12,
+        locked?'#3a4468':'#f8d048','center');
+      drawPixelText(''+(i+1),x+23,y+34,1,locked?'#5a6488':'#a8b4d8','center');
+      if(boss)drawPixelText('BOSS',x+43,y+35,1,'#f86048','right');          // 卡底 BOSS 角标
+      if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+3,2,2);}        // 新关金点（L11~L16）
+    }
   }
-  drawCNText('←→↑↓ 选择　回车 进入　Esc 返回',VIEW_W/2,196,11,'#a8b4d8','center');
+  drawCNText('←→↑↓ 选择　回车 进入　Esc 返回',VIEW_W/2,204,11,'#a8b4d8','center');
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
-  drawPixelText('STARS '+total+'/'+(LEVELS.length*3),VIEW_W/2,212,1,'#f8d048','center'); // 10 关=30
+  drawPixelText('STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,214,1,'#f8d048','center'); // v7 §9.1：上限=ALL_LEVELS.length*3
 }
 
 function renderVictory(tick){
   ctx.fillStyle='rgba(8,8,20,0.85)';ctx.fillRect(0,0,VIEW_W,VIEW_H);
   drawCNText('～ 通关啦 ～',VIEW_W/2,60,26,'#f8d020','center');
-  drawCNText('七关全通，星核巨兽已倒下！',VIEW_W/2,110,13,'#f0f0f8','center');
+  drawCNText('星核巨兽已倒下！',VIEW_W/2,110,13,'#f0f0f8','center'); // v7 §9.10：遗留文案对齐
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
-  drawPixelText('TOTAL STARS '+total+'/21',VIEW_W/2,140,1,'#f8d020','center');
+  drawPixelText('TOTAL STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,140,1,'#f8d020','center'); // v7 §9.1
   if(tick%50<32)drawCNText('回车 · 返回标题',VIEW_W/2,170,12,'#ffffff','center');
 }
 
 // v3 §E3：致谢屏——深空底 + 彩带粒子雨 + 滚动制作名单；回车（creditsT>1）回标题
-// v5 §D：真结局版文案（工单照抄；L10 通关进本屏）
-const CREDITS_LINES=[                                       // v5 真结局版（照抄）
-  ['像素勇者',20,'#ffffff'],['PIXEL QUEST',11,'#f8d048'],['v5 · 真结局 · 星之旅途',12,'#f8e8a0'],
-  ['十关全通，星核巨兽已倒下！',12,'#f0f4ff'],['翡翠风谷的风、落日王城的钟、',11,'#c8d4ec'],
-  ['星空回廊的門，都記得你。',11,'#c8d4ec'],['——',11,'#5a6488'],
+// v5 §D：真结局版文案；v7 §9.10：头三行/正文行换 v7 版，制作名单追加章节/数值两队（其余行保留）
+const CREDITS_LINES=[                                       // v7 真结局版（§9.10 逐行）
+  ['像素勇者',20,'#ffffff'],['PIXEL QUEST',11,'#f8d048'],['v7 · 真结局 · 星海归冥',12,'#f8e8a0'],
+  ['十六关全通，蛟龙俯首，判官封卷！',12,'#f0f4ff'],['翡翠风谷的风、星海的浪、',11,'#c8d4ec'],
+  ['幽冥的灯，都记得你。',11,'#c8d4ec'],['——',11,'#5a6488'],
   ['企划·数值·美术指导：GLM-5.3 设计师',11,'#c0c8e0'],['引擎·手感：Flash 手感队',11,'#c0c8e0'],
   ['关卡·谜题：Flash 关卡队',11,'#c0c8e0'],['美术·风格：Flash 风格队/特效队',11,'#c0c8e0'],
-  ['界面·封面·音效：Flash 演出队/封面队',11,'#c0c8e0'],['——',11,'#5a6488'],
+  ['界面·封面·音效：Flash 演出队/封面队',11,'#c0c8e0'],
+  ['章节·新Boss·精英：Flash 框架队/章节二队/章节三队',11,'#c0c8e0'],
+  ['数值·回归：Flash 平衡队',11,'#c0c8e0'],['——',11,'#5a6488'],
   ['风格致敬：原神（米哈游）/ 4399《冒险王》',11,'#c0c8e0'],['——',11,'#5a6488'],
   ['特别感谢：正在游玩的你！',13,'#f8d048']];
 function renderCredits(tick){
@@ -2093,7 +2409,7 @@ function renderCredits(tick){
   // v5 §D：真结局固定头（金标题+星数合计；滚动名单之上重绘保证可读）
   drawCNText('～ 真结局 ～',VIEW_W/2,10,20,'#f8d048','center');
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
-  drawPixelText('TOTAL STARS '+total+'/'+(LEVELS.length*3),VIEW_W/2,36,1,'#f8d048','center'); // 10 关=30
+  drawPixelText('TOTAL STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,36,1,'#f8d048','center'); // v7 §9.1：48=16 关×3
   if(tick%50<32)drawCNText('回车 · 返回标题',VIEW_W/2,206,11,'#ffffff','center'); // 底部常驻
 }
 
@@ -2310,6 +2626,7 @@ function step(dt){
   // v2 P1：残影记录与连击弹字计时
   updateGhosts(dt);
   simUiFx(dt); // v5 §A：UI 层粒子/浮字/爆坑推进（hit-stop/ult 冻结期照常动；pause/谜题层内部自守卫跳过）
+  if(uiState==='play')simHiddenHint(); // v7 §9.8：隐藏房微提示（未碎 G 近距尘落，节流扫描）
   if(game.combo!==lastCombo){if(game.combo>lastCombo)comboPop=0.3;lastCombo=game.combo;}
   comboPop-=dt;
   // v6 §D2：O 大提示上升沿（每关一次 oHintDone 锁存；CD 中不误导；paused/开层不触发）
@@ -2321,11 +2638,20 @@ function step(dt){
     // v6 §A.4：点 title 开始钮=hit('confirm') 等价分支（键盘等价=回车，H2）
     if(hit('confirm')||(mouse.click&&hover==='titleStart')){SFX.select();uiState='select';fade=1;fadeDir=-1;}
   }else if(uiState==='select'){
-    // v5 §C：5×2 布局导航——左右 ±1、上下 ±5（clamp 0..LEVELS.length-1）；其余逻辑不变
-    if(hit('right')){menuSel=clamp(menuSel+1,0,LEVELS.length-1);SFX.select();}
-    if(hit('left')){menuSel=clamp(menuSel-1,0,LEVELS.length-1);SFX.select();}
-    if(hit('down')){menuSel=clamp(menuSel+5,0,LEVELS.length-1);SFX.select();} // 跨行下移
-    if(hit('up')){menuSel=clamp(menuSel-5,0,LEVELS.length-1);SFX.select();}  // 跨行上移
+    // v7 §9.2：章节化导航——←→ ±1（clamp 0..ALL_LEVELS.length-1）；↑↓ 跨章保持列号：
+    // col=menuSel-当前章首 idx，跳至上/下一章 章首+min(col,章长-1)；末章↓/首章↑钳位不动
+    if(hit('right')){menuSel=clamp(menuSel+1,0,ALL_LEVELS.length-1);SFX.select();}
+    if(hit('left')){menuSel=clamp(menuSel-1,0,ALL_LEVELS.length-1);SFX.select();}
+    if(hit('down')||hit('up')){
+      const chs=_chapters();
+      let ci=0;while(ci<chs.length-1&&menuSel>=chs[ci].first+chs[ci].len)ci++;
+      const nt=hit('down')?ci+1:ci-1;
+      if(nt>=0&&nt<chs.length){
+        const col=menuSel-chs[ci].first;
+        menuSel=chs[nt].first+Math.min(col,chs[nt].len-1);
+      }
+      SFX.select();
+    }
     // v6 §A.4：选关卡鼠标单击=选中（menuSel=i）、双击=进入——确认分支复用 hit('confirm') 同代码路径
     if(mouse.click&&hover&&hover.indexOf('select:')===0){
       const i=+hover.slice(7);
@@ -2388,7 +2714,7 @@ function step(dt){
   }else if(uiState==='clear'){
     game.clearT+=dt;
     if(hit('confirm')&&game.clearT>0.8){
-      if(game.levelIdx<LEVELS.length-1){startLevel(game.levelIdx+1);}
+      if(game.levelIdx<ALL_LEVELS.length-1){startLevel(game.levelIdx+1);} // v7 §2.3：L10 通关进 L11；末关（L16）进 credits
       else{uiState='credits';creditsT=0;fade=1;fadeDir=-1;} // v3 §E3：L7 结算不再进 victory，进致谢屏
     }
     if(hit('back')){uiState='select';fade=1;fadeDir=-1;}
@@ -2403,7 +2729,7 @@ function step(dt){
     clearStars=1+(game.coins>=game.level.totalCoin?1:0)+(game.time<=game.level.par?1:0);
     const k=game.levelIdx+'';
     progress.stars[k]=Math.max(progress.stars[k]||0,clearStars);
-    progress.unlocked=Math.max(progress.unlocked,Math.min(LEVELS.length,game.levelIdx+2));
+    progress.unlocked=Math.max(progress.unlocked,Math.min(ALL_LEVELS.length,game.levelIdx+2)); // v7 §2.3：上限=ALL_LEVELS.length（线性后继=章末 Boss 通关解锁下一章）
     saveProgress(progress);
   }
   if(game.state==='play'&&lastState==='clear'&&!fadeDir)fadeDir=-1;
@@ -2435,7 +2761,7 @@ function boot(){
   recomputeEquip(); // v6 波2 §D：boot 后一次（异常档自愈回写+注入 game.equip/cdMul；先于 startLevel/loadLevel 读装备）
   const lvl=q.get('level');
   if(lvl){
-    const idx=clamp(parseInt(lvl)-1,0,LEVELS.length-1);
+    const idx=clamp(parseInt(lvl)-1,0,ALL_LEVELS.length-1);
     startLevel(idx);
   }else{
     game.state='title';

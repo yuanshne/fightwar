@@ -17,13 +17,17 @@
 </head>
 <body>
 <div id="wrap"><canvas id="game" width="384" height="224"></canvas></div>
-<div id="tip">←→/AD 移动 · ↑/W/空格 跳跃(长按跳更高) · P 暂停 · M 声音 · R 重开 · Esc 菜单</div>
+<div id="tip">←→/AD 移动 · ↑/W/空格 跳跃(长按跳更高) · B 背包 · P 暂停 · M 声音 · R 重开 · Esc 菜单</div>
 <script>
 // 全局共享常量（各模块通过经典 script 共享，任何模块不得重复声明）
 const VIEW_W=384,VIEW_H=224,TILE=16;
 </script>
 <script src="art.js"></script>
 <script src="levels.js"></script>
+<!-- v7 §1.1：章节文件（顶层 CHAPTERS.push 注册对象）；未交付时浏览器对 404 静默跳过，
+     游戏以已合入章节运行（10/13/16 关皆合法）；chapter2.js 与 chapter3.js 互相独立 -->
+<script src="chapter2.js"></script>
+<script src="chapter3.js"></script>
 <script src="engine.js"></script>
 <script src="ui.js"></script>
 </body>

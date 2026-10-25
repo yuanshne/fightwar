@@ -17,7 +17,7 @@ with sync_playwright() as p:
     pg.screenshot(path=str(OUT / 'title.png'))
     pg.keyboard.press('Enter'); pg.wait_for_timeout(700)
     pg.screenshot(path=str(OUT / 'select.png'))
-    for lv in range(1, 11):
+    for lv in range(1, 17):
         pg.goto(f'{BASE}?level={lv}')
         pg.wait_for_load_state('networkidle'); pg.wait_for_timeout(600)
         s1 = pg.evaluate("() => ({x:Math.round(game.player.x), y:Math.round(game.player.y), state:game.state, name:game.level.meta.name, coins:game.level.coins.filter(c=>!c.got).length, parts:game.parts.length})")
