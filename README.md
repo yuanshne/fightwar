@@ -38,8 +38,12 @@ Boss 战模式）。零依赖、零素材文件——所有像素画、瓦片、
 
 ## 运行
 
-直接双击 `index.html`；或 `python -m http.server 8765` 后访问
-`http://127.0.0.1:8765/index.html`。调试参数：`?level=3` 直跳第 3 关，`?god=1` 无敌模式。
+**在线试玩**：<https://yuanshne.github.io/fightwar/>（GitHub Pages，main 分支根目录直出）
+
+本地：直接双击 `index.html`（零依赖、离线可玩）；或 `python -m http.server 8765` 后访问
+`http://127.0.0.1:8765/index.html`。
+
+调试参数：`?level=3` 直跳第 3 关，`?god=1` 无敌模式。
 
 ## 工程结构（多模型流水线 + 契约 + 确定性门禁）
 
