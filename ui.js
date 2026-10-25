@@ -497,7 +497,7 @@ function bagUpgrade(){ // 升阶（C / 升阶钮）：同槽任意稀有度碎�
 // ---------- UI 状态 ----------
 const q=new URLSearchParams(location.search);
 const GOD=q.get('god')==='1';
-let uiState='title',menuSel=0,fade=1,fadeDir=-1,hintT=0,lastLevelIdx=-1;
+let uiState='title',menuSel=0,fade=1,fadeDir=-1,hintT=0,lastLevelIdx=-1; // hintT：进关置 3.0（秒），倒数至 0 后提示条隐藏
 let clearStars=0,clearShown=0,creditsT=0; // v3 §E：致谢屏计时
 // v7.7：衣橱面板（title/select 两态可开；打开期间独占输入与悬停，世界本就不在跑）
 let wardrobeOpen=false,wardrobeSel=0;
@@ -921,7 +921,7 @@ function stepWardrobeInput(){ // v7.7：面板独占输入（方向选格 / 回�
 function startLevel(idx){
   loadLevel(idx,false);
   uiState='play';game.state='play';
-  hintT=3.5;lastLevelIdx=idx;menuSel=idx;
+  hintT=3.0;lastLevelIdx=idx;menuSel=idx; // v8.0：提示条显示 3 秒（最后 1 秒渐隐）
   themeArt=buildThemeArt(ALL_LEVELS[idx].theme); // v7 §9.1：LEVELS→ALL_LEVELS（聚合视图）
   fade=1;fadeDir=-1;
   // v2 P1：进关清残留输入锁存，防止上一状态的边沿在新关卡被缓冲触发
@@ -1080,14 +1080,18 @@ function render(){
     renderPuzzleHint(tick); // v4 §界面④：puzzleNear 时头顶浮动"↑ 解谜/查看"提示（世界坐标最上层）
     ctx.restore();
     renderDarkness(tick); // v7 §9.7：黑暗层（nether 专属；世界渲染完成后、HUD 前）
+    renderLedgeGlow(tick); // v8.0：暗处可落脚平台顶边自发光（必须在黑暗层之后，否则被压暗）
     renderHUD();
     renderIntro();  // v3 §D1：登场横幅（intro 态）
     renderUlt();    // v5 §D：O 流星连斩 1.2s 演出覆盖层（屏幕坐标系，renderFlash 之前）
     renderFlash();  // v3 §D2：流星连斩全屏演出（flashT>0）
     if(hintT>0&&uiState==='play'){
-      const a=Math.min(1,hintT);
+      const a=Math.min(1,hintT); // v8.0：hintT 由 3.0 递减 → 最后 1 秒 1→0 渐隐（globalAlpha 同时作用于底条与文字）
       ctx.globalAlpha=a;
-      _panel(VIEW_W/2-110,VIEW_H-46,220,14,{alpha:0.55,cut:2}); // v5 §A-6：hint 底条切角面板
+      // v8.0：底条宽度按文案自适应（两侧 8px padding，居中，夹在视口内）——原固定 220px 会让 L17 的
+      // 34 字提示左右各溢出 ~77px，看起来像"横贯全屏的黑底+溢出文字"。
+      const hw=Math.min(VIEW_W,_textW(L.meta.hint,11)+16);
+      _panel(px((VIEW_W-hw)/2),VIEW_H-46,px(hw),14,{alpha:0.55,cut:2}); // v5 §A-6：hint 底条切角面板
       drawCNText(L.meta.hint,VIEW_W/2,VIEW_H-42,11,'#ffffff','center');
       // v6 §F.3：本关有未解神龛时 hint 条上方追加指引行（ui 本地判断，不动 levels.js hint 文本；
       // 设计书 §5.3 超集口径：任何有未解神龛的关卡都提示，含 L8/L9/L10）
@@ -1499,14 +1503,24 @@ function renderEntities(L,tick){
   }
   // v5 §E4：吊灯摆锤（锚座 4×4 + 链 3 节沿 (ax,ay)→(bx,by) 等分点 + 金框水晶锤；
   // w.bx/w.by 由引擎每步写好只读；程序化锤=10×10 金框圆）
+  // v8.0：链条 2×2→3×3 并换亮灰、锤头外包 1px 橙红危险框（缓慢呼吸）——
+  // L11 是海洋蓝底，12×12 的金框锤和 8×8 的金币在 1× 下几乎同款，玩家分不清
+  // 「吃了加分」和「碰到掉血」，这是最糟的一类视觉歧义（实测截图里我会把锤子认成金币）。
   for(const w of L.pends||[]){
     if(w.bx==null||w.by==null)continue;
     ctx.fillStyle='#7a7488';ctx.fillRect(px(w.ax-2),px(w.ay-2),4,4);
-    for(let i=1;i<=3;i++){const t=i/4;
-      ctx.fillRect(px(w.ax+(w.bx-w.ax)*t-1),px(w.ay+(w.by-w.ay)*t-1),2,2);}
+    ctx.fillStyle='#b8b0c8';
+    for(let i=1;i<=4;i++){const t=i/5;
+      ctx.fillRect(px(w.ax+(w.bx-w.ax)*t-1),px(w.ay+(w.by-w.ay)*t-1),3,3);}
     if(SPR.chandBlade)ctx.drawImage(SPR.chandBlade,px(w.bx-6),px(w.by-6));
     else{ctx.fillStyle='#48d8e8';ctx.beginPath();ctx.arc(px(w.bx),px(w.by),5,0,Math.PI*2);ctx.fill();
       ctx.strokeStyle='#f8d048';ctx.lineWidth=1;ctx.stroke();}
+    // 危险框：1px 四边（fillRect 保像素硬边，不用半像素 strokeRect），alpha 0.50~1.00 呼吸——
+    // 下限不能再低，实测 0.10 时在海洋蓝底上几乎看不见，等于白加
+    ctx.fillStyle='rgba(248,96,56,'+(0.75+0.25*Math.sin(tick*0.16)).toFixed(2)+')';
+    const hx=px(w.bx-7),hy=px(w.by-7);
+    ctx.fillRect(hx,hy,16,1);ctx.fillRect(hx,hy+15,16,1);
+    ctx.fillRect(hx,hy,1,16);ctx.fillRect(hx+15,hy,1,16);
   }
   // v7 §9.5：宝箱（L.chests 引擎 v7 提取，守卫 ||[]；SPR.chest[2] 闭/开，缺失→棕金矩形兜底；
   // opened 后仍渲染开箱+顶部微光；respawn 不复位=引擎职责）
@@ -1650,11 +1664,13 @@ const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5];
 // v7.9：Boss 三段血进度**唯一口径**。HUD 三段条、条上方剩余段方块、血条悬停提示卡三处全部从这里取数，
 // 禁止各处再自算一遍（旧版 bar 用 hp/maxHp、提示卡另说一套，三段化后必然漂移）。
 // bandMax 缺失（引擎三段血未合入 / 旧存档回放）→ seg=false，调用方回落旧单条血逻辑，保证不崩。
-// 口径：total=(bandBreak*bandMax+hp)/maxHp；left=还没打空的段数（含当前段）。
+// 口径：total = 剩余总血量比例 = ((2-bandBreak)*bandMax + bandMax 内余量) / maxHp；
+// bandBreak=0(满血) → 100%，跨一段 → 66.7%，跨两段 → 33.3%，最后一段见底 → 0%。
+// left=还没打空的段数（含当前段）。
 function _bossProg(b){
   const bm=+b.bandMax||0,brk=clamp(+b.bandBreak||0,0,2),tot=+b.maxHp||0;
   const cur=bm>0?clamp(+b.hp||0,0,bm):Math.max(0,+b.hp||0);
-  if(bm>0)return{seg:true,bandMax:bm,brk:brk,cur:cur,left:3-brk,total:clamp((brk*bm+cur)/(tot||bm*3),0,1)};
+  if(bm>0)return{seg:true,bandMax:bm,brk:brk,cur:cur,left:3-brk,total:clamp(((2-brk)*bm+cur)/(tot||bm*3),0,1)};
   return{seg:false,bandMax:0,brk:0,cur:cur,left:1,total:clamp(cur/(tot||1),0,1)};
 }
 // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前调用）。
@@ -2038,8 +2054,10 @@ function renderUlt(){
 }
 
 // v7 §9.7：黑暗层（nether 专属）——模块级 384×224 离屏单例（勿每帧新建）；世界渲染完成后、HUD 前调用。
-// rgba(4,8,18,0.78) 铺底 → destination-out 径向渐变开洞：玩家中心 r64 + 每个 L.lanterns 中心
-// r80×(0.92+0.08*sin(tick*0.13)) 摇曳 + 检查点/神龛 r24 微光（partial punch 0.55）→ drawImage 到主画布。
+// rgba(4,8,18,0.78) 铺底 → destination-out 径向渐变开洞：玩家中心 r110 + 每个 L.lanterns 中心
+// r130×(0.92+0.08*sin(tick*0.13)) 摇曳 + 检查点/神龛 r24 微光（partial punch 0.55）→ drawImage 到主画布。
+// v8.0：光圈 64→110 / 灯笼 80→130（纯纵向关 L17 宽 26 格=416px > 视口 384px，r64/r80 只照得亮脚下那块台，
+// 对面墙与上一层落点全黑）；铺底 0.78 不变（要"看得清"，不是"取消黑暗"）。
 // Boss 关（L16）同样生效（竞技场灯笼由关卡摆放保证可读性）；光源按视口过滤控制 radial 渐变数量。
 // 开关守卫（H3/R8）：L.theme.dark===true 且 L.meta.theme==='nether' 双条件——现行 THEMES 的
 // cave/factory/lava/tower/boss/star 自 v5 起即带 dark:true（数据标记，此前从未被消费），单判 dark
@@ -2062,16 +2080,33 @@ function renderDarkness(tick){
   };
   const vis=(x,y,r)=>x>cam.x-r&&x<cam.x+VIEW_W+r&&y>cam.y-r&&y<cam.y+VIEW_H+r;
   const p=game.player;
-  if(p)hole(px(p.x+p.w/2-cam.x),px(p.y+p.h/2-cam.y),64,1);
-  for(const lt of L.lanterns||[]){ // 灯笼摇曳（§4.4：'R' 实体=光源，80px 光圈）
+  if(p)hole(px(p.x+p.w/2-cam.x),px(p.y+p.h/2-cam.y),110,1);
+  for(const lt of L.lanterns||[]){ // 灯笼摇曳（§4.4：'R' 实体=光源，130px 光圈）
     const cx=lt.x+lt.w/2,cy=lt.y+lt.h/2;
-    if(vis(cx,cy,90))hole(px(cx-cam.x),px(cy-cam.y),80*(0.92+0.08*Math.sin(tick*0.13)),1);
+    if(vis(cx,cy,140))hole(px(cx-cam.x),px(cy-cam.y),130*(0.92+0.08*Math.sin(tick*0.13)),1);
   }
-  const glow=(x,y)=>{if(vis(x,y,30))hole(px(x-cam.x),px(y-cam.y),24,0.55);}; // 检查点/神龛 r24 微光
+  const glow=(x,y)=>{if(vis(x,y,40))hole(px(x-cam.x),px(y-cam.y),24,0.55);}; // 检查点/神龛 r24 微光
   for(const c of L.checkpoints||[])glow(c.x+8,c.y+12);
   for(const s of L.shrines||[])glow(s.x+8,s.y+12);
   o.globalCompositeOperation='source-over';
   ctx.drawImage(_darkCv,0,0);
+}
+
+// v8.0：可落脚瓦片的发光顶边（nether 专属）——黑暗层之上、HUD 之前调用（画在黑暗层下方会被压没）。
+// 判定：本格实心且正上方一格不实心 → 顶边 1px 横线（只画上边，避免整屏描边网格）；屏幕坐标系，
+// 与 renderDarkness 同口径（含视口裁剪），颜色 = nether accent 绿 #7ce8b8，极慢呼吸 alpha≈0.43..0.67。
+function renderLedgeGlow(tick){
+  const L=game.level;
+  if(!L||!L.theme||L.theme.dark!==true||!L.meta||L.meta.theme!=='nether')return;
+  const cam=game.cam;
+  const x0=Math.max(0,Math.floor(cam.x/16)),x1=Math.min(L.tw-1,Math.ceil((cam.x+VIEW_W)/16));
+  const y0=Math.max(0,Math.floor(cam.y/16)),y1=Math.min(L.th-1,Math.ceil((cam.y+VIEW_H)/16));
+  ctx.fillStyle='rgba(124,232,184,'+(0.55+0.12*Math.sin(tick*0.09)).toFixed(3)+')';
+  for(let ty=y0;ty<=y1;ty++)for(let tx=x0;tx<=x1;tx++){
+    if(!L.solid(tx,ty,game.switchState))continue;      // 本格可站
+    if(L.solid(tx,ty-1,game.switchState))continue;     // 头顶还有实心 → 不是台面
+    ctx.fillRect(px(tx*16-cam.x),px(ty*16-cam.y),16,1);
+  }
 }
 
 function renderHUD(){

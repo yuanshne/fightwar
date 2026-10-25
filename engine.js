@@ -245,7 +245,7 @@ const BAL = {
     boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 16 } } },
   boss:  { hp: 60, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
            windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55, dive: 0.55 }, p2WindMul: 0.85,
-           idleT: [0.6, 0.45], walk: [20, 25],
+           idleT: [0.54, 0.40], walk: [20, 25],
            leap: { T: 0.9, vy: 675, clamp: 300 },
            charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
            barrage: { v: 130, rounds: 3, pairGap: 0.15, endT: 0.45, deg: [-8, 8] }, // v7 §8：deg=现行硬编码 [-8,8] 收编
@@ -263,7 +263,7 @@ const BAL = {
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
     hp: 90, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40,
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70 },
-    p2WindMul: 0.85, idleT: [0.7, 0.5], walk: [26, 32],
+    p2WindMul: 0.85, idleT: [0.63, 0.45], walk: [26, 32],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [250, 310], maxT: 1.5, maxX: 320 },
     barrage: { v: 110, rounds: 4, pairGap: 0.18, endT: 0.5, deg: [-18, 0, 18] },
@@ -281,7 +281,7 @@ const BAL = {
     // 138=46×3；总血量差 2 点不影响手感，门禁只断言 maxHp===本表 hp。
     hp: 138, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
     windup: { blink: 0.50, scythe: 0.60, barrage: 0.45, summon: 0.50, nova: 0.55, halo: 0.65 },
-    p2WindMul: 0.85, idleT: [0.55, 0.4], walk: [18, 22],
+    p2WindMul: 0.85, idleT: [0.50, 0.36], walk: [18, 22],
     leap: { T: 0.9, vy: 675, clamp: 300 },      // 表完整性（判官轮换池不含 leap/charge）
     charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
     barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-10, 0, 10] },
@@ -303,7 +303,7 @@ const BAL = {
     hp: 150, p2At: 0, actDist: 176, grav: 1500, fallV: 540, w: 64, h: 48,
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, nova: 0.55,
               sweep: 0.55, breath: 0.75, dive: 0.60 },
-    p2WindMul: 0.82, idleT: [0.62, 0.42], walk: [24, 30],
+    p2WindMul: 0.82, idleT: [0.56, 0.38], walk: [24, 30],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [260, 320], maxT: 1.4, maxX: 340 },
     barrage: { v: 125, rounds: 4, pairGap: 0.16, endT: 0.5, deg: [-12, 0, 12] },
@@ -321,13 +321,17 @@ const BAL = {
     poolNear: ['breath', 'leap', 'summon', 'sweep'],
     poolFar: ['barrage', 'charge', 'breath', 'leap'],
     p2Add: ['nova', 'dive'],
-    contactDmg: 2, drop1: 'ming1', drop2: 'ming2',
+    /* v8.0：接触伤害 2→1。实测 46% 的受伤发生在 Boss 收招/待机/弹幕已放完之后——
+     * 玩家主观判定一定是「我明明没被打到」，这是最伤信任的一类挫败。身体始终有危险（保留 1 点），
+     * 但代价减半；不改「只在出招时判接触」是因为那会把战斗退化成「等收招再贴脸」。
+     * boss5 体型小、位移多（blink 常贴身落点），同样取 1。 */
+    contactDmg: 1, drop1: 'ming1', drop2: 'ming2',
     nextKind: 5 },   // 三段打空 → 不通关，换第二棒（见 dying 分支）
   boss5: { // 曜光·圣裁者（L18 第二棒，nether）：白袍+金环+光翼，hp 180 → 每段 60
     hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 52,
     windup: { blink: 0.55, barrage: 0.45, halo: 0.70, summon: 0.50, nova: 0.55,
               scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60 },
-    p2WindMul: 0.82, idleT: [0.58, 0.40], walk: [20, 26],
+    p2WindMul: 0.82, idleT: [0.52, 0.36], walk: [20, 26],
     leap: { T: 0.9, vy: 675, clamp: 300 },
     charge: { v: [240, 300], maxT: 1.5, maxX: 300 },
     barrage: { v: 115, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },
@@ -344,13 +348,13 @@ const BAL = {
     poolNear: ['halo', 'blink', 'summon', 'halo'],
     poolFar: ['barrage', 'blink', 'halo', 'barrage'],
     p2Add: ['nova', 'dive'],
-    contactDmg: 2, drop1: 'yao1', drop2: 'yao2' },
+    contactDmg: 1, drop1: 'yao1', drop2: 'yao2' },
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 14 }, ghost: { hp: 12 } }, // v7 §8：精英怪
   flow:  { acc: 600, cap: 170 },  // v7 §8：水流 §4.1（cap 170>maxRun 120<逆流冲刺，数值推导见设计书）
   econ:  { coin: 1, gem: 5, puzzle: 5, brick: 1, heartChance: 0.30, heartHeal: 1, dropGrav: 1200, dropFall: 360, chestGem: 5 }, // v7 §8：chestGem
   gear:  {                                           // §Q（波2 生效）
     boss1: [44,30,16,8,2], boss2: [20,35,25,15,5], elite: [55,30,12,3,0],
-    eliteChance: 0.10, bossExtra: 0.30,
+    eliteChance: 0.14, bossExtra: 0.30,
     stat: { w: [1,2,3,4,6], h: [1,2,3,4,4], cSpd: [4,6,8,10,12], cCd: [4,6,8,10,12] },
     shardsPerStep: 3, shardsPerSalvage: 2, bagSize: 12,
     // v7 §8 追加六表（权重和=100，序=白/绿/蓝/紫/金）
@@ -816,8 +820,18 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   game.pickups = [];
   game.bullets = []; game.waves = []; game.meteors = []; // v3：弹幕/波/陨石清空（drops 保留自然过期）
   // v3：Boss 重置——HP/阶段保留，状态回 idle（若存在且非 dormant/dead，工单 B）
-  if (game.boss && game.boss.state !== 'dormant' && game.boss.state !== 'dead') {
-    game.boss.state = 'idle'; game.boss.t = 0; game.boss.vx = 0; game.boss.vy = 0;
+  // v8.0：死亡=「正在打的这一段」作废——总血回到本段上界（打到 49% 死 → 复活 66%，
+  // 打到 80% 死 → 100%），已跨过的段保留（bandBreak 不变）。这是「死一次只丢一段」的唯一实现，
+  // 不做的话重打整场 8 分钟，比不加检查点还劝退。
+  if (game.boss && game.boss.state !== 'dormant' && game.boss.state !== 'dead'
+        && game.boss.state !== 'dying') {
+    const B = game.boss;
+    if (B.bandMax > 0 && B.hpTotal > 0) {
+      B.hpTotal = Math.min(B.maxHp, (3 - B.bandBreak) * B.bandMax);
+      B.hp = _engSegHp(B);
+    }
+    B.bandFlashT = 0; B.hidden = false; B.vx = 0; B.vy = 0;
+    if (B.state !== 'revive') { B.state = 'idle'; B.t = 0; } // 阶段切换演出不打断
   }
   for (const e of L.enemies) {
     e.dead = 0;
@@ -1010,9 +1024,10 @@ function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, 
     homeX: cx - T.w / 2, homeY: py + _engTile - T.h, // v7.9：双 Boss 接力时第二棒按首发锚点重算落点（不跟着尸身下沉）
     w: T.w, h: T.h, vx: 0, vy: 0, face: -1,
     kind: kind, hidden: false,     // v7 §6.1：kind 1..5；§6.3：blinkCast 隐身位
-    // v7.9 三段血：hp 语义改成「当前段内剩余 HP」（0..bandMax），maxHp 仍是总 HP——
-    // 门禁断言（gate engine：maxHp 必须等于参数表 hp）与存档口径不受影响。
-    hp: T.hp / 3, maxHp: T.hp, bandMax: T.hp / 3, bandBreak: 0, bandFlashT: 0,
+    // v8.0 三段血：hpTotal = 总血（唯一真值）；hp = 当前段内剩余（UI 只读派生值 0..bandMax）。
+    // 血条连续下降——跨过 66%/33% 只播「阶段切换」演出、不回血；只有玩家死亡复活时
+    // 才把当前段回满（打到 49% 死 → 复活 66%，见 respawn）。maxHp 仍是总 HP，门禁/存档口径不变。
+    hpTotal: T.hp, hp: T.hp / 3, maxHp: T.hp, bandMax: T.hp / 3, bandBreak: 0, bandFlashT: 0,
     phase: 1,
     state: 'dormant', t: 0,        // t：当前状态已累计秒数
     next: '', lastPattern: '', pickN: 0,
@@ -1039,44 +1054,61 @@ function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不�
   b.state = 'windup'; b.t = 0;
 }
 
+// v8.0 三段血的派生口径（全引擎唯一两处，UI 只读 b.hp / b.bandBreak，不自己重算）：
+//   段索引由总血反推——第一段 (2b,3b]、第二段 (b,2b]、第三段 [0,b]，b = maxHp/3；
+//   段内剩余 = 总血减去该段以下的血量。两个函数互为逆运算，game.hp 永远落回 0..bandMax。
+function _engBandOf(b) { // 当前所在段 0..2（0=满血那条，2=最后一条）
+  if (!(b.bandMax > 0)) return 0;
+  return _engClamp(Math.floor((b.maxHp - b.hpTotal) / b.bandMax), 0, 2);
+}
+function _engSegHp(b) { // 当前段内剩余（= UI 画填充用的 hp）
+  if (!(b.bandMax > 0)) return 0;
+  return _engClamp(b.hpTotal - (2 - b.bandBreak) * b.bandMax, 0, b.bandMax);
+}
+
 function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
   const b = game.boss;
   if (!b || b.state === 'dormant' || b.state === 'intro' || b.state === 'enrage'
         || b.state === 'dying' || b.state === 'dead' || b.state === 'revive'
         || (b.state === 'blinkCast' && b.hidden)) return false; // v7 §6.3：blink 隐身期免伤；v7.9：revive 假死期免伤
   const T = _engBossTable(b.kind || 0); // v7 §6：P2 线/掉落表读表
-  b.hp -= dmg; b.flashT = 0.12;
+  b.hpTotal -= dmg; b.flashT = 0.12;   // v8.0：扣的是总血，段内 hp 由它派生
   game.hitStop = Math.max(game.hitStop, _engHitStop); // v5 §1.6：Boss 承伤 hit-stop 同步 0.10
   game.shake = Math.max(game.shake, 3);
   game.sfxQueue.push('bosshit');
-  if (b.hp <= 0 && b.bandBreak < 2) { // ===== v7.9 段击破：不死，假死演出后满段复活 =====
-    // 血条分三段（每段 T.hp/3），打空一段只算「击破」，第三段打空才真死。
-    // 复活瞬间必须清场：残留弹幕/贴地波会把刚站起来的玩家当场打死——这是最典型的一类「交互有问题」。
-    b.bandBreak++; b.bandFlashT = 1.0; b.hp = b.bandMax;
-    b.state = 'revive'; b.t = 0; b.vx = 0; b.vy = 0; b.hidden = false;
-    game.bullets = []; game.waves = [];
-    game.shake = 10; game.sfxQueue.push('roar');
-    _engFx(b.x + b.w / 2, b.y + b.h / 2, { ring: 1, r: 6, r1: 52, life: 0.45, color: '#f86020' });
-    _engAddParts(b.x + b.w / 2, b.y + b.h - 8, 18, '#f8d048', 130, 240);
-    _engFloat(b.x + b.w / 2, b.y - 6, '击破 ' + b.bandBreak + '/3', '#f8d048', 1);
-    // 每击破一段掉 1 件（drop2 权重）：三次击杀打下来必须持续有反馈，不能全堆到最后一棒。
-    if (game.gearDrops.length < _engGearCap)
-      game.gearDrops.push(_engMkGear(b.x + b.w / 2 - 5, b.y + b.h - 16, _engSlot(), _engRollTier(BAL.gear[T.drop2])));
+  if (b.hpTotal > 0) {
+    const nb = _engBandOf(b);            // 这一击跨过了段界吗
+    if (nb > b.bandBreak) { // ===== v8.0 阶段切换：不回血，只播演出 + 清场，血条接着往下掉 =====
+      // 段界演出唯一目的：给玩家一个「它换招了」的读招窗口，并清掉残留弹幕/贴地波——
+      // 不清的话刚跨段那一秒会被上一阶段的存货当场打死，这是最典型的一类「交互有问题」。
+      b.bandBreak = nb; b.bandFlashT = 1.0;
+      b.state = 'revive'; b.t = 0; b.vx = 0; b.vy = 0; b.hidden = false;
+      game.bullets = []; game.waves = [];
+      game.shake = 10; game.sfxQueue.push('roar');
+      _engFx(b.x + b.w / 2, b.y + b.h / 2, { ring: 1, r: 6, r1: 52, life: 0.45, color: '#f86020' });
+      _engAddParts(b.x + b.w / 2, b.y + b.h - 8, 18, '#f8d048', 130, 240);
+      _engFloat(b.x + b.w / 2, b.y - 6, '阶段 ' + b.bandBreak + '/3', '#f8d048', 1);
+      // 每跨一段掉 1 件（drop2 权重）+ 必掉 1 颗回复心：跨段是玩家在这一战里唯一确定能拿到的补给，
+      // 只靠召唤物 30% 掉心的话，30 秒窗口里可能一颗都没有——那是「打了没回报」。
+      if (game.gearDrops.length < _engGearCap)
+        game.gearDrops.push(_engMkGear(b.x + b.w / 2 - 5, b.y + b.h - 16, _engSlot(), _engRollTier(BAL.gear[T.drop2])));
+      game.drops.push({ x: b.x + b.w / 2 - 4, y: b.y + 8, w: 8, h: 8, vy: -120, life: 9 });
+    }
+    b.hp = _engSegHp(b);
     return true;
   }
-  if (b.hp <= 0) { b.hp = 0; b.state = 'dying'; b.t = 0;
-    // v6 波2 §2①：Boss 掉落——进入 dying 瞬间生成（levelClear 在死亡演出后才触发，此处先掉，
-    // 玩家可在演出期内拾取；漏捡由 levelClear 开头的 H4 兜底转 pickups）。第 1 件必掉（T.drop1 权重）、
-    // 第 2 件 30%（bossExtra，T.drop2 权重）；生成位置 = Boss 中心 ±24/14、脚上 14px；池满 ≥6 跳过（H3）。
-    // v7 §6.5：掉落表名读表（kind1='boss1'/'boss2' 收编）。
-    if (game.gearDrops.length < _engGearCap)
-      game.gearDrops.push(_engMkGear(b.x + b.w / 2 - 24, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear[T.drop1])));
-    if (Math.random() < BAL.gear.bossExtra && game.gearDrops.length < _engGearCap)
-      game.gearDrops.push(_engMkGear(b.x + b.w / 2 + 14, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear[T.drop2])));
-    game.bullets = []; game.waves = []; game.shake = 10; return true; } // 死亡优先：大伤害一刀斩不得被狂暴吸收卡 1 血
+  b.hpTotal = 0; b.hp = 0; b.bandBreak = 2; b.state = 'dying'; b.t = 0;   // 第三段打空=真死
+  // v6 波2 §2①：Boss 掉落——进入 dying 瞬间生成（levelClear 在死亡演出后才触发，此处先掉，
+  // 玩家可在演出期内拾取；漏捡由 levelClear 开头的 H4 兜底转 pickups）。第 1 件必掉（T.drop1 权重）、
+  // 第 2 件 30%（bossExtra，T.drop2 权重）；生成位置 = Boss 中心 ±24/14、脚上 14px；池满 ≥6 跳过（H3）。
+  // v7 §6.5：掉落表名读表（kind1='boss1'/'boss2' 收编）。
+  if (game.gearDrops.length < _engGearCap)
+    game.gearDrops.push(_engMkGear(b.x + b.w / 2 - 24, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear[T.drop1])));
+  if (Math.random() < BAL.gear.bossExtra && game.gearDrops.length < _engGearCap)
+    game.gearDrops.push(_engMkGear(b.x + b.w / 2 + 14, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear[T.drop2])));
+  game.bullets = []; game.waves = []; game.shake = 10; return true; // 死亡优先：大伤害一刀斩不得被狂暴吸收卡 1 血
   // v7.9：P2（狂暴 + p2Add 新招）不再按血量百分比切，改由「进入最后一段」触发——
   // 见 _engUpdateBoss 的 revive 收尾（bandBreak>=2 → enrage）。T.p2At 保留在表里但已不消费。
-  return true;
 }
 
 function _engBossPhysX(dt, b) { // 内部：Boss X 轴解算（撞墙返回 true）——沿用玩家先X后Y惯例

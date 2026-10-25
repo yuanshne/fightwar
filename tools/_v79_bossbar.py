@@ -28,7 +28,7 @@ def set_seg(pg, brk, cur_frac):
         b.hp = Math.max(1, Math.round(b.bandMax * a.frac));
         b.flashT = 0; b.bandFlashT = 0; b.state = 'idle'; b.t = 0;
         return {kind: b.kind, maxHp: b.maxHp, bandMax: b.bandMax, bandBreak: b.bandBreak, hp: b.hp,
-                pct: Math.round((b.bandBreak * b.bandMax + b.hp) / b.maxHp * 100)};
+                pct: Math.round(((2 - b.bandBreak) * b.bandMax + b.hp) / b.maxHp * 100)};
     }""", {'brk': brk, 'frac': cur_frac})
     print('    boss 状态:', info)
 

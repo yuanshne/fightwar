@@ -58,7 +58,7 @@ with sync_playwright() as p:
     # 注：实测 engine _engBossHurt（engine.js:413-427）中 enrage 分支（hp<=30 && phase===1）
     # 先于 dying 分支且 return——phase1 的致死一击（hp 1→0）会进入 enrage 而非 dying，
     # 需再补一击（真实玩家连打即如此）。故字面单发后追加连打兜底，两者分别报告。
-    pg.evaluate("() => { const b=game.boss, p=game.player; b.hp = 1; p.x = b.x - 20; p.y = b.y + b.h - p.h; p.vx = 0; p.vy = 0; p.face = 1; game.input.attackHit = 1; }")
+    pg.evaluate("() => { const b=game.boss, p=game.player; b.hpTotal = 1; b.hp = 0; p.x = b.x - 20; p.y = b.y + b.h - p.h; p.vx = 0; p.vy = 0; p.face = 1; game.input.attackHit = 1; }")
     pg.wait_for_timeout(70)
     pg.evaluate("() => { if (game.state === 'play') game.input.attackHit = 1; }")
     pg.wait_for_timeout(70)
@@ -68,7 +68,7 @@ with sync_playwright() as p:
     check('lv7 工单单发注入 3s 后 state=clear', s3['state'] == 'clear', str(s3))
     if s3['state'] != 'clear':
         # 连打兜底（模拟玩家）：每轮把玩家放回 boss 身前 face=1 并重置 hp=1 后注入攻击
-        kill_js = "() => { if (game.state === 'play' && game.boss && !['dormant','intro','enrage','dying','dead'].includes(game.boss.state)) { const b=game.boss, p=game.player; b.hp = 1; p.x = b.x - 20; p.y = b.y + b.h - p.h; p.vx = 0; p.vy = 0; p.face = 1; game.input.attackHit = 1; } }"
+        kill_js = "() => { if (game.state === 'play' && game.boss && !['dormant','intro','enrage','dying','dead'].includes(game.boss.state)) { const b=game.boss, p=game.player; b.hpTotal = 1; b.hp = 0; p.x = b.x - 20; p.y = b.y + b.h - p.h; p.vx = 0; p.vy = 0; p.face = 1; game.input.attackHit = 1; } }"
         for _ in range(8):
             pg.evaluate(kill_js)
             pg.wait_for_timeout(400)

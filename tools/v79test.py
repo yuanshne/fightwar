@@ -66,18 +66,24 @@ with sync_playwright() as p:
           if (nb !== bb) { out.push({ round, swapped: true, kind: nb.kind }); break; }
           if (bb.bandBreak >= round) break;
         }
-        out.push({ round, band: bb.bandBreak, hp: +bb.hp.toFixed(1), seg: +seg.toFixed(1),
-                   phase: bb.phase, st: game.boss.state });
+        out.push({ round, band: bb.bandBreak, hp: +bb.hp.toFixed(1), ht: +bb.hpTotal.toFixed(1),
+                   seg: +seg.toFixed(1), maxHp: bb.maxHp, phase: bb.phase, st: game.boss.state });
       }
       return { out, maxHp: bb.maxHp, seg };
     }''')
     bands = [x for x in r['out'] if 'band' in x]
     ck('L16 判官三段血：bandMax = maxHp/3', abs(r['seg'] - r['maxHp'] / 3) < 1e-6,
        'maxHp=' + str(r['maxHp']) + ' seg=' + str(r['seg']))
-    ck('第 1 段击破 → bandBreak=1 且该段回满', bands[0]['band'] == 1 and abs(bands[0]['hp'] - bands[0]['seg']) < 1e-6,
+    # v8.0 口径：跨段只播演出、总血不回填，血条连续往下掉（打到 49% 就停在 49%）
+    ck('第 1 段跨过 → bandBreak=1 且总血 ≤ 2/3（不回满）',
+       bands[0]['band'] == 1 and bands[0]['ht'] <= bands[0]['maxHp'] * 2 / 3 + 1e-6,
        json.dumps(bands[0], ensure_ascii=False))
-    ck('第 2 段击破 → bandBreak=2 且该段回满', bands[1]['band'] == 2 and abs(bands[1]['hp'] - bands[1]['seg']) < 1e-6,
+    ck('第 2 段跨过 → bandBreak=2 且总血 ≤ 1/3',
+       bands[1]['band'] == 2 and bands[1]['ht'] <= bands[1]['maxHp'] / 3 + 1e-6,
        json.dumps(bands[1], ensure_ascii=False))
+    ck('段内派生 hp 恒落在 0..bandMax（UI 填充不越界）',
+       all(0 <= x['hp'] <= x['seg'] + 1e-6 for x in bands),
+       json.dumps([x['hp'] for x in bands]))
     # 注：P2 是在 revive（0.9s 假死演出）收尾那一帧才置位的，破段瞬间读 phase 恒为 1——
     # 这里改成"破第 2 段后再跑 1.2s，看是否进入 phase 2"。
     ph2 = None
@@ -87,6 +93,39 @@ with sync_playwright() as p:
         if ph2['phase'] == 2:
             break
     ck('进入最后一段触发 P2 狂暴', ph2['phase'] == 2, json.dumps(ph2, ensure_ascii=False))
+
+    # ---------- 2b) 死亡回退：死一次只丢「正在打的那一段」 ----------
+    # 口径（用户定的）：血条连续下降，死亡复活时回到本段起点——
+    # 打到 49% 死 → 66%；打到 80% 死 → 100%；打到 20% 死 → 33%；已跨过的段保留。
+    # 注意：不能带 god=1——god 模式把 window.killPlayer 换成了空函数（ui.js 511 行），
+    # 死亡序列根本不会发生，回退逻辑也就测不到。
+    pg.goto(BASE + '?level=16')
+    pg.wait_for_timeout(900)
+    rb = pg.evaluate('''() => {
+      const b = game.boss;
+      for (let i = 0; i < 130; i++) updateWorld(1/60);       // 等 intro 结束
+      const M = b.maxHp;
+      const probe = (frac) => {
+        b.hpTotal = M * frac; b.bandBreak = _engBandOf(b); b.hp = _engSegHp(b);
+        b.state = 'idle'; b.t = 0;
+        game.player.x = b.x - 70; game.player.y = b.y + b.h - game.player.h;
+        game.player.maxHp = 99; game.player.hp = 99;
+        killPlayer();
+        for (let i = 0; i < 100; i++) updateWorld(1/60);      // 死亡序列 0.9s + 余量
+        return { frac, band: b.bandBreak, pct: +(b.hpTotal / M * 100).toFixed(1),
+                 segHp: +b.hp.toFixed(1), bandMax: +b.bandMax.toFixed(1), dead: game.player.dead };
+      };
+      return { m: M, cases: [probe(0.49), probe(0.80), probe(0.20)] };
+    }''')
+    ck('打到 49% 死亡 → 复活回到 66%（第二段起点）', abs(rb['cases'][0]['pct'] - 66.7) < 1.0,
+       json.dumps(rb['cases'][0], ensure_ascii=False))
+    ck('打到 80% 死亡 → 复活回到 100%', abs(rb['cases'][1]['pct'] - 100.0) < 0.5,
+       json.dumps(rb['cases'][1], ensure_ascii=False))
+    ck('打到 20% 死亡 → 复活回到 33%（第三段起点）', abs(rb['cases'][2]['pct'] - 33.3) < 1.0,
+       json.dumps(rb['cases'][2], ensure_ascii=False))
+    ck('复活后段内 hp 恰为该段满格（UI 画满一格）',
+       all(abs(c['segHp'] - c['bandMax']) < 1e-6 for c in rb['cases']),
+       json.dumps([c['segHp'] for c in rb['cases']]))
 
     # ---------- 3) 终章双 Boss 接力 ----------
     n_lv = int(pg.evaluate('() => ALL_LEVELS.length'))
@@ -173,7 +212,7 @@ with sync_playwright() as p:
         return { waves: wmax, bullets: bmax, st: game.boss.state };
       };
       res.breath = test('breath', 120);
-      b.hp = b.bandMax; b.bandBreak = 0; b.state = 'idle'; b.t = 0;
+      b.hpTotal = b.maxHp; b.bandBreak = 0; b.hp = b.bandMax; b.state = 'idle'; b.t = 0;
       res.dive = test('dive', 160);
       return res;
     }''')
