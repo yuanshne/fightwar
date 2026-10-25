@@ -303,3 +303,34 @@ x 精英·枪虾王(放大枪虾,必掉装备)  z 精英·幽灵王(放大幽灵
 - levels/engine 两模式拼接已存在的章节文件并调用 aggregateLevels()；engine 模式构造+空转循环、
   Boss 冒烟（遍历全部 boss 关，断言 kind 与 maxHp）、谜题链路（全量关）均覆盖 ALL_LEVELS；
   THEMES 桩补 `sea`/`nether` 两键。
+
+---
+
+## v7.4 谜题可通关性护栏（追加）
+
+前提：v7.3 谜题门（`updateWorld` ⑤ 终点判定）要求本关神龛全解才 `levelClear()`，
+于是「谜题不可解」被放大成「整关不可通关」。以下四条为**硬约束**，改动谜题相关代码时不得退化：
+
+### 判定口径（ui.js，内部符号，不新增全局）
+- `nonoRunsMatch(pz)` / `sudokuGridSolved(pz)`：胜负按**规则**判（数织=行列连续段等于线索；
+  数独=行列宫均为 1..n 的排列），**禁止**改回「逐格与 `sol`/`pic` 比对」——多解题下会误判玩家正确解。
+- `puzzleOk(pz)`：数据可玩性校验（类型/尺寸/字符合法/givens⊂sol/sol 合法）。
+  `openPuzzle` 与 `startLevel` 都必须过这一关：前者拒绝开层，后者把该神龛置为已解（fail-open）。
+- `puzzleHint()`：H 键提示一格（KEYMAP.puzzleHint=[KeyH]），无限次；`puzzle.hintN` 计数，
+  按题重置（`startLevel` 与首次开层各清一次）。
+
+### 渲染纪律
+- `drawShrineThumb` 必须先过 `puzzleOk(pz)`：画稿行数不足时 `pz.pic[r][c]` 会越界抛错。
+- 9×9 数独格宽固定 16（17 时盘面底边压住底部操作条，末行数字被提示文字盖住）。
+
+### 主循环与启动
+- `frame()` 用 try/catch 包住 step+render，异常只记一次日志并继续 rAF 链——
+  **单帧异常不得终止主循环**（否则一次越界就永久冻死整局）。catch 内 `last=now; acc=0` 丢弃积压时间。
+- `boot()` 的 `?level=` 解析必须 `Number.isFinite` 校验后回落第 1 关（`?level=abc` 曾直接崩在 loadLevel(NaN)）。
+- `updateWorld` 开头做坐标自愈：`p.x/p.y/p.vx/p.vy` 任一非有限 → 拉回 `L.spawn`。
+  NaN 一旦进入物理就污染相机与渲染（`createLinearGradient` 抛错），物理方程无法自恢复。
+
+### gate.js 覆盖口径（追加）
+- 新增 `puzzle` 模式：逐题唯一解（数织=行线索枚举+列前缀剪枝计数；数独=MRV 回溯计数）
+  + 神龛↔PUZZLES 配对（有龛无题=门永久锁死；有题无龛=死数据）。engine 模式亦调用同一审计。
+- 审计实现收敛在 `tools/puzzle_audit.js`（gate 与 CLI 共用），禁止在 gate.js 内另写一份。

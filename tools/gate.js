@@ -1,4 +1,4 @@
-// 确定性门禁：node gate.js <art|levels|engine>
+// 确定性门禁：node gate.js <art|levels|engine|puzzle>
 // art: 语法编译 + 导出符号核对；levels: 执行 + validateLevels 断言；
 // engine: 桩环境执行 levels+章节+engine，全关构造 + 空转不崩 + 逐 Boss 关冒烟（kind/maxHp，v3/v7）+
 //         谜题冒烟（PUZZLES 数据/数独唯一解/全量关神龛链路，全部条件守卫）。
@@ -8,6 +8,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { auditPuzzles } = require('./puzzle_audit.js'); // v7.4：谜题可通关性审计（唯一解/神龛配对）
 const ROOT = path.join(__dirname, '..');
 const mod = process.argv[2] || '';
 function read(f) {
@@ -102,6 +103,21 @@ try {
     const v = sandbox.validateLevels();
     if (!v.ok) { console.error('validateLevels 未通过: ' + v.msg); process.exit(1); }
     console.log('levels.js OK: ' + meta + ' | 断言: ' + v.msg);
+  } else if (mod === 'puzzle') {
+    // v7.4：谜题门禁——数织/数独逐题「唯一解」+ 神龛↔PUZZLES 配对（缺数据=谜题门永久锁死）
+    const levelsSrc = read('levels.js');
+    const ch = chapterState();
+    const body = levelsSrc + (ch.hasContract ? '\n' + ch.src + '\n;aggregateLevels();' : '');
+    const sb = new Function(body + '\n;return {'
+      + 'PUZZLES:(typeof PUZZLES==="undefined")?undefined:PUZZLES,'
+      + 'ALL_LEVELS:(typeof ALL_LEVELS==="undefined")?LEVELS:ALL_LEVELS,'
+      + 'LG:(typeof LG==="undefined")?undefined:LG};')();
+    if (!sb.PUZZLES) { console.error('PUZZLES 未定义'); process.exit(1); }
+    const r = auditPuzzles(sb.PUZZLES, sb.ALL_LEVELS, sb.LG);
+    for (const it of r.items) console.log((it.ok ? '  [PASS] ' : '  [FAIL] ') + 'P' + it.key + '  ' + it.msg);
+    for (const p of r.pairing) console.log('  [FAIL] ' + p);
+    if (!r.ok) { console.error('puzzle 门禁未通过: ' + r.bad + ' 项'); process.exit(1); }
+    console.log('puzzle OK: ' + r.items.length + ' 题唯一解 + ' + sb.ALL_LEVELS.length + ' 关神龛配对齐全');
   } else if (mod === 'engine') {
     const levelsSrc = read('levels.js');
     const engineSrc = read('engine.js');
@@ -114,6 +130,7 @@ try {
     // v4：附带导出 PUZZLES/puzzleSolved（未合入时为 undefined，供下方 v4 冒烟块条件守卫）；
     // v7：追加 ALL_LEVELS 与 BAL（Boss 冒烟 maxHp 断言读 BAL.boss/boss2/boss3）
     const glue = '\n;return {PHY,Level,game,loadLevel,respawn,killPlayer,levelClear,updateWorld,LEVELS,ALL_LEVELS,'
+      + "LG:(typeof LG==='undefined')?undefined:LG,"
       + "BAL:(typeof BAL==='undefined')?undefined:BAL,"
       + "PUZZLES:(typeof PUZZLES==='undefined')?undefined:PUZZLES,"
       + "puzzleSolved:(typeof puzzleSolved==='undefined')?undefined:puzzleSolved};";
@@ -174,6 +191,11 @@ try {
     if (sandbox.PUZZLES) {
       const PZ = sandbox.PUZZLES;
       const probs = [];
+      // v7.4：适定性总审计（数织/数独唯一解 + 神龛↔谜题配对）——v7.3 谜题门把「谜题不可解」放大成
+      // 「整关不可通关」，故此处必须红：任一题多解/无解、任一神龛缺数据都算门禁失败。
+      const ar = auditPuzzles(PZ, sandbox.ALL_LEVELS, sandbox.LG);
+      for (const it of ar.items) if (!it.ok) probs.push('P' + it.key + ' ' + it.msg);
+      for (const p of ar.pairing) probs.push(p);
       // ① 数据契约：奇数织/偶数独、画稿尺寸、矩阵尺寸/取值、givens⊂sol、sol 合法、解唯一
       // v5 §D③：遍历全部谜题键（1..6 + 新键 8/9/10），奇偶规则对新键同样成立
       for (const k of Object.keys(PZ).map(Number).sort((a, b) => a - b)) {

@@ -150,6 +150,7 @@ const KEYMAP={
   skillU:['KeyU'],skillI:['KeyI'],skillO:['KeyO'],skillL:['KeyL'], // v3 §A 三键 + v6 §2.1 技能四键 L（星刃回旋，未占用；边沿同 attack/dash 模式）
   puzzleOpen:['ArrowUp','KeyW','Enter'], // v4 §界面①：play 态且 puzzleNear>=0 时消费（近龛优先开龛不跳）
   nonoFill:['KeyJ'],nonoCross:['KeyK'],  // v4 §界面②：数织覆盖层内 J 填格/K 叉格（仅覆盖层消费，不影响 play 态 attack/dash）
+  puzzleHint:['KeyH'],                  // v7.4：谜题层提示键（每次揭示一格正解；H 未被任何既有键占用）
   pause:['KeyP'],mute:['KeyM'],restart:['KeyR'],back:['Escape'],
   bag:['KeyB'], // v6 波2 §7.1：背包开关键（B 未被既有键占用；hit('bag') 仅背包层与 play 态消费）
   confirm:['Enter','Space','KeyW','ArrowUp']
@@ -455,9 +456,54 @@ if(GOD&&typeof killPlayer==='function'){const orig=killPlayer;window.killPlayer=
 // 全部带存在性守卫：任一依赖未合入时功能整体静默降级（神龛与覆盖层不出现），v3 行为不变。
 // 工单 §界面② 状态机 puzzle={open,idx,type,size,grid,cur,err,done}
 // （grid：数织 0空/1填/2叉，数独 0空/1..n 数字；given/doneT/view 为内部扩展字段）
-const puzzle={open:false,idx:0,type:'',size:0,grid:null,given:null,cur:{x:0,y:0},err:0,done:false,doneT:0,view:false};
+const puzzle={open:false,idx:0,type:'',size:0,grid:null,given:null,cur:{x:0,y:0},err:0,done:false,doneT:0,view:false,hintN:0};
 let puzzleRep=0,puzzleSkip=0;   // 内部：方向键持键重复计时 / 开层当步跳过输入（防开启键泄漏为光标移动）
 const sudokuBoxCache={};        // 内部：数独块尺寸按题号缓存（6×6 的 2×3/3×2 歧义按 sol 合法性自解析）
+
+// ---------- v7.4 谜题可通关性护栏（"不做无法通过的游戏"） ----------
+// v7.3 谜题门要求本关神龛全解才放行终点，于是「谜题不可解」=「整关不可通关」。三层护栏：
+//   ① 数据层：tools/gate.js 的 puzzle 门禁做唯一解/配对审计（改数据破坏可解性直接红）；
+//      运行时再由 puzzleOk() 复核一遍，坏数据不参与谜题门（fail-open，永不硬卡关）。
+//   ② 判定层：胜利条件按「规则」而非「答案」判（数独=行列宫合法排列，数织=行列线索吻合），
+//      将来若引入多解题，玩家推出的任一合法解都能过，不会出现「明明解对了却判错」。
+//   ③ 能力层：H 键逐格揭示正解（无限次），不会做也能一格一格点过去。
+function _pzBoxDims(pz){ // 内部：块尺寸（无缓存版，供数据校验用，不污染 sudokuBoxCache）
+  if(pz.size===4)return[2,2];
+  if(pz.size===9)return[3,3];
+  if(sudokuSolValidUi(pz,2,3))return[2,3];
+  if(sudokuSolValidUi(pz,3,2))return[3,2];
+  return null;
+}
+function puzzleOk(pz){ // 内部：谜题数据是否可玩（不可玩→神龛不参与谜题门）
+  if(!pz||(pz.type!=='nono'&&pz.type!=='sudoku'))return false;
+  const n=pz.size;
+  if(!(n>=2&&n<=12))return false;
+  if(pz.type==='nono'){
+    if(!Array.isArray(pz.pic)||pz.pic.length!==n)return false;
+    for(const row of pz.pic)if(typeof row!=='string'||row.length!==n||/[^#.]/.test(row))return false;
+    return true;
+  }
+  if(!Array.isArray(pz.sol)||pz.sol.length!==n||!Array.isArray(pz.givens)||pz.givens.length!==n)return false;
+  const box=_pzBoxDims(pz);
+  if(!box)return false;
+  const bh=box[0],bw=box[1];
+  const uniq=get=>{const s=new Set();for(let i=0;i<n;i++){const v=get(i);if(v<1||v>n||s.has(v))return false;s.add(v);}return true;};
+  for(let r=0;r<n;r++){
+    if(!Array.isArray(pz.sol[r])||pz.sol[r].length!==n)return false;
+    if(!Array.isArray(pz.givens[r])||pz.givens[r].length!==n)return false;
+    if(!uniq(c=>pz.sol[r][c]))return false;
+  }
+  for(let c=0;c<n;c++)if(!uniq(r=>pz.sol[r][c]))return false;
+  for(let br=0;br<n;br+=bh)for(let bc=0;bc<n;bc+=bw){
+    const s=new Set();
+    for(let r=br;r<br+bh;r++)for(let c=bc;c<bc+bw;c++){const v=pz.sol[r][c];if(v<1||v>n||s.has(v))return false;}
+  }
+  for(let r=0;r<n;r++)for(let c=0;c<n;c++){const g=pz.givens[r][c];if(g!==0&&g!==pz.sol[r][c])return false;}
+  return true;
+}
+function puzzleShrineUsable(idx){ // 内部：该神龛的谜题数据是否可玩
+  return typeof PUZZLES!=='undefined'&&puzzleOk(PUZZLES[idx]);
+}
 
 // puzzleNear 读取：engine v4 每步计算 game.puzzleNear（工单 §引擎3）；未合入时按同规格本地兜底
 // （玩家矩形 vs 神龛矩形外扩 8px 严格重叠，与 _engAabb 语义一致）。
@@ -475,10 +521,15 @@ function isPuzzleSolved(idx){ // 已解判定：engine 置位（本关内）或�
 function openPuzzle(idx){ // 仅 play 态且 puzzleNear>=0 时由 step() 输入桥接调用
   if(typeof PUZZLES==='undefined')return;
   const pz=PUZZLES[idx];if(!pz)return;
+  if(!puzzleOk(pz)){ // v7.4：数据不可玩——拒绝开层（startLevel 已把该神龛按已解处理，故不卡关）
+    console.warn('[puzzle] 神龛 '+idx+' 数据不可玩，跳过开层');
+    return;
+  }
   const resume=!puzzle.done&&puzzle.idx===idx&&puzzle.type===pz.type&&puzzle.grid&&puzzle.grid.length===pz.size;
   puzzle.open=true;puzzle.idx=idx;puzzle.type=pz.type;puzzle.size=pz.size;
   puzzle.err=0;puzzle.done=false;puzzle.doneT=0;puzzle.view=isPuzzleSolved(idx);
   puzzleSkip=1;
+  if(!resume)puzzle.hintN=0; // v7.4：提示计数按题计（续玩同一题不清零）
   if(!puzzle.view&&!resume){ // 已解→只读谜底；未解→续用内存进度（重进关卡由 startLevel 重置）
     if(pz.type==='nono')puzzle.grid=Array.from({length:pz.size},()=>Array(pz.size).fill(0));
     else{puzzle.grid=pz.givens.map(r=>r.slice());puzzle.given=pz.givens.map(r=>r.map(v=>v>0));}
@@ -525,6 +576,7 @@ function puzzleSetFill(v){ // 数织：J 填格(1) / K 叉格(2)，同格再按�
 function puzzleSetNum(n){ // 数独：数字填入；0/退格清除；同格再按同数字也可清除；给定格锁定
   const c=puzzle.cur;
   if(puzzle.given[c.y][c.x])return;
+  if(n>puzzle.size)return; // v7.4：4×4/6×6 题按到 7~9 属无效输入，直接忽略（否则格子里留下非法值无法自清）
   puzzle.grid[c.y][c.x]=puzzle.grid[c.y][c.x]===n?0:n;
   checkSudokuDone();
 }
@@ -534,7 +586,18 @@ function puzzleClearGrid(){ // R：数织清空 / 数独清空重来（givens �
   else{puzzle.grid=pz.givens.map(r=>r.slice());puzzle.given=pz.givens.map(r=>r.map(v=>v>0));}
   puzzle.err=0;
 }
-function checkNonoDone(){ // 工单 §玩法设计：完成时自动校验——全对胜利；错格闪红 1s
+function nonoRunsMatch(pz){ // 内部 v7.4：按线索判胜负——每行/列的实际连续段必须等于该行/列线索
+  const s=pz.size;
+  const rowClue=pz.pic.map(r=>rowRuns(r));
+  const colClue=[];
+  for(let c=0;c<s;c++){let str='';for(let r=0;r<s;r++)str+=(pz.pic[r][c]||'.');colClue.push(rowRuns(str));}
+  const runsOf=get=>{const out=[];let cur=0;for(let i=0;i<s;i++){if(get(i)===1)cur++;else if(cur){out.push(cur);cur=0;}}if(cur)out.push(cur);return out;};
+  const eq=(a,b)=>a.length===b.length&&a.every((v,i)=>v===b[i]);
+  for(let r=0;r<s;r++)if(!eq(runsOf(c=>puzzle.grid[r][c]),rowClue[r]))return false;
+  for(let c=0;c<s;c++)if(!eq(runsOf(r=>puzzle.grid[r][c]),colClue[c]))return false;
+  return true;
+}
+function checkNonoDone(){ // 完成时自动校验：线索吻合→胜利；越界实心→错格闪红 1s
   const pz=PUZZLES[puzzle.idx];
   let unfilled=0,wrong=0;
   for(let r=0;r<pz.size;r++)for(let c=0;c<pz.size;c++){
@@ -542,10 +605,21 @@ function checkNonoDone(){ // 工单 §玩法设计：完成时自动校验——
     if(want&&v!==1)unfilled++;
     else if(!want&&v===1)wrong++;
   }
-  if(unfilled===0&&wrong===0)winPuzzle();
+  if(nonoRunsMatch(pz))winPuzzle();   // v7.4：判定改「对线索」而非「对画稿」——任一合法解都算过
   else if(unfilled===0&&wrong>0)puzzle.err=1;
 }
-function checkSudokuDone(){ // 完成自动校验：grid 与 sol 全等→胜利，否则错格闪红 1s
+function sudokuGridSolved(pz){ // 内部 v7.4：按规则判胜负——每行/列/宫都是 1..n 的排列
+  const n=pz.size,box=sudokuBoxDims(pz),bh=box[0],bw=box[1];
+  const uniq=get=>{const s=new Set();for(let i=0;i<n;i++){const v=get(i);if(v<1||v>n||s.has(v))return false;s.add(v);}return true;};
+  for(let r=0;r<n;r++)if(!uniq(c=>puzzle.grid[r][c]))return false;
+  for(let c=0;c<n;c++)if(!uniq(r=>puzzle.grid[r][c]))return false;
+  for(let br=0;br<n;br+=bh)for(let bc=0;bc<n;bc+=bw){
+    const s=new Set();
+    for(let r=br;r<br+bh;r++)for(let c=bc;c<bc+bw;c++){const v=puzzle.grid[r][c];if(v<1||v>n||s.has(v))return false;}
+  }
+  return true;
+}
+function checkSudokuDone(){ // 完成自动校验：终盘合法→胜利，否则错格闪红 1s
   const pz=PUZZLES[puzzle.idx];
   let full=true,wrong=0;
   for(let r=0;r<pz.size;r++)for(let c=0;c<pz.size;c++){
@@ -553,10 +627,29 @@ function checkSudokuDone(){ // 完成自动校验：grid 与 sol 全等→胜利
     if(!v)full=false;
     else if(v!==pz.sol[r][c])wrong++;
   }
-  if(full&&wrong===0)winPuzzle();
+  if(full&&sudokuGridSolved(pz))winPuzzle(); // v7.4：判定改「对规则」而非「对答案」——多解题填出合法终盘也算过
   else if(full&&wrong>0)puzzle.err=1;
 }
-function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/Esc/数字键（工单 §界面①②③）
+function puzzleHint(){ // v7.4：H 键提示——按「光标格优先」修正一格正解（无限次，保证不会做也能过）
+  if(puzzle.view||puzzle.done)return;
+  const pz=PUZZLES[puzzle.idx];if(!puzzleOk(pz))return;
+  const s=pz.size;
+  const good=(r,c)=>pz.type==='nono'
+    ?(((pz.pic[r][c]||'.')==='#')===(puzzle.grid[r][c]===1))
+    :(puzzle.grid[r][c]===pz.sol[r][c]);
+  let r=puzzle.cur.y,c=puzzle.cur.x;
+  if(good(r,c)){ // 光标格已正确 → 全盘找第一个错格/空格
+    let found=false;
+    outer:for(let rr=0;rr<s;rr++)for(let cc=0;cc<s;cc++)if(!good(rr,cc)){r=rr;c=cc;found=true;break outer;}
+    if(!found)return; // 全盘已对（正常流已被 winPuzzle 拦下，这里只防御）
+    puzzle.cur={x:c,y:r};
+  }
+  if(pz.type==='nono')puzzle.grid[r][c]=((pz.pic[r][c]||'.')==='#')?1:0;
+  else puzzle.grid[r][c]=pz.sol[r][c];
+  puzzle.hintN++;puzzle.err=0;
+  if(pz.type==='nono')checkNonoDone();else checkSudokuDone();
+}
+function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/H/Esc/数字键（工单 §界面①②③）
   if(puzzle.err>0)puzzle.err=Math.max(0,puzzle.err-dt);
   if(puzzle.done){ // 已解开：2s 自动关层（Esc 可提前；关层后世界恢复，烟花粒子在场景中绽放）
     if(hit('back'))closePuzzle();
@@ -591,6 +684,7 @@ function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/Esc/数字键（
     if(pressed['Digit0']||pressed['Numpad0']||pressed['Backspace'])puzzleSetNum(0); // 0/退格清除
     if(hit('restart'))puzzleClearGrid();    // R 清空重来
   }
+  if(hit('puzzleHint'))puzzleHint();         // v7.4：H 提示一格（无限次）
   if(hit('back'))closePuzzle();             // Esc 退出（进度保留在内存，重进关卡重置）
 }
 // 数独块尺寸：4×4=2×2、9×9=3×3 固定；6×6 工单写作「块2×3」存在行列书写歧义，
@@ -686,7 +780,7 @@ function startLevel(idx){
   ghosts.length=0;comboPop=0;lastCombo=0;
   // v4：谜题覆盖层复位（解题进度仅本关内保留，重进关卡重置——工单 §玩法设计）
   puzzle.open=false;puzzle.idx=0;puzzle.grid=null;puzzle.given=null;puzzle.cur={x:0,y:0};
-  puzzle.err=0;puzzle.done=false;puzzle.view=false;puzzleRep=0;puzzleSkip=0;
+  puzzle.err=0;puzzle.done=false;puzzle.view=false;puzzleRep=0;puzzleSkip=0;puzzle.hintN=0;
   game.puzzleActive=false;
   // v6 §D2/§E：引导状态随关重置（O 大提示每关一次；技能条仅 L1；速降 toast 计时清零）
   oHintDone=false;oHintT=0;
@@ -694,6 +788,13 @@ function startLevel(idx){
   fallT=0;fallToastT=0;
   // v4 §界面⑥：engine loadLevel 清空 solvedPuzzles 后，由 ui 从本地存档回填已解神龛
   game.solvedPuzzles=Object.assign({},progress.puzzles||{});
+  // v7.4 护栏③：谜题数据不可玩的神龛按「已解」处理（只在本次会话生效，不写存档、不发奖）——
+  // 否则 v7.3 谜题门会要求玩家解一道根本不存在的题，整关永久锁死。
+  for(const sh of (game.level.shrines||[]))
+    if(!puzzleShrineUsable(sh.idx)){
+      game.solvedPuzzles[sh.idx]=true;
+      console.warn('[puzzle] 神龛 '+sh.idx+' 的谜题数据不可玩，已 fail-open 按已解处理');
+    }
   // v6 波2 §D/§C：进关复位背包层（防残留 bagActive）+ 装备注入（loadLevel 已按 game.equip 建玩家，
   // 此处按冻结公式覆写校准——同值时 diff=0 无副作用）
   if(bagOpen)closeBag();
@@ -2449,6 +2550,7 @@ function drawSteleFallback(x,y,solved,tick){ // 内部：程序化石碑（16×2
 function drawShrineThumb(s,tick){ // 已解神龛顶部谜底缩略图：数织画原样 / 数独金色"完"字印章
   if(typeof PUZZLES==='undefined')return;
   const pz=PUZZLES[s.idx];if(!pz)return;
+  if(!puzzleOk(pz))return; // v7.4：数据不可玩不画缩略图（画稿行数不足时 pz.pic[r][c] 会越界抛错）
   const bob=Math.sin(tick*3+s.idx*1.7)*1.5;
   if(pz.type==='nono'){
     const cs=2,w=pz.size*cs;
@@ -2502,9 +2604,10 @@ function renderPuzzleOverlay(tick){ // 覆盖层：半透明黑底+木框+题目
     drawCNText('神龛点亮！宝石 +1 · 金币 +5',VIEW_W/2,fy+fh/2-9,12,'#f8d048','center');
   }
   const hint=puzzle.view?'Esc 关闭':puzzle.type==='nono'
-    ?'方向 移动 · J 填格 · K 叉格 · R 清空 · Esc 退出'
-    :'方向 移动 · 数字键 填入 · 0/退格 清除 · R 重来 · Esc 退出';
+    ?'方向 移动 · J 填格 · K 叉格 · H 提示 · R 清空 · Esc 退出'
+    :'方向 移动 · 数字键 填入 · 0/退格 清除 · H 提示 · R 重来 · Esc 退出';
   drawCNText(hint,VIEW_W/2,fy+fh-16,9,'#b8b8c8','center');
+  if(!puzzle.view&&puzzle.hintN>0)drawCNText('提示 ×'+puzzle.hintN,fx+10,fy+11,9,'#8ad8a0','left');
 }
 function renderNonoBoard(tick,pz){ // 数织：左侧/顶部线索 + 网格 + 光标 + 错格闪红
   const s=pz.size;
@@ -2552,7 +2655,9 @@ function renderNonoBoard(tick,pz){ // 数织：左侧/顶部线索 + 网格 + �
 }
 function renderSudokuBoard(tick,pz){ // 数独：粗细分隔线+给定格灰底+冲突红字+光标
   const s=pz.size,[bh,bw]=sudokuBoxDims(pz);
-  const cell=s===4?26:s===6?22:17,gw=s*cell;
+  // v7.4：9×9 格宽 17→16。17 时盘面 153px 高、底边正好压在底部操作条上（末行数字被提示文字盖住），
+  // 16 → 144px，盘面底 188、提示条 194，留 6px 间隙（数织侧同类挤压已在 clueH 自适应里避开）。
+  const cell=s===4?26:s===6?22:16,gw=s*cell;
   const gx=Math.round((VIEW_W-gw)/2),gy=Math.round(38+Math.max(0,(156-gw)/2));
   for(let r=0;r<s;r++)for(let c=0;c<s;c++){
     const x=gx+c*cell,y=gy+r*cell;
@@ -2740,16 +2845,25 @@ function step(dt){
 }
 
 let acc=0,last=performance.now();
+let _frameErr=''; // v7.4：主循环异常去重日志（同一条 message 只打一次）
 function frame(now){
-  acc+=Math.min(0.1,(now-last)/1000);last=now;
-  // P0 修复（任务书 2026-10-24-v2 §P0）：pressed 边沿只在真实跑过至少一个物理 step 之后清空。
-  // 清空动作挪进 while 循环、逐 step 执行——零步进的渲染帧（高刷屏 acc<1/60）不再吞输入；
-  // 一帧多 step 时第一步消费后即清，边沿只消费一次（不丢不重）。
-  // v6 §A.1：mouse.click 单击边沿同点清零（mousedown 置 1 → 单 step 消费）。
-  while(acc>=1/60){step(1/60);clearPressed();mouse.click=0;acc-=1/60;}
-  render();
-  if(uiState==='victory')renderVictory(game.tick);
-  if(uiState==='credits')renderCredits(game.tick); // v3 §E3：致谢屏
+  try{
+    acc+=Math.min(0.1,(now-last)/1000);last=now;
+    // P0 修复（任务书 2026-10-24-v2 §P0）：pressed 边沿只在真实跑过至少一个物理 step 之后清空。
+    // 清空动作挪进 while 循环、逐 step 执行——零步进的渲染帧（高刷屏 acc<1/60）不再吞输入；
+    // 一帧多 step 时第一步消费后即清，边沿只消费一次（不丢不重）。
+    // v6 §A.1：mouse.click 单击边沿同点清零（mousedown 置 1 → 单 step 消费）。
+    while(acc>=1/60){step(1/60);clearPressed();mouse.click=0;acc-=1/60;}
+    render();
+    if(uiState==='victory')renderVictory(game.tick);
+    if(uiState==='credits')renderCredits(game.tick); // v3 §E3：致谢屏
+  }catch(e){
+    // v7.4 主循环兜底：单帧异常不得终止 rAF 链——否则一次越界（如谜题数据损坏）就把整局永久冻死，
+    // 玩家既动不了也退不出（= 不可通关）。同类异常只打一次日志，避免每帧刷屏。
+    const msg=String(e&&e.message);
+    if(_frameErr!==msg){_frameErr=msg;console.error('[frame] 异常已捕获，主循环继续：',e);}
+    last=now;acc=0; // 丢弃积压时间，避免下一帧补步风暴
+  }
   requestAnimationFrame(frame);
 }
 
@@ -2760,7 +2874,10 @@ function boot(){
   recomputeEquip(); // v6 波2 §D：boot 后一次（异常档自愈回写+注入 game.equip/cdMul；先于 startLevel/loadLevel 读装备）
   const lvl=q.get('level');
   if(lvl){
-    const idx=clamp(parseInt(lvl)-1,0,ALL_LEVELS.length-1);
+    // v7.4：?level=abc 之类非法值 → parseInt=NaN → clamp 仍是 NaN → loadLevel(NaN) 抛错整局起不来。
+    // 非法/缺失一律回落第 1 关（URL 参数是外部输入，不得让一次手滑打错字把游戏打成白屏）。
+    const n=parseInt(lvl,10);
+    const idx=Number.isFinite(n)?clamp(n-1,0,ALL_LEVELS.length-1):0;
     startLevel(idx);
   }else{
     game.state='title';

@@ -1647,6 +1647,12 @@ function updateWorld(dt) {
   if (game.bagActive) return;    // v6 §G：背包开启冻结（同 puzzleActive 位；波1 恒 false 空转，波2 bag 队启用）
   const L = game.level, p = game.player;
   if (!L || !p) return;
+  /* v7.4 坐标自愈：NaN/Infinity 一旦进入物理就会污染相机与渲染（createLinearGradient 直接抛错），
+     且物理方程无法自行恢复（NaN 比较恒 false，玩家会一直下坠）。此处拉回出生点，保证一局不废。 */
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.vx) || !Number.isFinite(p.vy)) {
+    p.x = L.spawn.x; p.y = L.spawn.y; p.vx = 0; p.vy = 0;
+    game.cam.x = Math.max(0, p.x - 160); game.cam.y = Math.max(0, p.y - 100);
+  }
   /* v5 §3.1：O 流星连斩 1.2s 演出状态机（放在 paused/puzzleActive 检查之后、hitStop 检查之前；
      ①② 期间世界冻结 return，floats/fxParts 由 ui 推进——数字与火花在时停里就在动） */
   if (game.ult && game.ult.on) {
@@ -1791,8 +1797,19 @@ function updateWorld(dt) {
     }
   }
 
-  /* ⑤ 终点判定 */
-  if (!p.dead && L.goal && _engAabb(p, L.goal)) { levelClear(); return; }
+  /* ⑤ 终点判定（v7.3 谜题门：本关有谜题神龛且存在未解者 → 终点不通关，每 2.5s 推送一次引导事件；
+        solvedPuzzles 已由 ui 在 startLevel 时从存档回填（跨会话正确），Boss 关无神龛天然直通） */
+  if (!p.dead && L.goal && _engAabb(p, L.goal)) {
+    const unsolved = (L.shrines || []).filter(function (sh) { return !game.solvedPuzzles[sh.idx]; });
+    if (unsolved.length) {
+      game.puzzleGateT = (game.puzzleGateT || 0) - dt;
+      if (game.puzzleGateT <= 0) {
+        game.puzzleGateT = 2.5;
+        game.sfxQueue.push('select');
+        _engFloat(p.x + 5, p.y - 12, '先解开谜题神龛！（' + unsolved.length + ' 处未解）', '#f8d048');
+      }
+    } else { levelClear(); return; }
+  }
 
   /* ⑥ 移动平台：先动并记录本帧 dx,dy；水平推挤，推入实心则死亡（契约算法 3） */
   for (const pl of L.plats) {
