@@ -78,7 +78,7 @@ try {
   } else if (mod === 'engine') {
     const levelsSrc = read('levels.js');
     const engineSrc = read('engine.js');
-    const themes = {}; ['grass','cave','sky','factory','lava','tower','boss'].forEach(k => themes[k] = {}); // v3 §F①：桩补第 7 主题
+    const themes = {}; ['grass','cave','sky','factory','lava','tower','boss','wind','castle','star'].forEach(k => themes[k] = {}); // v3 §F①桩补第 7 主题；v5 §D③补 wind/castle/star
     // v4：附带导出 PUZZLES/puzzleSolved（未合入时为 undefined，供下方 v4 冒烟块条件守卫）
     const glue = '\n;return {PHY,Level,game,loadLevel,respawn,killPlayer,levelClear,updateWorld,LEVELS,'
       + "PUZZLES:(typeof PUZZLES==='undefined')?undefined:PUZZLES,"
@@ -99,28 +99,31 @@ try {
       const pos = '玩家@(' + Math.round(g.player.x) + ',' + Math.round(g.player.y) + ')';
       console.log('engine L' + (i + 1) + ' OK: ' + L.meta.name + ' ' + pos + ' 金币总' + L.totalCoin + ' 帧稳定');
     }
-    // v3 §F②（界面队追加）：L7 Boss 冒烟——设计硬约束 H1：激活半径 176px 保证
-    // 空转 180 帧玩家不得死亡、Boss 保持 dormant。LEVELS 7 关后生效；
-    // v2 基线（6 关、game.boss 不存在）自动跳过，输出不变。主循环不动（H3）。
-    const last = nLevels - 1;
-    sandbox.loadLevel(last, false);
-    sandbox.game.state = 'play';
-    if (sandbox.game.boss) {
-      for (let f = 0; f < 180; f++) sandbox.updateWorld(1 / 60);   // 纯空转 180 帧
-      const g = sandbox.game;
-      if (g.player.dead || (g.player.hp !== undefined && g.player.hp < 5) || g.boss.state !== 'dormant') {
-        console.error('L7 Boss 违约: 空转180帧 dead=' + g.player.dead + ' hp=' + g.player.hp + ' boss=' + g.boss.state);
-        process.exit(1);
+    // v3 §F②（界面队追加）：Boss 冒烟——设计硬约束 H1：激活半径 176px 保证
+    // 空转 180 帧玩家不得死亡、Boss 保持 dormant。v5 §D②：Boss 关按 boss 元数据定位
+    // （7→10 关后不再假设"最后一关=Boss 关"），找不到 boss 元数据时整块跳过。
+    const bossIdx = sandbox.LEVELS.findIndex(function (l) { return !!l.boss; });
+    if (bossIdx >= 0) {
+      sandbox.loadLevel(bossIdx, false);
+      sandbox.game.state = 'play';
+      if (sandbox.game.boss) {
+        for (let f = 0; f < 180; f++) sandbox.updateWorld(1 / 60);   // 纯空转 180 帧
+        const g = sandbox.game;
+        if (g.player.dead || (g.player.hp !== undefined && g.player.hp < 5) || g.boss.state !== 'dormant') {
+          console.error('L7 Boss 违约: 空转180帧 dead=' + g.player.dead + ' hp=' + g.player.hp + ' boss=' + g.boss.state);
+          process.exit(1);
+        }
+        console.log('engine L7 Boss 冒烟 OK: 空转180帧 玩家存活 Boss=dormant');
       }
-      console.log('engine L7 Boss 冒烟 OK: 空转180帧 玩家存活 Boss=dormant');
     }
     // v4（界面队追加）：谜题神龛冒烟——全部条件守卫，levels v4 未合入（无 PUZZLES）时整块跳过，
     // v2/v3 输出不变；shrine/puzzleSolved 链路再按 engine v4 符号存在性二级守卫。
     if (sandbox.PUZZLES) {
       const PZ = sandbox.PUZZLES;
       const probs = [];
-      // ① 数据契约：键 1..6、奇数织/偶数独、画稿尺寸、矩阵尺寸/取值、givens⊂sol、sol 合法、解唯一
-      for (let k = 1; k <= 6; k++) {
+      // ① 数据契约：奇数织/偶数独、画稿尺寸、矩阵尺寸/取值、givens⊂sol、sol 合法、解唯一
+      // v5 §D③：遍历全部谜题键（1..6 + 新键 8/9/10），奇偶规则对新键同样成立
+      for (const k of Object.keys(PZ).map(Number).sort((a, b) => a - b)) {
         const p = PZ[k];
         if (!p) { probs.push('PUZZLES[' + k + '] 缺失'); continue; }
         if (k % 2 === 1 && p.type !== 'nono') probs.push('P' + k + ' 奇数关应为数织,实为 ' + p.type);
@@ -165,9 +168,13 @@ try {
           const q = g.sfxQueue.slice(q0);
           if (!q.includes('puzzle') || !q.includes('gem')) probs.push('L' + (i + 1) + ' sfxQueue 缺 puzzle/gem: [' + q.join(',') + ']');
         }
-        sandbox.loadLevel(nLevels - 1, false);
-        const shr7 = sandbox.game.level.shrines;
-        if (shr7 && shr7.length) probs.push('L7 不应有神龛(实有 ' + shr7.length + ')');
+        // v5 §D②：神龛终检只对 Boss 关执行（"Boss 关不应有神龛"照旧对 L7 生效；
+        // L10 有神龛不再被"最后一关"假设误检）
+        if (bossIdx >= 0 && sandbox.LEVELS[bossIdx].boss === true) {
+          sandbox.loadLevel(bossIdx, false);
+          const shr7 = sandbox.game.level.shrines;
+          if (shr7 && shr7.length) probs.push('L7 不应有神龛(实有 ' + shr7.length + ')');
+        }
       }
       if (probs.length) {
         console.error('engine v4 谜题冒烟违约: ' + probs.slice(0, 5).join('; '));

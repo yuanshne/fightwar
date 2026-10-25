@@ -138,3 +138,87 @@ gate.js 会 `new Function(src)` 只编译不执行 art.js（语法检查），�
 ```
 Q 谜题神龛(L1~L6 各恰 1，脚下有支撑；走近提示可开谜题覆盖层)
 ```
+
+---
+
+## 附记（v5 手感，2026-10-24 · 手感队录入）
+
+> 依据：docs/specs/2026-10-24-v5-design.md §1/§2/§3/§4/§8 与工单
+> docs/workorders/v5-wave1-feel.md（波次裁决 A：新机关引擎语义第一波由手感队实装）。
+> 本附记只增不改上文任何条款（v4 先例）。
+
+### 瓦片/实体字符表（第 2 节追加）
+```
+w 上升气流区(非实心,玩家专属)  e 传送门(实体,按(x,y)排序两两配对)
+A 骑士盔甲敌(12×18,hp3,正面格挡)  H 吊灯摆锤(锚实体,上方须实心)
+```
+
+### engine.js 新字段（沿 v2/v3/v4「扩展字段」先例，不新增契约外全局符号）
+- `game`：`floats[]`（浮动文字 ≤40）、`fxParts[]`（UI 层演出粒子 ≤60）、`scars[]`（星陨爆坑 ≤8）、
+  `shakePend`（分级震屏单槽 `{m,t}`）、`ult`（O 流星连斩状态机 `{on,t,fired,flashed}`）。
+- `Level` 实例字段：`portals[]`（'e' 提取 `{x,y,w:12,h:24,cd,partner}`，构造末尾按 (x,y)
+  字典序排序后两两配对）、`pends[]`（'H' 提取 `{ax,ay,len:48,t,phase}`，附 `ang/bx/by` 只读渲染字段）。
+- 玩家：`airJumps`（剩余二段跳次数，落地/弹簧/踩踏/受击/复活重置为 1）、`djT`（空翻演出 0.4s）、
+  `turnT`（转身 squash 0.12s）、`stepT`（脚步尘土节流 0.18s）、`landVy`（落地瞬间 vy，>300 大落）、
+  `springAir`（弹簧全程锁定二段跳，落地/踩踏/受击解锁）、`atkAnim`（攻击总动画 0.25s）、
+  `atkWind`（攻击起手 0.05s，期间无判定）、`windT`（冲刺风粒节流）、`shieldHp`（护盾吸收次数）、
+  `atkSeq`（挥击序号，单调递增）。
+- 敌人（W/F/A 与 Boss 召唤体）：`hp`（史莱姆 2/蝙蝠 1/骑士 3）、`kb`（击退速度，摩擦 600/s）、
+  `flashT`（白闪）、`jitT`（抖动）、`dvx/dvy`（死亡击飞弹道）、`face`（骑士格挡朝向）、
+  `hitSeq`（被哪一摆命中——hit-stop 冻结后判定框仍存活，同一挥击对同一目标只结算一次，
+  玩家 `atkSeq` 与敌人/Boss `hitSeq` 比对实现一摆一伤）。
+
+### 粒子所有权修订（v5 裁决）
+- `game.parts` 上限收紧为 **240**（引擎模拟+守卫，超限丢弃新粒子）；
+- `game.fxParts`(≤60) / `game.floats`(≤40) / `game.scars`(≤8) **引擎只 push（带容量守卫）、
+  ui 每步推进+修剪**（hit-stop/ult 冻结期间照常推进——"冻结期火花仍渲染"的实现）；
+  引擎任何地方不得 filter/splice 这三者。两池合计峰值 ≤300（红线）。
+
+### sfx 事件表追加（engine 只 push，ui 消费）
+- 新增：`'swing','hit','kill','djump','land2','shieldhit','shieldbreak','clank','portal','ult2'`；
+- 废弃：攻击按下处原 `'slash'`（改 'swing'）；`'ult'` 保留（O 释放时）。其余事件名不变。
+
+### 其他语义
+- `_engHitStop` 0.06→**0.10**（Boss 承伤同步）；连击**按命中计数**（命中敌人无论死活/碎 B 砖 +1）；
+- 暴击：本击使连击数到 4 的倍数（`(combo+1)%4===0`）→ 伤害×2、金色数字；
+- 骑士正面格挡（攻击方向 === 面朝侧）0 伤害推浮字 GUARD；骑士/吊灯伤害走 `_engHurtPlayer`
+  （HP 伤害非即死）；踩踏对骑士扣 1 不秒杀、对普通敌仍秒杀；
+- 二段跳：`vy=-PHY.jumpV*0.92`、不吃松手截断、土狼时间只对第一段有效、无二段跳可用才进 jbuf；
+- 玩家受击重置 `airJumps=1, springAir=false`（设计 §1.1）。
+
+---
+
+## 附记（v5 风格，2026-10-24 · 风格队录入）
+
+> 依据：docs/specs/2026-10-24-v5-design.md §5/§6.1 与工单 docs/workorders/v5-wave2-style.md。
+> 本附记只增不改上文任何条款（v4 先例）。
+
+「附记（v5 风格，风格队录入）：THEMES 自 v5 起为十主题（新增 wind/castle/star）；
+瓦片为三阶 cel 硬边（抖动仅存于 makeBG 远景）；SPR.cover 为封面素材字典（heroSil 24×28 /
+bossSil 104×56 / meteorStreak[2] 26×8 / cloudA/B/C 各 512×80 可平铺）；puzzleUI 换深蓝金
+皮肤（键与 8×8 齐缝规格不变）；新增装饰 windmill[2]/starflower[2] 与发光后处理 _glow
+（内描边口径，画布尺寸零变化，ui drawImage 坐标零改动）。」
+
+---
+
+## 附记（v5 关卡，2026-10-24 · 关卡队录入）
+
+> 依据：docs/specs/2026-10-24-v5-design.md §7 与工单 docs/workorders/v5-wave2-levels.md。
+> 本附记只增不改上文任何条款（v4/v5 手感先例）。
+
+### LEVELS 规模（第 2 节追加）
+- LEVELS 自 v5 起为**十关**（8 翡翠风谷/9 落日王城/10 星空回廊，Boss 仍为第 7 关）；
+  L8/L9/L10 依次 (118,18)(124,18)(130,20)，par 100/115/135，theme wind/castle/star；
+  每关 B≥4、'@'/'P'/'Q' 恰 1，新关无熔岩/拉杆。
+- 新字符 w/e/A/H 见 v5 手感附记（引擎语义第一波已实装，本文件只摆数据）。
+
+### validateLevels 断言（第 2 节追加）
+- 同行可站立段间隙直通阈值 3→**5**（二段跳平跳≈6.3 瓦，留余量）；辅助扫描新增
+  'w' 风柱（窗口内 ≥2 块且 gap≤12 直通）。
+- 新增断言：'e' 传送门每关数量为偶数；'H' 吊灯上方 1 格须 SOLIDISH；'A' 骑士下方
+  2 格内须有 STAND 支撑。w/e/A/H 均不入 SOLIDISH/STAND。
+- 通过 msg 关数动态化（"N关断言全部通过"）。
+
+### PUZZLES（键追加）
+- 增键 **8/9/10**：8 偶=数独 6×6（块 2 行×3 列，按 sol 合法性自解析）、9 奇=数织 9×9
+  「王冠」、10 偶=数独 9×9；三者唯一解均经独立回溯/DFS 解数器复验（解数=1）。
