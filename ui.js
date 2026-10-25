@@ -467,13 +467,28 @@ function bagSalvage(){ // 分解（X / 分解钮）：未装备物品移除、sh
   _bagFloat(EQ_PREFIX[it.r]+EQ_BASE[it.slot]+' → 碎片+'+BAL_GEAR_SALVAGE,EQ_COLOR[it.r]);
   afterBagChange('shard');
 }
-function bagUpgrade(){ // 升阶（C / 升阶钮）：shards[slot+r]≥3 且 r<4 → 扣 3、r+1（含穿着中，§6.5）
+// v7.8：碎片合计口径的唯一出口——升阶结算、碎片栏、「升阶 n/3」进度全走这里。
+// 旧版按 slot+r 精确配桶（w1 只能升 r=1 的件），玩家攒到的碎片对不上号就永远升不了；
+// 改成「同槽位五档合计」后，任意稀有度碎片都能垫进去，存档结构仍是 slot+r 扁平键，老档直接续用。
+function _slotShardTotal(slot){ // 内部：某槽位 w/h/c 的五档碎片合计
+  let n=0;
+  for(let r=0;r<5;r++)n+=progress.shards[slot+r]||0;
+  return n;
+}
+function bagUpgrade(){ // 升阶（C / 升阶钮）：同槽任意稀有度碎片合计≥3 且 r<4 → 扣 3、r+1（含穿着中，§6.5）
   const it=bagFocus==='equip'?_equipZoneItem():_bagItem(bagSelBag);
   if(!it)return;
   if(it.r>=4)return;                                       // r=4 显示 MAX，不可升（按钮置灰）
-  const k=it.slot+it.r;
-  if((progress.shards[k]||0)<BAL_GEAR_STEP){SFX.shot();return;} // 碎片不足（钮置灰；键盘拒绝音同选关锁）
-  progress.shards[k]-=BAL_GEAR_STEP;
+  if(_slotShardTotal(it.slot)<BAL_GEAR_STEP){SFX.shot();return;} // 碎片不足（钮置灰；键盘拒绝音同选关锁）
+  // v7.8：扣费从低稀有度往高扣（w0→w4）——低阶碎片是垫料，先消耗它，玩家攒的高阶碎片留得住
+  let need=BAL_GEAR_STEP;
+  for(let r=0;r<5&&need>0;r++){
+    const k=it.slot+r,have=progress.shards[k]||0;
+    if(!have)continue;
+    const take=Math.min(have,need);
+    progress.shards[k]=have-take;                          // 归零写 0 不删键（与 bagSalvage 同一写法规约）
+    need-=take;
+  }
   it.r+=1;                                                 // 同槽升阶：属性/外观按新 r 重算（recompute+_lookDirty）
   _bagFloat(EQ_PREFIX[it.r]+EQ_BASE[it.slot]+' 升阶成功',EQ_COLOR[it.r],it.r>=4);
   afterBagChange('shard');
@@ -806,19 +821,18 @@ function rowRuns(str){ // 内部：数织一行/一列的连续实心段线索
 
 // v6 波2 §C 背包输入（键盘↔鼠标全等价 H3；参照 stepPuzzleInput 范式：边沿消费、开层不泄漏）。
 // 注意 Enter 用裸 pressed['Enter']——KEYMAP.confirm 含 Space/W/↑，会与 bag 区方向键冲突。
-function bagMove(dx,dy,nShard){ // 焦点区内移动（bag 行宽 4 上下 ±4；equip 横移；shard 横移）
+function bagMove(dx,dy){ // 焦点区内移动（bag 行宽 4 上下 ±4；equip 横移；shard 横移）
   if(bagFocus==='bag')bagSelBag=clamp(bagSelBag+dx+dy,0,11);
   else if(bagFocus==='equip')bagSelEquip=clamp(bagSelEquip+dx,0,2);
-  else if(bagFocus==='shard')bagSelShard=clamp(bagSelShard+dx,0,Math.max(0,nShard-1));
+  else if(bagFocus==='shard')bagSelShard=clamp(bagSelShard+dx,0,2); // v7.8：碎片栏固定 3 行（槽位 w/h/c），不再是动态桶数
 }
 function stepBagInput(){
   if(hit('bag')||hit('back')){closeBag();return;}            // B/Esc 关闭（关闭钮=鼠标路径）
-  const nShard=Math.min(Object.keys(progress.shards||{}).length,10); // 碎片栏可视行数（≤10 行）
   if(pressed['Tab'])bagFocus=bagFocus==='equip'?'bag':bagFocus==='bag'?'shard':'equip'; // Tab 三区循环
-  if(hit('left'))bagMove(-1,0,nShard);
-  if(hit('right'))bagMove(1,0,nShard);
-  if(hit('up'))bagMove(0,-4,nShard);
-  if(hit('down'))bagMove(0,4,nShard);
+  if(hit('left'))bagMove(-1,0);
+  if(hit('right'))bagMove(1,0);
+  if(hit('up'))bagMove(0,-4);
+  if(hit('down'))bagMove(0,4);
   if(pressed['Enter']){
     if(bagFocus==='bag')bagWear(bagSelBag);                  // 穿上
     else if(bagFocus==='equip')bagUnequip('whc'[bagSelEquip]); // 卸下
@@ -997,9 +1011,9 @@ function computeHover(){
       for(let i=0;i<12;i++){const col=i%4,row=(i/4)|0;
         if(ptIn(mx,my,120+col*24,64+row*24,22,22)){hover='bag:'+i;break;}}
       if(!hover)for(let i=0;i<3;i++)if(ptIn(mx,my,120+i*28,24,24,24)){hover='slot:'+'whc'[i];break;}
-      if(!hover&&ptIn(mx,my,300,150,36,14))hover='btn:equip';
-      if(!hover&&ptIn(mx,my,300,166,36,14))hover='btn:salvage';
-      if(!hover&&ptIn(mx,my,300,182,36,14))hover='btn:upgrade';
+      if(!hover&&ptIn(mx,my,300,138,36,14))hover='btn:equip';
+      if(!hover&&ptIn(mx,my,300,154,36,14))hover='btn:salvage';
+      if(!hover&&ptIn(mx,my,300,170,36,14))hover='btn:upgrade';
       if(!hover&&ptIn(mx,my,344,10,10,10))hover='btn:close';
     }else{ // 设计书 §4.2 表序=优先级（hearts 先于 bossbar，二者相交）
       for(let i=0;i<4;i++)if(ptIn(mx,my,162+i*22,198,16,16)){hover='skill:'+i;break;}
@@ -1621,6 +1635,11 @@ function tintOf(img,color){
 // BOSS_P2FRAC=P2 阶段刻度占条宽比例（=设计书 §6.4 的 50%/40%/40%）。
 const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官'];
 const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%'];
+// v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
+// v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
+// （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
+// L16 显示 "undefined"。kind 缺省/0 → 回落 0（星核），与旧引擎零回归。
+const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(2,n-1):0;};
 const BOSS_P2FRAC=[0.5,0.4,0.4];
 // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前调用）。
 // 画序 body→armL/armR→jaw→eyes+瞳孔→core→白闪覆盖；状态偏移表 [bodyDy,armDy,jaw开?,eyeType]，
@@ -1632,7 +1651,7 @@ const BOSS_P2FRAC=[0.5,0.4,0.4];
 // 若套底对齐公式会整体下移 2px——kind1 走原偏移保证 R8 零回归，kind2/3 走 y=b.y+b.h-img.height+dy）。
 function renderBoss(tick){
   const b=game.boss; if(!b||b.state==='dead')return;
-  const P=[SPR.boss,SPR.boss2,SPR.boss3][b.kind||0];
+  const P=[SPR.boss,SPR.boss2,SPR.boss3][_bossIdx(b.kind)];
   if(!P)return; // 美术 v7 未合入兜底（该 kind 部件组缺失→整块不画）
   if(b.state==='blinkCast'&&b.hidden)return; // v7 §9.3：blink 隐身期整帧跳过渲染（免伤免接触由引擎管）
   const p=game.player,R=b.phase===2;                 // 换装组选择
@@ -1668,7 +1687,7 @@ function renderBoss(tick){
   ctx.globalAlpha=baseA;
   const bimg=B[(tick*3|0)%B.length];                                     // body（呼吸帧=B 慢周期取 0/1）
   const bdx=b.x+(b.w-bimg.width)/2;                                      // 尺寸对齐 x（kind1=-6=现行一致）
-  const bdy=(b.kind||0)<=1?b.y-2:b.y+b.h-bimg.height;                    // kind1 保留现行 -2（零回归）；kind2/3 底对齐
+  const bdy=_bossIdx(b.kind)===0?b.y-2:b.y+b.h-bimg.height;               // kind1 保留现行 -2（零回归）；kind2/3 底对齐
   ctx.drawImage(bimg,px(bdx),px(bdy+dy));
   ctx.drawImage(A,px(b.x-10),px(b.y+12+ad));                             // armL
   ctx.drawImage(flipCache(A),px(b.x+b.w-10),px(b.y+12+ad));              // armR=翻转帧
@@ -1685,7 +1704,7 @@ function renderBoss(tick){
   }
   ctx.globalAlpha=baseA;
   if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
-  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White][b.kind||0]; // v7：白剪影同索引（art 实际交付键=boss2White/boss3White；缺失不闪白）
+  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White][_bossIdx(b.kind)]; // v7：白剪影同索引（art 实际交付键=boss2White/boss3White；缺失不闪白）
   if(b.flashT>0&&PW){                                         // 白闪：同偏移再画一遍
     ctx.globalAlpha=baseA*clamp(b.flashT/0.12,0,1);
     ctx.drawImage(PW.body,px(bdx),px(bdy+dy));
@@ -2092,7 +2111,7 @@ function renderHUD(){
   // v7 §9.3：名字/P2 刻度线按 b.kind 参数化（旧引擎无 kind → 0=星核巨兽，零回归）
   const b=game.boss;
   if(b&&b.state!=='dormant'){
-    const bk=b.kind||0;
+    const bk=_bossIdx(b.kind);
     ctx.globalAlpha=b.state==='dying'?clamp(1-b.t/2.2,0,1):1; // dying：随 2.2s 渐隐
     ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(82,17,52,11);          // 名牌深蓝底
     ctx.strokeStyle='#f0c860';ctx.lineWidth=1;ctx.strokeRect(82.5,17.5,51,10);
@@ -2184,7 +2203,7 @@ function renderHUD(){
       if(hover==='hearts'&&game.player)
         drawTipCard(r,'生命 '+game.player.hp+' / '+(game.player.maxHp||5)+'　吃心回复');
       else if(hover==='bossbar'&&game.boss)
-        drawTipCard(r,BOSS_NAME[game.boss.kind||0]+' · 阶段'+(game.boss.phase||1)+'　'+BOSS_P2TIP[game.boss.kind||0]); // v7 §9.3 同参数化
+        drawTipCard(r,BOSS_NAME[_bossIdx(game.boss.kind)]+' · 阶段'+(game.boss.phase||1)+'　'+BOSS_P2TIP[_bossIdx(game.boss.kind)]); // v7 §9.3 同参数化
       else if(hover==='coins')
         drawTipCard(r,'金币 '+game.coins+' / 总'+game.level.totalCoin+'　全收得星');
       else if(hover==='shrinehud'){
@@ -2254,12 +2273,17 @@ function drawGearCard(d){
 
 // ---------- v6 波2 §C 背包界面（布局/坐标=设计书 §7.2 图逐字；384×224 _panel 切角面板语言） ----------
 // 主面板 _panel(24,8,336,208)：左角色区（预览×3 + 属性行 y=90 行距 12）/ 中装备槽 3 (120/148/176,24,24×24)
-// / 背包 4×3 (120+col*24, 64+row*24, 22×22) / 右碎片栏 (224..352, 24..134) / 按钮 (300,150/166/182,36×14)
+// / 背包 4×3 (120+col*24, 64+row*24, 22×22) / 右碎片栏 (224..352, 24..134) / 按钮 (300,138/154/170,36×14)
+//   v7.8：按钮行整体上移 12px——旧位 150/166/182 的「升阶」底边 196 与底部操作行 y=190 的快捷键文字重叠，
+//   按钮被字压住，观感上就像个不可用的死按钮（玩家因此以为升阶没做）。
 // / 关闭钮 (344,10,10×10) / 操作行 y=188/198。选中框白描边 2px（同谜题光标）；装备中右下小金点；
 // MAX（r=4）金色。焦点三区 equip(3)→bag(12)→shard，Tab 循环。
 function _bagBtn(x,y,label,on,hid){ // 内部：36×14 切角小按钮（不可用置灰；hover 白描边仅可用时）
   _panel(x,y,36,14,{cut:2,alpha:on?0.9:0.45});
-  drawCNText(label,x+18,y+2,9,on?'#f0f4ff':'#5a6488','center');
+  // v7.8：升阶钮不可用时要在格内报进度「升阶 2/3」，9px 实测溢出 36px 面板 → 超宽自动回落 7px；
+  // 其余按钮文案短，永远走 9px 分支，观感与旧版一致。
+  const fs=_textW(label,9)>32?7:9;
+  drawCNText(label,x+18,y+(fs===9?2:3),fs,on?'#f0f4ff':'#5a6488','center');
   if(hover===hid&&on){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,35,13);}
 }
 function renderBag(tick){
@@ -2327,32 +2351,33 @@ function renderBag(tick){
     if(it)drawCNText(EQ_PREFIX[it.r]+EQ_BASE[it.slot]+(it.r>=4?' MAX':''),120,142,9,
       it.r>=4?'#f8d048':(EQ_COLOR[it.r]||EQ_COLOR[0]));
   }
-  // 右·碎片栏：shards 键升序「秘银武器碎片 ×3」行（≤10 行可视）；碎片≥3 且持有同槽同稀有度可升件
-  // → ×N 绿色+绿下划线高亮（§7.2「对应可升阶物品高亮」）
-  drawCNText('碎片',224,13,9,'#f0f4ff');
-  {
-    const keys=Object.keys(progress.shards||{}).sort().slice(0,10);
-    for(let i=0;i<keys.length;i++){
-      const k=keys[i],slot=k[0],r=+k.slice(1),n=progress.shards[k]||0,y=27+i*11;
-      const usable=n>=BAL_GEAR_STEP&&r<4&&
-        progress.inv.some(it2=>it2.slot===slot&&it2.r===r);
-      if(bagFocus==='shard'&&bagSelShard===i){
-        ctx.strokeStyle='#ffffff';ctx.lineWidth=1;ctx.strokeRect(222.5,y-1.5,128,11);}
-      drawCNText(EQ_PREFIX[r]+(EQ_SLOT_WORD[slot]||slot)+'碎片',224,y,9,EQ_COLOR[r]||EQ_COLOR[0]);
-      drawPixelText('x'+n,346,y+2,1,usable?'#8ad8a0':'#a8b4d8','right');
-      if(usable){ctx.fillStyle='#8ad8a0';ctx.fillRect(224,y+9,120,1);}
-    }
+  // 右·碎片栏（v7.8 改版）：固定 3 行·按槽位汇总——旧版按稀有度分桶最多 10 行，
+  // 玩家看到「铁制武器碎片 x1 / 秘银武器碎片 x2」却不知道合计正好够升一阶，故统一到 _slotShardTotal 口径；
+  // 合计≥BAL_GEAR_STEP 绿色 + 绿下划线（§7.2「对应可升阶物品高亮」的等价表达）。
+  drawCNText('碎片 · 3个升1阶',224,13,9,'#f0f4ff');
+  for(let i=0;i<3;i++){
+    const slot='whc'[i],n=_slotShardTotal(slot),y=27+i*11,ok=n>=BAL_GEAR_STEP;
+    if(bagFocus==='shard'&&bagSelShard===i){ // 选中框：白描边（i=槽位序，与 'whc'[i] 对应）
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1;ctx.strokeRect(222.5,y-1.5,128,11);}
+    drawCNText((EQ_SLOT_WORD[slot]||slot)+'碎片',224,y,9,'#f0f4ff');
+    drawPixelText('x'+n,346,y+2,1,ok?'#8ad8a0':'#a8b4d8','right');
+    if(ok){ctx.fillStyle='#8ad8a0';ctx.fillRect(224,y+9,120,1);}
   }
+  // v7.8：常驻一行来源说明——「升阶」按钮灰着时玩家最需要知道碎片从哪来（不加弹窗、不过期）
+  drawCNText('分解多余装备得碎片',224,62,9,'#a8b4d8');
   // 底·按钮行（§7.3 坐标；不可用置灰）：装备=bag 区选中 / 分解·升阶=焦点区选中（与 X/C 键同函数）
   {
     const selIt=bagFocus==='equip'?_equipZoneItem():_bagItem(bagSelBag);
     const bagIt=_bagItem(bagSelBag);
     const canEquip=!!bagIt&&_equippedId(bagIt.slot)!==bagIt.id;
     const canSalv=!!selIt&&!isEquippedItem(selIt);
-    const canUp=!!selIt&&selIt.r<4&&(progress.shards[selIt.slot+selIt.r]||0)>=BAL_GEAR_STEP;
-    _bagBtn(300,150,'装备',canEquip,'btn:equip');
-    _bagBtn(300,166,'分解',canSalv,'btn:salvage');
-    _bagBtn(300,182,'升阶',canUp,'btn:upgrade');
+    const canUp=!!selIt&&selIt.r<4&&_slotShardTotal(selIt.slot)>=BAL_GEAR_STEP;
+    // v7.8：不可用时按钮直接报进度「升阶 2/3」——灰按钮不给原因=玩家以为功能没做；
+    // 分母 BAL_GEAR_STEP、分子封顶到分母（攒多件碎片时不显示 5/3 这种困惑数字）
+    const upLabel=!selIt?'升阶':(canUp?'升阶':'升阶 '+Math.min(_slotShardTotal(selIt.slot),BAL_GEAR_STEP)+'/'+BAL_GEAR_STEP);
+    _bagBtn(300,138,'装备',canEquip,'btn:equip');
+    _bagBtn(300,154,'分解',canSalv,'btn:salvage');
+    _bagBtn(300,170,upLabel,canUp,'btn:upgrade');
   }
   // 关闭钮 (344,10,10×10)
   _panel(344,10,10,10,{cut:2,alpha:0.9});
@@ -2433,8 +2458,8 @@ function renderIntro(){
   ctx.fillRect(0,0,VIEW_W,px(h));ctx.fillRect(0,VIEW_H-px(h),VIEW_W,px(h));
   let bx=VIEW_W/2;
   if(b.t<0.3)bx+=Math.random()*4-2; // 名字打入抖动
-  drawCNText(BOSS_NAME[b.kind||0],bx,86,26,'#f8d048','center'); // v7 §9.3：登场横幅随 Boss kind 参数化
-  if((b.kind||0)<=1)drawPixelText('STARCORE BEHEMOTH',VIEW_W/2,120,1,'#f0f0f8','center'); // 英文副标=星核专属（新 Boss 无译名，不杜撰）
+  drawCNText(BOSS_NAME[_bossIdx(b.kind)],bx,86,26,'#f8d048','center'); // v7 §9.3：登场横幅随 Boss kind 参数化
+  if(_bossIdx(b.kind)===0)drawPixelText('STARCORE BEHEMOTH',VIEW_W/2,120,1,'#f0f0f8','center'); // 英文副标=星核专属（新 Boss 无译名，不杜撰）
 }
 
 // v3 §D2：流星连斩全屏演出——白屏渐隐 + 两条对角斩线随 flashT 衰减退场

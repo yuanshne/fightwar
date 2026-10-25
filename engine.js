@@ -199,7 +199,13 @@ function _engRectTiles(L, rx, ry, rw, rh, cb) { // 内部：遍历矩形覆盖�
    jumpV 330→309、springV 520→488（等高换算 k=√(1320/1500)≈0.9381，h=v²/2g 不变）。 */
 const PHY = {
   grav: 1320, maxFall: 285, acc: 1400, fric: 1800, fricIce: 180,
-  maxRun: 120, jumpV: 309, springV: 488,
+  // v7.8 跳跃高度：309→385。解析跳高 33.6px→56.1px（=3.5 瓦片），实测 53.1px（逐帧欧拉积分比解析值低约 3px）。
+  // 依据：关卡里 48px（3 格）平台共 200+ 处（L4 95 / L9 62 / L11 44 / L14 26），
+  // 旧值实测 33.6px：单跳连 2 格（32px）都只剩 1.6px 余量、3 格必须二段跳卡时机，玩家实测"有些台阶上不去"。
+  // 先试 368 实测只有 48.3px——3 格台余量 0.3px，等于没修。385 实测 53.1px，3 格之上留 5px 余量 +
+  // 约 0.17s 停留窗口（跑速 120px/s 下水平位移 21px，够踩进去），4 格（64px）仍上不去，难度梯度不塌。
+  // 二段跳 −jumpV×0.92 同步等比放大（总高约 98px）；弹簧 488 / 踩踏反弹 235 数值不动（保持既有弧线）。
+  maxRun: 120, jumpV: 385, springV: 488,
   coyote: 0.12, buffer: 0.18 // v2 P1 手感调优：土狼 0.09→0.12、缓冲 0.11→0.18（任务书指定）
 };
 
@@ -292,7 +298,11 @@ const BAL = {
     // v7 §8 追加六表（权重和=100，序=白/绿/蓝/紫/金）
     jiao1: [30, 28, 20, 14, 8],  jiao2: [16, 28, 26, 18, 12],
     gui1:  [22, 26, 24, 18, 10], gui2: [12, 24, 28, 22, 14],
-    hidden: [15, 25, 25, 22, 13], eliteK: [25, 30, 25, 20, 0] },
+    hidden: [15, 25, 25, 22, 13], eliteK: [25, 30, 25, 20, 0],
+    // v7.8：普通怪掉落（补齐装备供给）。此前装备只有 Boss 必掉 + 10% 精英掉，而前 6 关没有 Boss，
+    // 玩家打完 L1~L6 背包仍是空的——升阶要 3 碎片，碎片只能靠分解装备，整条养成链压根跑不起来。
+    // 补最小供给：小怪 7% 掉 1 件（白/绿为主、紫 1%、无金），按一关约 10 只小怪算 ≈0.7 件/关。
+    trash: [70, 24, 5, 1, 0], trashDrop: 0.07 },
   guard: { parts: 240, floats: 40, fx: 60, scars: 8 } // 容量守卫（R5，不得放宽）
 };
 
@@ -815,7 +825,7 @@ function _engShieldBreak() { // 内部（v5 §3.3）：破盾事件——吸收�
   }
 }
 
-function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（工单 B；即死物不走这里）
+function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（工单 B；即死物不走这里，见 _engHazardHit）
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return false;
   if (p.invT > 0) return false;                    // 无敌帧：伤害与击退全免
@@ -833,6 +843,29 @@ function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（�
   _engAddParts(p.x + 5, p.y + 7, 10, '#f85858', 90, 200);
   if (p.hp <= 0) killPlayer();                     // 复用 v2 死亡序列
   return true;
+}
+
+/* v7.8：即死物入口（尖刺 ^ / 吊刺 v / 熔岩 ~ / 电锯）。此前这四类直接 killPlayer，
+   护盾对它们完全无效——玩家按了 I 看到光罩，踩刺照样死，观感就是"护盾没实装"。
+   现在改为：护盾在身时由护盾吃掉一次（消耗 1 次吸收 + 1.2s 无敌 + 向上弹开），没盾才真死。
+   掉出地图底部仍然必死（人不在地图里，救回来也没有落点），不走本入口。 */
+function _engHazardHit(fromX) {
+  const p = game.player;
+  if (!p || p.dead || game.state !== 'play') return;
+  if (p.invT > 0) return;                          // 无敌帧内不重复触发（防同一帧/连续帧把护盾连吃光）
+  if (p.shieldT > 0) {
+    p.shieldHp--; p.invT = 1.2;                    // 1.2s 足够从单格尖刺/一片熔岩里跑出来
+    p.vy = -240;                                   // 向上弹开，脱出危险瓦片
+    p.vx = (fromX != null && p.x + p.w / 2 < fromX ? -1 : 1) * BAL.player.hurtKbX * 0.8;
+    p.airJumps = 1; p.springAir = false;           // 与受击同口径：重置二段跳，别把玩家锁死
+    game.shake = Math.max(game.shake, 4);
+    game.sfxQueue.push('shieldhit');
+    _engAddParts(p.x + 5, p.y + 7, 10, '#bfeaff', 95, 160);
+    _engFloat(p.x + 5, p.y - 6, 'GUARD', '#8ad8f8', 0);
+    if (p.shieldHp <= 0) _engShieldBreak();
+    return;
+  }
+  killPlayer();
 }
 
 /* ==================== v6 波2（loot 队）：装备掉落（内部） ====================
@@ -865,6 +898,9 @@ function _engKillEnemy(e) { // 内部：击杀统一入口（踩踏/攻击/星�
     game.gearDrops.push(_engMkGear(e.x + e.w / 2 - 5, e.y, _engSlot(), _engRollTier(BAL.gear.eliteK)));
     _engShake(6, 0); _engFloat(e.x + e.w / 2, e.y - 10, 'ELITE KO', '#f8d048', 1);
   }
+  // v7.8：普通小怪 7% 掉装备（BAL.gear.trash 权重，白/绿为主）。精英已必掉，不重复走这里。
+  if (!e.elite && Math.random() < BAL.gear.trashDrop && game.gearDrops.length < _engGearCap)
+    game.gearDrops.push(_engMkGear(e.x + e.w / 2 - 5, e.y, _engSlot(), _engRollTier(BAL.gear.trash)));
 }
 
 function _engOnScreen(e) { // 内部：实体矩形是否在视口内（连斩「屏内普通敌全灭」判定用）
@@ -2003,7 +2039,7 @@ function updateWorld(dt) {
     if (!p.dead) {
       const nx = _engClamp(s.x, p.x, p.x + p.w), ny = _engClamp(s.y, p.y, p.y + p.h);
       const ddx = s.x - nx, ddy = s.y - ny;
-      if (ddx * ddx + ddy * ddy < s.r * s.r) killPlayer();
+      if (ddx * ddx + ddy * ddy < s.r * s.r) _engHazardHit(s.x); // v7.8：电锯同尖刺，护盾可挡
     }
   }
 
@@ -2303,8 +2339,8 @@ function updateWorld(dt) {
       else if (ch === 'v' && p.y < ty * _engTile + 8) hazard = true;
       else if (ch === '~' && p.y + p.h > ty * _engTile + 3) hazard = true;
     });
-    if (hazard) killPlayer();
-    if (p.y > L.h * _engTile + 24) killPlayer(); // 坠落即死
+    if (hazard) _engHazardHit(p.x + p.w / 2 - p.face * 12); // v7.8：护盾优先吃，无盾才真死
+    if (p.y > L.h * _engTile + 24) killPlayer(); // 坠落即死（护盾不救：掉出地图没有落点）
   }
 
   /* ⑫ 粒子 */
