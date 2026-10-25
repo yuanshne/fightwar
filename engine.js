@@ -53,6 +53,33 @@
      - _engDecorFallback 预补 wind/castle/star 三键；sfx 新事件
        'swing','hit','kill','djump','land2','shieldhit','shieldbreak','clank','portal','ult2'
        （'slash' 废弃改 'swing'）。
+   v6 增量（docs/specs/2026-10-24-v6-design.md + docs/specs/2026-10-24-v6-balance.md §0，
+   工单 docs/workorders/v6-wave1-feel.md，手感队）：
+     - 下坠手感：PHY.grav 1500→1320 / maxFall 360→285 / jumpV 330→309 / springV 520→488
+       （等高换算 k=√0.88≈0.9381；maxFall −20.8% 为任务书指定例外，见 CONTRACT 附记 v6）；
+       竖直派生速度等比（踩踏反弹 −235 / 受击上抛 −131 / 二段跳 −jumpV×0.92）；
+     - 速降：空中按住 input.down → 落速上限恢复旧值 360（BAL.fall.fast）；
+     - `const BAL` 全数值总表（平衡表 §0 逐字落地，唯一权威）+ 全量硬编码收编替换
+       （未列数值数值不动；行为零变化由 tools/_v6_feel_test.js §N.3 逐帧断言自证）；
+     - 装备注入接口（读侧）：game.equip{atk,hp,spd,cd}/cdMul（波1 恒默认零副作用，波2 bag 队写入）
+       → p.maxHp=5+equip.hp / 普攻 ATK=1+equip.atk / 限速 effRun=maxRun×(1+equip.spd) / 技能 CD×cdMul；
+     - 技能4 星刃回旋（L 键）：game.blades[] 去程 320 直飞 160px → 回程 340 追踪玩家；
+       每程固定伤 2（不吃 ATK）、一程一目标一伤；骑士正面格挡 / Boss 承伤 / 斩碎弹幕（含火球）；
+     - 四类敌人技能（_engMkAI/_engEnemySkill 状态机，触发全距离条件无随机，CD 相位确定性错开）：
+       史莱姆弹跳压顶 / 蝙蝠俯冲撕咬 / 骑士盾击冲锋（破绽 guardDown 正面失效）/ 幽焰法师
+       'Y'（12×18 站桩读条追踪火球 fire:true+home+life，可斩碎）；sfx 新事件 'blade','mage','pickup'；
+     - 波2 预留字段（空转零副作用）：game.gearDrops[]/pickups[]/bagActive（背包冻结，同 puzzleActive 位）。
+   v6 波2 增量（docs/specs/2026-10-24-v6-design.md §6.1-§6.5，工单 docs/workorders/v6-wave2-loot.md，装备引擎队）：
+     - 装备掉落：掉落表/概率逐字=BAL.gear（平衡表 §Q，只读不改 H5）——Boss（_engBossHurt 入 dying 瞬间，
+       第 1 件必掉 boss1 权重 + 30% 第 2 件 boss2 权重）/ L9·L10 精英骑士（_engKillEnemy 唯一击杀入口内
+       10%，elite 权重无金——金=Boss 专属）；
+     - 掉落实体：_engMkGear 10×12（重力/落速帽收编 BAL.econ.dropGrav/dropFall，与回复心同池数值；
+       落地反弹一次 vy×−0.4 后停驻 rest；永不过期，换关 loadLevel 清空=放弃、跨死亡保留 §5）；
+       拾取=AABB 重叠 → game.pickups 事件 {slot:'w'|'h'|'c', r:0..4} + sfx 'pickup'
+       （H2：入包/碎片/浮字/存档全归 ui，engine 不碰 localStorage；渲染光柱/图标归波2 bag 队）；
+     - H3：gearDrops 实体池上限 6（_engGearCap，超过不再生成——Boss 双掉+骑士掉同屏 ≤4，6 有余量）；
+     - H4：Boss 关零丢失——levelClear 开头把仍在场 gearDrops 全部转 pickups（死亡演出 2.2s 内没跑到
+       的掉落结算前自动拾取）；respawn 改为只清 pickups（防陈旧事件）、gearDrops 跨死亡保留（工单 §5）。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -88,7 +115,7 @@ function _engMulberry(seed) { // 内部：种子随机（装饰摆放必须确�
   };
 }
 function _engAddParts(x, y, n, color, spd, grav) { // 内部：粒子（game.parts 为引擎自有状态，ui 只读渲染）
-  if (game.parts.length >= 240) return; // v5 §D：上限 240（超限丢弃，红线峰值 ≤300 的一半配额）
+  if (game.parts.length >= BAL.guard.parts) return; // v5 §D：上限 240（超限丢弃，红线峰值 ≤300 的一半配额）；v6 收编 BAL.guard
   for (let i = 0; i < n; i++) {
     const a = Math.random() * 6.283, s = spd * (0.3 + Math.random() * 0.7);
     game.parts.push({
@@ -100,12 +127,12 @@ function _engAddParts(x, y, n, color, spd, grav) { // 内部：粒子（game.par
 }
 function _engFloat(x, y, text, color, big) { // 内部（v5 §D）：浮动文字（伤害/金币/连击，≤40）
   // 所有权：引擎只 push；ui 每步推进+修剪（hit-stop/ult 冻结期间也动）。引擎不得 filter/splice。
-  if (game.floats.length >= 40) game.floats.shift();
+  if (game.floats.length >= BAL.guard.floats) game.floats.shift();
   game.floats.push({ x: x, y: y, text: text, color: color, t: 0, life: 0.8, big: big || 0 });
 }
 function _engFx(x, y, opt) { // 内部（v5 §D）：UI 层演出粒子（≤60；ring/shard/star 由 ui 特绘）
   // 所有权同 floats：引擎只 push，ui 推进渲染。
-  if (game.fxParts.length >= 60) return;
+  if (game.fxParts.length >= BAL.guard.fx) return;
   game.fxParts.push(Object.assign({ x: x, y: y, vx: 0, vy: 0, life: 0.4,
     color: '#ffffff', size: 2, grav: 0 }, opt || {}));
 }
@@ -126,26 +153,68 @@ function _engRectTiles(L, rx, ry, rw, rh, cb) { // 内部：遍历矩形覆盖�
     for (let tx = x0; tx <= x1; tx++) cb(tx, ty, L.tileAt(tx, ty));
 }
 
-/* ==================== 物理常量（契约导出；键名固定，数值可 ±15%） ==================== */
+/* ==================== 物理常量（契约导出；键名固定，数值可 ±15%） ====================
+   v6 §A：grav 1500→1320、maxFall 360→285（任务书指定例外，超出 ±15% 带，附记 v6 记录）、
+   jumpV 330→309、springV 520→488（等高换算 k=√(1320/1500)≈0.9381，h=v²/2g 不变）。 */
 const PHY = {
-  grav: 1500, maxFall: 360, acc: 1400, fric: 1800, fricIce: 180,
-  maxRun: 120, jumpV: 330, springV: 520,
+  grav: 1320, maxFall: 285, acc: 1400, fric: 1800, fricIce: 180,
+  maxRun: 120, jumpV: 309, springV: 488,
   coyote: 0.12, buffer: 0.18 // v2 P1 手感调优：土狼 0.09→0.12、缓冲 0.11→0.18（任务书指定）
 };
 
-/* ==================== v2 P1 动作常量（内部；不入 PHY——契约键名不得变） ==================== */
-const _engAtkCd = 0.35;   // 内部：攻击冷却（s）
-const _engAtkDur = 0.12;  // 内部：攻击判定框存在时长（s）
-const _engAtkW = 18, _engAtkH = 14; // 内部：攻击判定框尺寸（身前 18×14）
-const _engDashCd = 0.8;   // 内部：冲刺冷却（s）
-const _engDashDur = 0.28; // 内部：冲刺总时长（s）——v5 三段：蓄力 0.05/爆发 0.18/滑行 0.05（原 0.18）
-const _engDashV = 260;    // 内部：冲刺水平速度
-const _engDashGrav = 0.5; // 内部：冲刺爆发段重力倍率（减半；v5 起仅 0.05~0.23s 生效）
-const _engHitStop = 0.10; // 内部：攻击命中敌人的全局冻结时长（s）——v5：0.06→0.10（设计 §1.6）
-const _engComboWin = 2;   // 内部：连击计数窗口（s）
+/* ==================== v6 BAL 全数值总表（新契约导出；平衡表 §0 逐字照抄，唯一权威） ====================
+   docs/specs/2026-10-24-v6-balance.md §0：不得增删键、不得改值；每个键附平衡表推导索引。
+   〔书〕=v6 任务书指定；〔换算〕=新重力等比 k=0.9381；〔收编〕=现行代码值收编不改；〔定〕=平衡表新定。 */
+const BAL = {
+  fall:  { fast: 360 },                       // §F 速降上限（=旧 maxFall，按住↓恢复精准落地）
+  player:{ hpBase: 5, atkBase: 1, critMul: 2, critMod: 4,
+           stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
+  atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
+  dash:  { cd: 0.8, dur: 0.28, v: 260, gravMul: 0.5 },
+  combo: { win: 2, ultNeed: 8 },
+  skills:{
+    u: { cd: 8,   meteors: 3, fallV: 300, delay: [0.50,0.75,1.00], dmg: 2, bossDmg: 2, aoe: 24 },
+    i: { cd: 12,  dur: 3.0, absorb: 2 },
+    o: { cd: 20,  dmg: 5, t: [0.55,0.90,1.20] },
+    l: { cd: 6,   vOut: 320, range: 160, vBack: 340, dmg: 2, life: 2.6 } },
+  enemy: {
+    slime:  { hp: 2, spd: 28, fall: 300, skill: { rngX: 56, up: 40, dn: 48, wind: 0.5, vx: 90, vy: 260, cd: 3.2 } },
+    bat:    { hp: 1, spd: 40, rng: 44, skill: { rng: 90, wind: 0.5, vDive: 240, diveMax: 0.55, vBack: 120, cd: 4.0 } },
+    knight: { hp: 3, spd: 20, skill: { rngX: 110, rngY: 24, wind: 0.6, vx: 190, dur: 0.5, vuln: 0.7, cd: 5.0 } },
+    mage:   { hp: 2, skill: { rng: 140, cast: 0.8, recover: 0.5, boltV: 95, home: 1.6, turn: 2.2, boltLife: 3.2, cd: 3.5 } } },
+  boss:  { hp: 60, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
+           windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55 }, p2WindMul: 0.85,
+           idleT: [0.6, 0.45], walk: [20, 25],
+           leap: { T: 0.9, vy: 675, clamp: 300 },
+           charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
+           barrage: { v: 130, rounds: 3, pairGap: 0.15, endT: 0.45 },
+           nova: { v: 100, t: [0.55, 0.95], endT: 1.2 },
+           stagger: 1.5, enrage: 1.2, dying: 2.2,
+           recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6 },
+           contactDmg: 1 },
+  econ:  { coin: 1, gem: 5, puzzle: 5, brick: 1, heartChance: 0.30, heartHeal: 1, dropGrav: 1200, dropFall: 360 },
+  gear:  {                                           // §Q（波2 生效）
+    boss1: [44,30,16,8,2], boss2: [20,35,25,15,5], elite: [55,30,12,3,0],
+    eliteChance: 0.10, bossExtra: 0.30,
+    stat: { w: [1,2,3,4,6], h: [1,2,3,4,4], cSpd: [4,6,8,10,12], cCd: [4,6,8,10,12] },
+    shardsPerStep: 3, shardsPerSalvage: 2, bagSize: 12 },
+  guard: { parts: 240, floats: 40, fx: 60, scars: 8 } // 容量守卫（R5，不得放宽）
+};
+
+/* ==================== v2 P1 动作常量（内部；不入 PHY——契约键名不得变） ====================
+   v6 §B：数值收编进 BAL.atk/dash/combo（此处仅保留内部符号名，供既有调用点零改动引用）。 */
+const _engAtkCd = BAL.atk.cd;   // 内部：攻击冷却（s）
+const _engAtkDur = BAL.atk.dur;  // 内部：攻击判定框存在时长（s）
+const _engAtkW = BAL.atk.boxW, _engAtkH = BAL.atk.boxH; // 内部：攻击判定框尺寸（身前 18×14）
+const _engDashCd = BAL.dash.cd;   // 内部：冲刺冷却（s）
+const _engDashDur = BAL.dash.dur; // 内部：冲刺总时长（s）——v5 三段：蓄力 0.05/爆发 0.18/滑行 0.05（原 0.18）
+const _engDashV = BAL.dash.v;    // 内部：冲刺水平速度
+const _engDashGrav = BAL.dash.gravMul; // 内部：冲刺爆发段重力倍率（减半；v5 起仅 0.05~0.23s 生效）
+const _engHitStop = BAL.atk.hitStop; // 内部：攻击命中敌人的全局冻结时长（s）——v5：0.06→0.10（设计 §1.6）
+const _engComboWin = BAL.combo.win;   // 内部：连击计数窗口（s）
 
 /* ==================== v5 手感常量（内部，设计 §1/§4；工单 §A/§B/§F） ==================== */
-const _engDjV = 0.92;                 // 内部：二段跳速度系数（vy=-jumpV*0.92=-303.6）
+const _engDjV = 0.92;                 // 内部：二段跳速度系数（vy=-jumpV*0.92=-284.3；v6 随 jumpV 等比）
 const _engDjT = 0.4;                  // 内部：二段跳空翻演出时长（s，ui 渲染用）
 const _engAirAcc = 0.75;              // 内部：空中同向加速度倍率（0.75×acc=1050）
 const _engAirTurn = 1.5;              // 内部：空中转向加速度倍率（1.5×acc=2100，惯性减半感）
@@ -156,7 +225,7 @@ const _engAtkAnim = 0.25;             // 内部：攻击总动画时长（起手
 const _engAtkWind = 0.05;             // 内部：攻击起手时长（期间无判定）
 
 /* ==================== v3 Boss/技能常量（内部） ==================== */
-const _engBossActDist = 176; // 内部：Boss 激活半径（px，玩家中心距 Boss 中心，设计 §2）
+const _engBossActDist = BAL.boss.actDist; // 内部：Boss 激活半径（px，玩家中心距 Boss 中心，设计 §2）
 
 /* ==================== Level 关卡解析（契约导出） ==================== */
 class Level {
@@ -198,13 +267,13 @@ class Level {
           case 'o': this.coins.push({ x: px + 4, y: py + 4, w: 8, h: 8, got: false, t: phase }); this.tiles[y][x] = '.'; break;
           case '*': this.coins.push({ x: px + 4, y: py + 3, w: 8, h: 10, got: false, gem: true, t: phase }); this.tiles[y][x] = '.'; break;
           case 'K': this.coins.push({ x: px + 3, y: py + 5, w: 10, h: 6, got: false, key: true, t: 0 }); this.tiles[y][x] = '.'; break;
-          case 'W': // 史莱姆：巡逻，可踩踏（v5 §C：hp 2，战斗表现字段一并给）
-            this.enemies.push({ type: 'slime', x: px + 2, y: py + 6, w: 12, h: 10, vx: -28, vy: 0, hx: px + 2, hy: py + 6, dead: 0, t: phase, grounded: false,
-              hp: 2, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0 });
+          case 'W': // 史莱姆：巡逻，可踩踏（v5 §C：hp 2；v6：hp/spd 收编 BAL.enemy.slime + ai 技能状态机）
+            this.enemies.push({ type: 'slime', x: px + 2, y: py + 6, w: 12, h: 10, vx: -BAL.enemy.slime.spd, vy: 0, hx: px + 2, hy: py + 6, dead: 0, t: phase, grounded: false,
+              hp: BAL.enemy.slime.hp, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0, ai: _engMkAI('slime', px, py) });
             this.tiles[y][x] = '.'; break;
-          case 'F': // 蝙蝠：水平巡逻 + 正弦浮动（v5 §C：hp 1）
-            this.enemies.push({ type: 'bat', x: px + 2, y: py + 3, w: 12, h: 10, ax: px + 2, ay: py + 3, vx: 40, dead: 0, t: phase, rng: 44,
-              hp: 1, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0 });
+          case 'F': // 蝙蝠：水平巡逻 + 正弦浮动（v5 §C：hp 1；v6：+ ai 技能状态机）
+            this.enemies.push({ type: 'bat', x: px + 2, y: py + 3, w: 12, h: 10, ax: px + 2, ay: py + 3, vx: BAL.enemy.bat.spd, dead: 0, t: phase, rng: BAL.enemy.bat.rng,
+              hp: BAL.enemy.bat.hp, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0, ai: _engMkAI('bat', px, py) });
             this.tiles[y][x] = '.'; break;
           case 'M': this.plats.push(this._mkPlat(px, py, 1)); this.tiles[y][x] = '.'; break;
           case 'V': this.plats.push(this._mkPlat(px, py, 0)); this.tiles[y][x] = '.'; break;
@@ -236,9 +305,15 @@ class Level {
             this.portals.push({ x: px + 2, y: py - 8, w: 12, h: 24, cd: 0, partner: null });
             this.tiles[y][x] = '.'; break;
           case 'A': // v5 §F：骑士盔甲敌——12×18，hp3，正面格挡；重力/落地/掉头判定与史莱姆同构
-            this.enemies.push({ type: 'knight', x: px + 2, y: py - 2, w: 12, h: 18, hp: 3,
-              vx: -20, vy: 0, hx: px + 2, hy: py - 2, dead: 0, t: phase, grounded: false,
-              kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0, face: -1 });
+            // v6：hp/spd 收编 BAL.enemy.knight + ai 技能状态机（盾击冲锋）+ guardDown 破绽字段
+            this.enemies.push({ type: 'knight', x: px + 2, y: py - 2, w: 12, h: 18, hp: BAL.enemy.knight.hp,
+              vx: -BAL.enemy.knight.spd, vy: 0, hx: px + 2, hy: py - 2, dead: 0, t: phase, grounded: false,
+              kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0, face: -1, guardDown: false, ai: _engMkAI('knight', px, py) });
+            this.tiles[y][x] = '.'; break;
+          case 'Y': // v6 §3.4：幽焰法师——12×18 站桩施法者（锚定同 'A' 骑士：脚下 2 格内须支撑，levels 断言同 'A'）
+            this.enemies.push({ type: 'mage', x: px + 2, y: py - 2, w: 12, h: 18, hp: BAL.enemy.mage.hp,
+              vx: 0, vy: 0, hx: px + 2, hy: py - 2, dead: 0, t: phase, grounded: false,
+              kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0, face: 1, ai: _engMkAI('mage', px, py) });
             this.tiles[y][x] = '.'; break;
           case 'H': // v5 §F：吊灯摆锤——锚点=瓦片中心；updateWorld ⑨‴ 推进摆角并做圆 vs 玩家判定
             this.pends.push({ ax: px + 8, ay: py + 8, len: 48, t: 0, phase: (x * 0.9 + y * 1.1) % 6.283 });
@@ -353,8 +428,9 @@ const game = {
   respawnAt: null, clearT: 0,
   // v2 P1：input 新增 attack/dash 边沿与持键（ui 写入，engine 只读并消费边沿）
   // v3：追加技能边沿 skillUHit/skillIHit/skillOHit（ui 写、engine 消费并清零，同 attackHit/dashHit）
+  // v6：追加 down（按住↓速降，ui 桥接持键）与 skillLHit（技能4 边沿）
   input: { left: 0, right: 0, jump: 0, jumpHit: 0, attack: 0, attackHit: 0, dash: 0, dashHit: 0,
-           skillUHit: 0, skillIHit: 0, skillOHit: 0 },
+           skillUHit: 0, skillIHit: 0, skillOHit: 0, down: 0, skillLHit: 0 },
   paused: false, tick: 0,
   combo: 0, comboT: 0,   // v2 P1：连击计数 / 窗口剩余（断档清零）
   hitStop: 0,            // v2 P1：攻击命中的全局冻结计时（>0 时世界暂停推进）
@@ -363,7 +439,7 @@ const game = {
   drops: [],             // 掉落回复心（击杀 30% 概率）
   meteors: [],           // 星陨术流星
   waves: [],             // Boss 落地冲击波
-  skills: { u: 0, i: 0, o: 0 }, // 三技能 CD 剩余秒（U/I/O）
+  skills: { u: 0, i: 0, o: 0, l: 0 }, // 技能 CD 剩余秒（U/I/O + v6 L）
   flashT: 0,             // 流星连斩白屏剩余（s）
   // v4：谜题神龛（沿 v2/v3 先例扩展字段，不新增契约外顶层全局符号）
   puzzleActive: false,   // 谜题覆盖层打开中——updateWorld 顶部直接 return（同 paused 冻结语义，不改 paused）
@@ -375,18 +451,35 @@ const game = {
   fxParts: [],           // UI 层演出粒子（气环/星形火花/玻璃碎/风痕，≤60）
   scars: [],             // 星陨爆坑（≤8，超限 shift；ui 画暗色椭圆坑渐隐）
   shakePend: null,       // 分级震屏挂起槽 _engShake(m,delay)：{m,t}，t 到点并入 game.shake（单槽）
-  ult: { on: false, t: 0, fired: false, flashed: false } // O 流星连斩状态机（设计 §3.1 六阶段）
+  ult: { on: false, t: 0, fired: false, flashed: false }, // O 流星连斩状态机（设计 §3.1 六阶段）
+  // v6（工单 §C/§D/§G）：装备注入读侧 + 技能4 星刃 + 波2 预留字段（H4：缺省全空转零副作用）
+  blades: [],            // 星刃回旋实体（§2.2；loadLevel/respawn 清空）
+  equip: { atk: 0, hp: 0, spd: 0, cd: 0 }, // 装备加成（ui startLevel/换装时覆写；波1 恒默认值）
+  cdMul: 1,              // 技能 CD 倍率 = 1 - equip.cd（默认 1）
+  gearDrops: [],         // 波2 装备掉落实体（loot 队启用；波1 仅声明与复位）
+  pickups: [],           // 波2 拾取事件队列（ui 每帧消费；波1 仅声明与复位）
+  bagActive: false       // 背包开启冻结（updateWorld 顶部早退，同 puzzleActive 位；波2 bag 队启用）
 };
 
 /* ==================== 关卡装载 / 出生 / 死亡 / 通关 ==================== */
-function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 + v2 P1 攻击/冲刺字段 + v3/v5 扩展）
+function _engMkAI(type, x, y) { // 内部：v6 敌人技能状态机初值（工单 §E）
+  // cd0 = BAL 基础 CD + ((x*7+y*13)%10)/20 确定性相位错开（设计书 §3 规则4：无随机、0~0.5s 错开、
+  // 门禁空转零触发）；初值 cd=cd0（冷却初值带相位错开），技能发动后 cd 回基础值。
+  const sk = BAL.enemy[type] && BAL.enemy[type].skill;
+  const base = sk ? sk.cd : 3;
+  const cd0 = base + (((x || 0) * 7 + (y || 0) * 13) % 10) / 20;
+  return { st: 'idle', t: 0, cd: cd0, cd0: cd0, tx: 0, ty: 0 };
+}
+
+function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 + v2 P1 攻击/冲刺字段 + v3/v5/v6 扩展）
+  const maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0); // v6 §C：装备头饰加成上限（缺省=5）
   return {
     x: x, y: y, w: 10, h: 14, vx: 0, vy: 0, face: 1,
     onGround: false, coyote: 0, jbuf: 0, anim: 'idle', animT: 0,
     dead: false, deadT: 0, standOn: null, landT: 0,
     atkCd: 0, atkT: 0,     // v2 P1：攻击冷却剩余 / 判定框剩余存在时间
     dashCd: 0, dashT: 0, dashDir: 1, // v2 P1：冲刺冷却剩余 / 持续剩余 / 方向
-    hp: 5, invT: 0, shieldT: 0, castT: 0, // v3：心形 HP / 受伤无敌剩余 / 护盾剩余 / 施法姿态剩余
+    hp: maxHp, maxHp: maxHp, invT: 0, shieldT: 0, castT: 0, // v3：心形 HP / 受伤无敌剩余 / 护盾剩余 / 施法姿态剩余；v6 §C：maxHp=5+equip.hp
     jumpCut: false, prevJump: 0, // v2.6：松手截断只作用于普通跳；prevJump 记录跳键上一帧状态
     // v5 §A/§E：airJumps 剩余二段跳次数 / djT 空翻演出 / turnT 转身 squash / stepT 脚步尘土 /
     // landVy 落地瞬间 vy（分级用）/ springAir 弹簧锁定二段跳 / atkAnim 攻击总动画 / atkWind 起手 /
@@ -411,7 +504,7 @@ function loadLevel(idx, keepStats) {
   // v3：Boss 创建 + 新实体/技能字段复位（工单 A「loadLevel 末尾」）
   game.boss = L.bossSpawn ? _engMkBoss(L.bossSpawn.x, L.bossSpawn.y) : null;
   game.drops = []; game.meteors = []; game.waves = []; game.flashT = 0;
-  game.skills = { u: 0, i: 0, o: 0 };
+  game.skills = { u: 0, i: 0, o: 0, l: 0 };
   // v4：谜题状态复位——覆盖层强制关闭 / 接近清空 / 已解表清空（工单 4：
   // solvedPuzzles={} 在 loadLevel 重置；已解状态由 ui 在 startLevel 后从 localStorage 注入）
   game.puzzleActive = false; game.puzzleNear = -1; game.solvedPuzzles = {};
@@ -419,6 +512,11 @@ function loadLevel(idx, keepStats) {
   game.floats = []; game.fxParts = []; game.scars = [];
   game.shakePend = null;
   game.ult = { on: false, t: 0, fired: false, flashed: false };
+  // v6 §G：新字段复位——星刃清空 / 技能4 CD / 速降键与 L 边沿清 0 / 波2 预留字段复位
+  // （equip/cdMul 不在此重置：ui startLevel/换装时覆写，波2 bag 队管理，工单 §G 复位总表）
+  game.blades = [];
+  game.gearDrops = []; game.pickups = []; game.bagActive = false;
+  game.input.down = 0; game.input.skillLHit = 0;
 }
 
 function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复位、子弹清空；钥匙/门/开关/已收金币保持
@@ -428,7 +526,9 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.vx = 0; p.vy = 0; p.dead = false; p.deadT = 0;
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
   p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; // v2 P1：动作状态复位
-  p.hp = 5; p.invT = 1.5; p.shieldT = 0; p.castT = 0; // v3：HP 回满 + 1.5s 出生保护；技能 CD 保留计时（设计 §5）
+  // v6 §C：HP 回满（maxHp 含装备头饰加成）+ BAL 出生保护；技能 CD 保留计时（设计 §5）
+  p.maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0);
+  p.hp = p.maxHp; p.invT = BAL.player.respawnInvT; p.shieldT = 0; p.castT = 0;
   p.jumpCut = false; p.prevJump = 0;
   // v5 §A：二段跳/手感演出状态复位（复活=重置为 1，设计 §1.1；floats/fx 保留自然消散）
   p.airJumps = 1; p.djT = 0; p.turnT = 0; p.stepT = 0; p.springAir = false;
@@ -437,7 +537,12 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   // v2 P1：清输入锁存——死亡期间残留的边沿不得在复活后的缓冲窗口内自动触发
   game.input.jumpHit = 0; game.input.attackHit = 0; game.input.dashHit = 0;
   game.input.skillUHit = 0; game.input.skillIHit = 0; game.input.skillOHit = 0; // v3：技能边沿同惯例清零
+  game.input.down = 0; game.input.skillLHit = 0; // v6 §G：速降持键 / 技能4 边沿同惯例清零
   game.hitStop = 0;
+  game.blades = []; // v6 §G：星刃随复活清空（工单 §G 复位总表）
+  // v6 波2 §5：拾取事件随复活清空（防陈旧事件被 ui 二次消费）；gearDrops 跨死亡保留
+  // （装备掉落不因死亡丢失——任务书"发光装备实体触碰拾取"；bagActive 由 loadLevel 复位）
+  game.pickups = [];
   game.bullets = []; game.waves = []; game.meteors = []; // v3：弹幕/波/陨石清空（drops 保留自然过期）
   // v3：Boss 重置——HP/阶段保留，状态回 idle（若存在且非 dormant/dead，工单 B）
   if (game.boss && game.boss.state !== 'dormant' && game.boss.state !== 'dead') {
@@ -447,6 +552,9 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
     e.dead = 0;
     if (e.type === 'bat') { e.x = e.ax; e.y = e.ay; }
     else { e.x = e.hx; e.y = e.hy; e.vy = 0; e.grounded = false; }
+    // v6 §E：技能状态机复位（相位按复位后坐标重算，与出生同值确定性）+ 骑士破绽解除
+    if (e.ai) e.ai = _engMkAI(e.type, e.x, e.y);
+    e.guardDown = false;
   }
   for (const c of L.crumbles.values()) { c.state = 0; c.t = 0; c.dy = 0; c.dvy = 0; }
 }
@@ -463,6 +571,14 @@ function killPlayer() {
 }
 
 function levelClear() {
+  // v6 波2 §4（H4）：Boss 关装备掉落零丢失——通关瞬间仍在场的 gearDrops 全部转拾取事件
+  // （Boss 死亡演出 2.2s 内玩家可能没跑到掉落点；结算横幅前自动拾取，避免丢件）。
+  // engine 只发事件，入包/存档归 ui（H2）。非 Boss 关不适用（gearDrops 恒空或随 loadLevel 放弃）。
+  const Lc = game.level;
+  if (Lc && Lc.meta && Lc.meta.boss && game.gearDrops.length) {
+    for (const d of game.gearDrops) game.pickups.push({ slot: d.slot, r: d.r });
+    game.gearDrops = [];
+  }
   if (game.state !== 'play') return;
   game.state = 'clear'; game.clearT = 0;
   game.sfxQueue.push('clear');
@@ -480,7 +596,7 @@ function levelClear() {
 function puzzleSolved(idx) { // 谜题解开结算（ui 在覆盖层校验全对时调用；红线唯一允许的新全局导出）
   if (game.solvedPuzzles[idx]) return; // 已解神龛不重复结算（正常流：已解神龛走 ui 只读模式不会到这；防御双发奖）
   game.solvedPuzzles[idx] = true;      // 持久化由 ui 层负责（engine 不碰 localStorage）
-  game.coins += 5;                     // 奖励 5 金币（等价一颗宝石，直接走计数，不涉及宝石实体）
+  game.coins += BAL.econ.puzzle;       // 奖励 5 金币（等价一颗宝石，直接走计数，不涉及宝石实体）
   game.sfxQueue.push('puzzle'); game.sfxQueue.push('gem'); // 解谜音 + 得宝石音（只入队，engine 不发声）
   const p = game.player;
   if (p) _engAddParts(p.x + 5, p.y - 6, 24, '#f8d048', 130, 150); // 玩家位置上方金色烟花 ≈24 粒（#f8d048=美术金色印章色）
@@ -509,9 +625,9 @@ function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（�
     if (p.shieldHp <= 0) _engShieldBreak();        // 吸收耗尽 → 破盾事件（sfx+碎裂 fx+清盾）
     return false;
   }
-  p.hp--; p.invT = 1.0;
-  p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * 160;   // 击退方向=离伤害源
-  p.vy = -140; p.dashT = 0; p.atkT = 0;
+  p.hp--; p.invT = BAL.player.invT;
+  p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * BAL.player.hurtKbX;   // 击退方向=离伤害源
+  p.vy = -BAL.player.hurtKbY; p.dashT = 0; p.atkT = 0;
   p.airJumps = 1; p.springAir = false;             // v5 §1.1：受击重置二段跳/解锁弹簧锁
   game.shake = Math.max(game.shake, 5);
   game.sfxQueue.push('hurt');
@@ -520,9 +636,30 @@ function _engHurtPlayer(fromX) { // 内部：一切 HP 伤害的唯一入口（�
   return true;
 }
 
-function _engKillEnemy(e) { // 内部：击杀统一入口（踩踏/攻击/星陨/连斩共用；30% 掉回复心，设计 §5）
+/* ==================== v6 波2（loot 队）：装备掉落（内部） ====================
+   设计书 §6.3 + 工单 v6-wave2-loot §1/§2：掉落表/概率逐字=BAL.gear（平衡表 §Q，H5 只读不得现场调参）；
+   engine 只生成实体与发 game.pickups 事件（H2：数据归属 ui，engine 不碰 localStorage）；
+   gearDrops 为独立实体池上限 6（H3：超过不再生成——Boss 双掉+骑士掉同屏 ≤4，6 有余量）。 */
+const _engGearCap = 6; // 内部（H3）：gearDrops 实体池上限
+function _engRollTier(w) { // 内部：稀有度 roll——w=[白,绿,蓝,紫,金] 权重数组（和=100）；权重 0 的档位天然不可达
+  let r = Math.random() * 100;
+  for (let i = 0; i < 5; i++) { r -= w[i]; if (r < 0) return i; }
+  return 4;
+}
+function _engSlot() { return 'whc'[(Math.random() * 3) | 0]; } // 内部：槽位均匀 1/3（w 武器/h 头饰/c 披风）
+function _engMkGear(x, y, slot, r) { // 内部：装备掉落实体（10×12 弹跳出生；bounced/rest 由物理循环维护）
+  return { x: x, y: y, w: 10, h: 12, vy: -140, vx: (Math.random() < 0.5 ? -1 : 1) * 30,
+    slot: slot, r: r, t: 0, bounced: false };
+}
+
+function _engKillEnemy(e) { // 内部：击杀统一入口（踩踏/攻击/星陨/连斩/星刃共用；30% 掉回复心，设计 §5）
   e.dead = 0.01;
-  if (Math.random() < 0.30) game.drops.push({ x: e.x + 2, y: e.y - 4, w: 8, h: 8, vy: -120, life: 6 });
+  if (Math.random() < BAL.econ.heartChance) game.drops.push({ x: e.x + 2, y: e.y - 4, w: 8, h: 8, vy: -120, life: 6 });
+  // v6 波2 §2②：精英骑士掉装备——仅 L9/L10（levelIdx 0 基 8/9）、10%（BAL.gear.eliteChance）、
+  // 权重 BAL.gear.elite 无金（金=Boss 专属，§Q/H5）；踩踏/普攻/技能击杀全经此唯一入口；池满 ≥6 跳过（H3）。
+  if (e.type === 'knight' && (game.levelIdx === 8 || game.levelIdx === 9)
+      && Math.random() < BAL.gear.eliteChance && game.gearDrops.length < _engGearCap)
+    game.gearDrops.push(_engMkGear(e.x + e.w / 2 - 5, e.y, _engSlot(), _engRollTier(BAL.gear.elite)));
 }
 
 function _engOnScreen(e) { // 内部：实体矩形是否在视口内（连斩「屏内普通敌全灭」判定用）
@@ -538,16 +675,15 @@ function _engMkBoss(cx, py) { // 内部：Boss 实体（cx=锚点中心x, py=锚
     // 按「落地脚底=锚点下一行的地板顶面」实现：y=(锚点行+1)*16-h（不硬编码，随锚点行推导；L7 即 13*16-48=160）。
     y: py + _engTile - 48,
     w: 52, h: 48, vx: 0, vy: 0, face: -1,
-    hp: 60, maxHp: 60, phase: 1,
+    hp: BAL.boss.hp, maxHp: BAL.boss.hp, phase: 1, // v6 §F：收编 BAL.boss.hp（零行为变化）
     state: 'dormant', t: 0,          // t：当前状态已累计秒数
     next: '', lastPattern: '', pickN: 0,
     flashT: 0, chargeDir: 1, chargeFrom: 0, landX: 0, fireN: 0
   };
 }
 
-function _engBossDur(name, phase) { // 内部：前摇表(秒)，P2 ×0.85（设计 §3）
-  const T = { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55 };
-  return T[name] * (phase === 2 ? 0.85 : 1);
+function _engBossDur(name, phase) { // 内部：前摇表(秒)，P2 ×p2WindMul（设计 §3）；v6 §F 收编 BAL.boss
+  return BAL.boss.windup[name] * (phase === 2 ? BAL.boss.p2WindMul : 1);
 }
 
 function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不用随机）
@@ -571,8 +707,15 @@ function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨
   game.shake = Math.max(game.shake, 3);
   game.sfxQueue.push('bosshit');
   if (b.hp <= 0) { b.hp = 0; b.state = 'dying'; b.t = 0;
+    // v6 波2 §2①：Boss 掉落——进入 dying 瞬间生成（levelClear 在 2.2s 死亡演出后才触发，此处先掉，
+    // 玩家可在演出期内拾取；漏捡由 levelClear 开头的 H4 兜底转 pickups）。第 1 件必掉（boss1 权重）、
+    // 第 2 件 30%（bossExtra，boss2 权重）；生成位置 = Boss 中心 ±24/14、脚上 14px；池满 ≥6 跳过（H3）。
+    if (game.gearDrops.length < _engGearCap)
+      game.gearDrops.push(_engMkGear(b.x + b.w / 2 - 24, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear.boss1)));
+    if (Math.random() < BAL.gear.bossExtra && game.gearDrops.length < _engGearCap)
+      game.gearDrops.push(_engMkGear(b.x + b.w / 2 + 14, b.y + b.h - 14, _engSlot(), _engRollTier(BAL.gear.boss2)));
     game.bullets = []; game.waves = []; game.shake = 10; return true; } // 死亡优先：大伤害一刀斩不得被狂暴吸收卡 1 血
-  if (b.hp <= 30 && b.phase === 1) { b.phase = 2; b.state = 'enrage'; b.t = 0;
+  if (b.hp <= BAL.boss.p2At && b.phase === 1) { b.phase = 2; b.state = 'enrage'; b.t = 0;
     game.sfxQueue.push('roar'); game.shake = 6; return true; }
   return true;
 }
@@ -587,11 +730,11 @@ function _engBossPhysX(dt, b) { // 内部：Boss X 轴解算（撞墙返回 true
   return false;
 }
 
-function _engBossNovaRing(b, deg) { // 内部：nova 8 向放射弹（第二环 deg=22.5 转角）
+function _engBossNovaRing(b, deg) { // 内部：nova 8 向放射弹（第二环 deg=22.5 转角）；v6 §F 弹速收编 BAL.boss.nova.v
   const bcx = b.x + b.w / 2, bcy = b.y + 20;
   for (let i = 0; i < 8; i++) { const a = (i * 45 + deg) * Math.PI / 180;
     game.bullets.push({ x: bcx - 4, y: bcy - 4, w: 8, h: 8,
-      vx: Math.cos(a) * 100, vy: Math.sin(a) * 100, star: true }); }
+      vx: Math.cos(a) * BAL.boss.nova.v, vy: Math.sin(a) * BAL.boss.nova.v, star: true }); }
 }
 
 function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计时单位秒=帧÷60）
@@ -611,17 +754,17 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
 
   case 'idle': {
     b.face = pcx < bcx ? -1 : 1;
-    if (Math.abs(pcx - bcx) > 140) b.vx = b.face * (b.phase === 2 ? 25 : 20); // 缓步逼近
+    if (Math.abs(pcx - bcx) > 140) b.vx = b.face * BAL.boss.walk[b.phase - 1]; // 缓步逼近（walk [20,25]）
     else b.vx = 0;
     _engBossPhysX(dt, b);
-    if (b.t >= (b.phase === 2 ? 0.45 : 0.6)) _engBossPick(b);
+    if (b.t >= BAL.boss.idleT[b.phase - 1]) _engBossPick(b); // idleT [0.6, 0.45]
     break; }
 
   case 'windup':
     b.vx = 0; b.face = pcx < bcx ? -1 : 1;
     if (b.next === 'leap') { if (b.t >= _engBossDur('leap', b.phase)) { // 起跳参数在前摇结束瞬间取
-        b.landX = _engClamp(pcx, bcx - 300, bcx + 300);
-        const T = 0.9; b.vx = (b.landX - bcx) / T; b.vy = -675;         // g=1500 对称抛物线
+        b.landX = _engClamp(pcx, bcx - BAL.boss.leap.clamp, bcx + BAL.boss.leap.clamp);
+        const T = BAL.boss.leap.T; b.vx = (b.landX - bcx) / T; b.vy = -BAL.boss.leap.vy; // g=1500 对称抛物线
         b.state = 'leapAir'; b.t = 0; } }
     else if (b.next === 'charge') { if (b.t >= _engBossDur('charge', b.phase)) {
         b.chargeDir = pcx < bcx ? -1 : 1; b.chargeFrom = b.x;
@@ -631,16 +774,17 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     else if (b.next === 'summon') { if (b.t >= _engBossDur('summon', b.phase)) {
         b.state = 'summonCast'; b.t = 0;
         for (const s of [-40, 40]) L.enemies.push({ type: 'slime',     // 双史莱姆（复用 W 实体结构）
-          x: bcx + s - 6, y: b.y + b.h - 10, w: 12, h: 10, vx: s < 0 ? -28 : 28, vy: 0,
+          x: bcx + s - 6, y: b.y + b.h - 10, w: 12, h: 10, vx: s < 0 ? -BAL.enemy.slime.spd : BAL.enemy.slime.spd, vy: 0,
           hx: bcx + s - 6, hy: b.y + b.h - 10, dead: 0, t: 0, grounded: false,
-          hp: 2, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0 }); } } // v5：召唤体与史莱姆同耐久/战斗字段
+          hp: BAL.enemy.slime.hp, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0,
+          ai: _engMkAI('slime', bcx + s - 6, b.y + b.h - 10) }); } } // v5：召唤体与史莱姆同耐久/战斗字段；v6：补 ai 技能状态机
     else if (b.next === 'nova') { if (b.t >= _engBossDur('nova', b.phase)) {
         b.state = 'novaCast'; b.t = 0; b.fireN = 0; } }
     break;
 
   case 'leapAir': {
     _engBossPhysX(dt, b);                       // X：可能撞侧墙（跳过横向就贴墙滑）
-    b.vy = Math.min(b.vy + 1500 * dt, 520); b.y += b.vy * dt;  // 落速上限 520（非玩家 360）
+    b.vy = Math.min(b.vy + BAL.boss.grav * dt, BAL.boss.fallV); b.y += b.vy * dt; // Boss 专用重力/落速帽（不随玩家 1320/285）
     if (b.vy > 0) { const ty = Math.floor((b.y + b.h - _engEps) / _engTile);
       const x0 = Math.floor(b.x / _engTile), x1 = Math.floor((b.x + b.w - _engEps) / _engTile);
       for (let tx = x0; tx <= x1; tx++) if (L.solid(tx, ty, game.switchState)) {
@@ -654,44 +798,44 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
 
   case 'barrageFire': {                          // 3 轮×2 发，每轮间隔 0.15s
     b.face = pcx < bcx ? -1 : 1;
-    const want = Math.floor(b.t / 0.15);
-    while (b.fireN < want && b.fireN < 3) {
+    const want = Math.floor(b.t / BAL.boss.barrage.pairGap);
+    while (b.fireN < want && b.fireN < BAL.boss.barrage.rounds) {
       for (const off of [-8, 8]) {
         const ang = Math.atan2((p.y + p.h / 2) - (b.y + 18), pcx - (bcx)) + off * Math.PI / 180;
         game.bullets.push({ x: bcx - 4, y: b.y + 14, w: 8, h: 8,
-          vx: Math.cos(ang) * 130, vy: Math.sin(ang) * 130, star: true }); // star=true: ui 画星弹
+          vx: Math.cos(ang) * BAL.boss.barrage.v, vy: Math.sin(ang) * BAL.boss.barrage.v, star: true }); // star=true: ui 画星弹
       }
       game.sfxQueue.push('shot'); b.fireN++;
     }
-    if (b.fireN >= 3 && b.t >= 0.45) { b.state = 'recover'; b.t = 0; }
+    if (b.fireN >= BAL.boss.barrage.rounds && b.t >= BAL.boss.barrage.endT) { b.state = 'recover'; b.t = 0; }
     break; }
 
   case 'chargeRun': {
-    b.vx = b.chargeDir * (b.phase === 2 ? 290 : 230);
+    b.vx = b.chargeDir * BAL.boss.charge.v[b.phase - 1]; // charge.v [230, 290]
     const hitWall = _engBossPhysX(dt, b);
     if (hitWall) { b.vx = 0; b.state = 'stagger'; b.t = 0;
       game.shake = 8; game.sfxQueue.push('roar');
       _engAddParts(b.x + (b.chargeDir > 0 ? b.w : 0), b.y + b.h / 2, 14, '#c8b8e8', 110, 250); }
-    else if (b.t >= 1.5 || Math.abs(b.x - b.chargeFrom) >= 320) { b.vx = 0; b.state = 'recover'; b.t = 0; }
+    else if (b.t >= BAL.boss.charge.maxT || Math.abs(b.x - b.chargeFrom) >= BAL.boss.charge.maxX) { b.vx = 0; b.state = 'recover'; b.t = 0; }
     break; }
 
-  case 'stagger':   if (b.t >= 1.5) { b.state = 'recover'; b.t = 0; } break; // 输出窗口
+  case 'stagger':   if (b.t >= BAL.boss.stagger) { b.state = 'recover'; b.t = 0; } break; // 输出窗口
 
   case 'summonCast': if (b.t >= 0.30) { b.state = 'recover'; b.t = 0; } break;
 
   case 'novaCast': {                              // 0.55s 蓄 + 双环(第二环 t=0.95)
-    if (b.fireN === 0 && b.t >= 0.55) { _engBossNovaRing(b, 0);   b.fireN = 1; game.sfxQueue.push('shot'); }
-    if (b.fireN === 1 && b.t >= 0.95) { _engBossNovaRing(b, 22.5); b.fireN = 2; game.sfxQueue.push('shot'); }
-    if (b.fireN === 2 && b.t >= 1.2) { b.state = 'recover'; b.t = 0; }
+    if (b.fireN === 0 && b.t >= BAL.boss.nova.t[0]) { _engBossNovaRing(b, 0);   b.fireN = 1; game.sfxQueue.push('shot'); }
+    if (b.fireN === 1 && b.t >= BAL.boss.nova.t[1]) { _engBossNovaRing(b, 22.5); b.fireN = 2; game.sfxQueue.push('shot'); }
+    if (b.fireN === 2 && b.t >= BAL.boss.nova.endT) { b.state = 'recover'; b.t = 0; }
     break; }
 
   case 'recover':  b.vx = 0;
     // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
-    if (b.t >= (({ leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6 })[b.next] || 0.5))
+    if (b.t >= (BAL.boss.recover[b.next] || 0.5))
       { b.state = 'idle'; b.t = 0; }
     break;
 
-  case 'enrage':   b.vx = 0; if (b.t >= 1.2) { b.state = 'idle'; b.t = 0; } break;
+  case 'enrage':   b.vx = 0; if (b.t >= BAL.boss.enrage) { b.state = 'idle'; b.t = 0; } break;
 
   case 'dying': {
     b.vx = 0; b.y += 6 * dt;                      // 慢速下沉
@@ -700,7 +844,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         ['#f8d048', '#f86020', '#48d8e8'][((b.t * 10) | 0) % 3], 110, 60);
       game.shake = Math.max(game.shake, 4);
     }
-    if (b.t >= 2.2) { b.state = 'dead'; levelClear(); }  // 复用 v2 通关（含彩带粒子）
+    if (b.t >= BAL.boss.dying) { b.state = 'dead'; levelClear(); }  // 复用 v2 通关（含彩带粒子）
     break; }
   }
 
@@ -726,26 +870,40 @@ function _engGroundY(tx, yFrom) { // 内部（v5 §3.2）：tx 列自 yFrom 所�
   return (Lv.h - 1) * _engTile;
 }
 
-function _engUpdateSkills(dt) { // 内部：三技能 U/I/O（边沿消费 + CD 门控；由 _engUpdatePlayer 调用）
+function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + CD 门控；由 _engUpdatePlayer 调用）
   const p = game.player, S = game.skills, inp = game.input;
   if (inp.skillUHit) { inp.skillUHit = 0;
-    if (S.u <= 0 && !p.dead) { S.u = 8; p.castT = 0.25; game.sfxQueue.push('meteor');
-      // v5 §3.2：目标 x + 地面 y（瞄准圈），三流星延迟错开 0.50/0.75/1.00（原 0/0.25/0.50）
+    if (S.u <= 0 && !p.dead) { S.u = BAL.skills.u.cd * game.cdMul; p.castT = 0.25; game.sfxQueue.push('meteor');
+      // v5 §3.2：目标 x + 地面 y（瞄准圈），三流星延迟错开 BAL.skills.u.delay（0.50/0.75/1.00）
       const tx = _engSkillTargetX(p), gy = _engGroundY(tx, p.y);
-      game.meteors.push({ x: tx - 24, y: -16, vy: 300, w: 10, h: 14, delay: 0.50, ring: gy });
-      game.meteors.push({ x: tx - 5,  y: -16, vy: 300, w: 10, h: 14, delay: 0.75, ring: gy });
-      game.meteors.push({ x: tx + 14, y: -16, vy: 300, w: 10, h: 14, delay: 1.00, ring: gy }); } }
+      game.meteors.push({ x: tx - 24, y: -16, vy: BAL.skills.u.fallV, w: 10, h: 14, delay: BAL.skills.u.delay[0], ring: gy });
+      game.meteors.push({ x: tx - 5,  y: -16, vy: BAL.skills.u.fallV, w: 10, h: 14, delay: BAL.skills.u.delay[1], ring: gy });
+      game.meteors.push({ x: tx + 14, y: -16, vy: BAL.skills.u.fallV, w: 10, h: 14, delay: BAL.skills.u.delay[2], ring: gy }); } }
   if (inp.skillIHit) { inp.skillIHit = 0;
-    // v5 §3.3：护盾 3s 不变，可吸收 2 次伤害（shieldHp）；破盾事件见 _engShieldBreak
-    if (S.i <= 0 && !p.dead) { S.i = 12; p.shieldT = 3.0; p.shieldHp = 2; game.sfxQueue.push('shield');
+    // v5 §3.3：护盾 dur 3s，可吸收 absorb 2 次伤害（shieldHp）；破盾事件见 _engShieldBreak
+    if (S.i <= 0 && !p.dead) { S.i = BAL.skills.i.cd * game.cdMul; p.shieldT = BAL.skills.i.dur; p.shieldHp = BAL.skills.i.absorb; game.sfxQueue.push('shield');
       _engAddParts(p.x + 5, p.y + 7, 12, '#f8d048', 70, 0); } }
   if (inp.skillOHit) { inp.skillOHit = 0;
     // v5 §3.1：O 流星连斩改为 1.2s 演出状态机（时停→十字斩→结算→冲击环→白闪→余韵）；
     // 旧的一次性结算（hitStop/flashT/shake/清弹幕）全部移交 updateWorld 顶部 ult 块。
-    if (S.o <= 0 && game.combo >= 8 && !p.dead) {
-      S.o = 20; game.combo = 0; game.comboT = 0;    // 门控不变：连击≥8 充能、CD 20s、消耗全部连击
+    if (S.o <= 0 && game.combo >= BAL.combo.ultNeed && !p.dead) {
+      S.o = BAL.skills.o.cd * game.cdMul; game.combo = 0; game.comboT = 0;    // 门控不变：连击≥8 充能、CD 20s、消耗全部连击
       game.ult = { on: true, t: 0, fired: false, flashed: false };
       game.sfxQueue.push('ult');
+    } }
+  if (inp.skillLHit) { inp.skillLHit = 0;
+    // v6 §2.2 技能4 星刃回旋：CD 6×cdMul；冲刺蓄力段（前 0.05s）不可掷（爆发/滑行可掷，宽口径）；
+    // 施法姿态 0.2s（复用 castT）；不做 hit-stop/震屏（远程技能保持节奏）。
+    if (S.l <= 0 && !p.dead && !(p.dashT > 0 && _engDashDur - p.dashT < 0.05)) {
+      S.l = BAL.skills.l.cd * game.cdMul;
+      p.castT = 0.2;
+      game.blades.push({ x: p.x + p.w / 2 - 6 + p.face * 6, y: p.y + 1,   // 手前出生
+        w: 12, h: 12, vx: p.face * BAL.skills.l.vOut, vy: 0, dir: p.face,
+        phase: 0,            // 0=去程 1=回程
+        trav: 0,             // 去程已飞行 px
+        life: BAL.skills.l.life, // 总寿命（防丢强制回收）
+        hits: {} });         // 命中记名：'e'+i+phase / 'boss'+phase（一程一目标一伤）
+      game.sfxQueue.push('blade');
     } }
 }
 
@@ -777,12 +935,119 @@ function _engAddCombo() { // 内部：连击计数（v5 §2#7：命中敌人（�
   }
 }
 
+function _engEnemySkill(e, dt, L, p) { // 内部（v6 §E）：四类敌人技能状态机——触发全距离条件、无随机（确定性），
+  // 门禁空转零触发（出生点距最近敌 > 触发半径或 cd 未到）；前摇期间被打断不打断（前摇=硬直窗口，可反制）。
+  // 参数/时长/速度/CD 全取 BAL.enemy.*.skill；调用点在敌人循环内、kb 摩擦之前。
+  const ai = e.ai;
+  if (!ai || e.dead > 0) return;
+  const sk = BAL.enemy[e.type] && BAL.enemy[e.type].skill;
+  if (!sk) return;
+  ai.t += dt;
+  if (ai.cd > 0) ai.cd -= dt;
+  const dx = (p.x + p.w / 2) - (e.x + e.w / 2); // dx/dy = 玩家中心 − 敌中心
+  const dy = (p.y + p.h / 2) - (e.y + e.h / 2);
+
+  if (e.type === 'slime') { // §3.1 弹跳压顶：idle→wind(压扁蓄力 0.5s)→leap(压顶跳)→落地回 idle
+    if (ai.st === 'wind') {
+      e.vx = 0; // 压扁蓄力：巡逻位移冻结（vx=0，掉头判定 d=0 自然跳过）
+      if (((ai.t * 10) | 0) !== (((ai.t - dt) * 10) | 0)) // 每 0.1s 1 粒蓄力尘
+        _engAddParts(e.x + 6, e.y + 9, 1, '#ffffff', 18, 120);
+      if (ai.t >= sk.wind) { // 发动·压顶跳（滞空 2×260/1320≈0.394s；重力/落地走 ⑨ 既有）
+        ai.st = 'leap'; ai.t = 0;
+        e.vx = _engSign(dx) * sk.vx; e.vy = -sk.vy;
+      }
+    } else if (ai.st === 'leap') {
+      if (e.grounded) { // 落地回 idle，cd 回基础值；恢复巡逻速度（蓄力前存档在 ai.tx）
+        ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd;
+        e.vx = ai.tx || -BAL.enemy.slime.spd;
+      }
+    } else { // idle：|dx|≤rngX 且 dy∈[-up,dn] 且 grounded
+      if (ai.cd <= 0 && e.grounded && Math.abs(dx) <= sk.rngX && dy >= -sk.up && dy <= sk.dn) {
+        ai.st = 'wind'; ai.t = 0; ai.tx = e.vx; e.vx = 0; // ai.tx 暂存巡逻速度
+      }
+    }
+    return;
+  }
+  if (e.type === 'bat') { // §3.2 俯冲撕咬：idle→aim(悬停瞄准 0.5s)→dive(锁定直线 240)→back(120 回锚点)→idle
+    if (ai.st === 'aim') {
+      if (ai.t >= sk.wind) { // 目标向量在前摇结束瞬间锁定（ai.tx/ty）
+        ai.st = 'dive'; ai.t = 0;
+        const ddx = (p.x + p.w / 2) - (e.x + e.w / 2), ddy = (p.y + p.h / 2) - (e.y + e.h / 2);
+        const d = Math.hypot(ddx, ddy) || 1;
+        ai.tx = ddx / d * sk.vDive; ai.ty = ddy / d * sk.vDive;
+      }
+    } else if (ai.st === 'dive') { // 直线俯冲（≤diveMax 0.55s；撞前方实心瓦片提前结束）
+      e.x += ai.tx * dt; e.y += ai.ty * dt;
+      const tx = Math.floor((e.x + e.w / 2) / _engTile), ty = Math.floor((e.y + e.h / 2) / _engTile);
+      if (ai.t >= sk.diveMax || L.solid(tx, ty, game.switchState)) { ai.st = 'back'; ai.t = 0; }
+    } else if (ai.st === 'back') { // 匀速飞回锚点 (ax,ay)
+      const ddx = e.ax - e.x, ddy = e.ay - e.y, d = Math.hypot(ddx, ddy);
+      if (d <= sk.vBack * dt || d < 2) { e.x = e.ax; e.y = e.ay; ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd; }
+      else { e.x += ddx / d * sk.vBack * dt; e.y += ddy / d * sk.vBack * dt; }
+    } else { // idle：中心距 ≤rng 90
+      if (ai.cd <= 0 && dx * dx + dy * dy <= sk.rng * sk.rng) { ai.st = 'aim'; ai.t = 0; }
+    }
+    return;
+  }
+  if (e.type === 'knight') { // §3.3 盾击冲锋：idle→wind(举盾 0.6s,格挡保持)→charge(190,≤0.5s)→vuln(破绽 0.7s)→idle
+    if (ai.st === 'wind') {
+      e.vx = 0; // 前摇也格挡：eface=sign(vx)||face → face 保持
+      if (ai.t >= sk.wind) { // 冲锋方向锁定（朝玩家），face 同步（正面格挡与冲锋向一致）
+        ai.st = 'charge'; ai.t = 0;
+        e.face = _engSign(dx) || e.face; ai.tx = e.face;
+      }
+    } else if (ai.st === 'charge') {
+      const dir = ai.tx || 1;
+      const my = Math.floor((e.y + e.h / 2) / _engTile);
+      const leadTx = dir > 0 ? Math.floor((e.x + e.w - _engEps) / _engTile) : Math.floor(e.x / _engTile);
+      if (L.solid(leadTx, my, game.switchState)) { // 撞墙提前结束（钳位回墙面防嵌墙；掉头判定已在 ⑨ 跳过）
+        if (dir > 0) e.x = leadTx * _engTile - e.w;
+        else e.x = (leadTx + 1) * _engTile;
+        e.vx = 0; ai.st = 'vuln'; ai.t = 0; e.guardDown = true; // 破绽：正面也吃全额伤（_engResolveAttack/星刃 front 分支旁路）
+        _engAddStars(e.x + 6, e.y, 3, '#ffffff'); // 头顶 3 粒白星 fx
+      } else if (ai.t >= sk.dur) { // 超时结束（冲锋最远 190×0.5=95px）
+        e.vx = 0; ai.st = 'vuln'; ai.t = 0; e.guardDown = true;
+        _engAddStars(e.x + 6, e.y, 3, '#ffffff');
+      } else e.vx = dir * sk.vx; // 190 冲锋（玩家 maxRun 120 逃不掉，跳跃即解）
+    } else if (ai.st === 'vuln') {
+      e.vx = 0;
+      if (ai.t >= sk.vuln) { ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd; e.guardDown = false; }
+    } else { // idle：|dx|≤rngX 110 且 |dy|≤rngY 24 且 grounded
+      if (ai.cd <= 0 && e.grounded && Math.abs(dx) <= sk.rngX && Math.abs(dy) <= sk.rngY) {
+        ai.st = 'wind'; ai.t = 0; e.vx = 0;
+      }
+    }
+    return;
+  }
+  if (e.type === 'mage') { // §3.4 读条火球：idle→cast(读条 0.8s)→recover(后摇 0.5s)→idle；站桩不掉头
+    e.face = _engSign(dx) || e.face || 1; // face=sign(玩家中心−自身中心) 每帧刷新
+    if (ai.st === 'cast') {
+      if (ai.t >= sk.cast) { // 发射：杖尖 (e.x+6+face*4, e.y+2) 出生（与 ui 读条圈同心），初速朝玩家中心 95
+        ai.st = 'recover'; ai.t = 0;
+        const bx = e.x + 6 + e.face * 4, by = e.y + 2;
+        const ddx = (p.x + p.w / 2) - bx, ddy = (p.y + p.h / 2) - by;
+        const d = Math.hypot(ddx, ddy) || 1;
+        game.bullets.push({ x: bx - 4, y: by - 4, w: 8, h: 8,
+          vx: ddx / d * sk.boltV, vy: ddy / d * sk.boltV,
+          fire: true, home: sk.home, life: sk.boltLife }); // 追踪 1.6s / 寿命 3.2s（推进在 ⑧ 弹幕滤池）
+        game.sfxQueue.push('shot');
+      }
+    } else if (ai.st === 'recover') { // 后摇站桩（可被打）
+      if (ai.t >= sk.recover) { ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd; }
+    } else { // idle：|dx|≤rng 140
+      if (ai.cd <= 0 && Math.abs(dx) <= sk.rng) { ai.st = 'cast'; ai.t = 0; game.sfxQueue.push('mage'); }
+    }
+  }
+}
+
 function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打击感重写）——身前 18×14 框 vs 敌人/炮弹/'B' 砖
   if (!(p.atkT > 0) || p.dead) return;
   const box = { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
-  // v5 §2#4：暴击——本击使连击数到 4 的倍数 → 伤害×2、金色数字（hit-stop 不变）；全分支共用
-  const crit = ((game.combo + 1) % 4) === 0;
-  const dmg = crit ? 2 : 1;
+  // v5 §2#4：暴击——本击使连击数到 critMod 的倍数 → 伤害×critMul、金色数字（hit-stop 不变）；全分支共用
+  // v6 §C：ATK = atkBase + equip.atk（装备武器注入，波1 恒 1）
+  const crit = ((game.combo + 1) % BAL.player.critMod) === 0;
+  const ATK = BAL.player.atkBase + (game.equip ? game.equip.atk : 0);
+  const dmg = crit ? ATK * BAL.player.critMul : ATK;
   // v3：Boss 承伤——命中 +2 连击（设计 §4 连斩充能口径；免伤态 _engBossHurt 返回 false 不计数）；
   // v5 §2#11：Boss 被击瞬间朝远离玩家侧位移 2px（clamp 场内）；hitSeq 防同摆二次结算
   if (game.boss && game.boss.hitSeq !== p.atkSeq && _engAabb(box, game.boss) && _engBossHurt(dmg)) {
@@ -806,7 +1071,8 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   for (const e of L.enemies) {
     if (e.dead > 0 || e.hitSeq === p.atkSeq || !_engAabb(box, e)) continue;
     const eface = _engSign(e.vx) || e.face || 1;
-    const front = (e.type === 'knight') && ((p.x + p.w / 2 > e.x + e.w / 2) === (eface > 0));
+    // v6 §3.3：破绽态（盾击冲锋后 guardDown）正面格挡失效——正面也吃全额伤
+    const front = (e.type === 'knight') && !e.guardDown && ((p.x + p.w / 2 > e.x + e.w / 2) === (eface > 0));
     e.hitSeq = p.atkSeq;
     if (front) { // v5 §4.3：攻击来自骑士面朝侧 → 0 伤害（背面/上方正常结算）
       e.kb = p.face * 98; // 推开 ≈8px（98²/(2*600)≈8，设计 §4.3；摩擦复用 _engKbFric）
@@ -833,12 +1099,12 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
       game.sfxQueue.push('kill');
     }
   }
-  // 炮弹：可被斩碎
+  // 炮弹：可被斩碎（v6 §3.4：法师火球 fire:true 火星色 #f86030）
   for (let i = game.bullets.length - 1; i >= 0; i--) {
     const b = game.bullets[i];
     if (_engAabb(box, b)) {
       game.bullets.splice(i, 1);
-      _engAddParts(b.x + 4, b.y + 3, 8, '#f8b020', 80, 200);
+      _engAddParts(b.x + 4, b.y + 3, 8, b.fire ? '#f86030' : '#f8b020', 80, 200);
       game.sfxQueue.push('break');
     }
   }
@@ -847,8 +1113,8 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   _engRectTiles(L, box.x, box.y, box.w, box.h, function (tx, ty, ch) {
     if (ch !== 'B') return;
     L.tiles[ty][tx] = '.'; // 碎后从网格移除（respawn 不重建网格 → 保持已碎，与已收金币同理）
-    game.coins++;
-    _engFloat(tx * _engTile + 8, ty * _engTile, '+1', '#f8d048', 0);
+    game.coins += BAL.econ.brick;
+    _engFloat(tx * _engTile + 8, ty * _engTile, '+' + BAL.econ.brick, '#f8d048', 0);
     _engShake(2, 0.05);
     _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 10, '#c89858', 90, 300);
     _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 4, '#f8d020', 70, 200);
@@ -938,7 +1204,9 @@ function _engUpdatePlayer(dt, L, p) {
     const s = _engSign(p.vx);
     if (s !== 0) { p.vx -= s * _engAirDrag * dt; if (_engSign(p.vx) !== s) p.vx = 0; }
   }
-  if (p.dashT <= 0) p.vx = _engClamp(p.vx, -PHY.maxRun, PHY.maxRun);
+  // v6 §C：装备披风移速加成（波1 恒 0 → effRun=maxRun=120，零行为变化）
+  const effRun = PHY.maxRun * (1 + (game.equip ? game.equip.spd : 0));
+  if (p.dashT <= 0) p.vx = _engClamp(p.vx, -effRun, effRun);
   if (p.onGround && p.dashT <= 0) { // 传送带：站上被推动（可叠加到跑速之上，上限 ±170）；冲刺中不吃传送带
     if (convL) p.vx = _engClamp(p.vx - 520 * dt, -170, 170);
     if (convR) p.vx = _engClamp(p.vx + 520 * dt, -170, 170);
@@ -982,7 +1250,11 @@ function _engUpdatePlayer(dt, L, p) {
   p.prevJump = game.input.jump ? 1 : 0;
   { // v5 §B：重力减半仅冲刺爆发段（0.05~0.23s）；蓄力/滑行正常重力
     const dashEl = p.dashT > 0 ? _engDashDur - p.dashT : -1;
-    p.vy = Math.min(p.vy + PHY.grav * (dashEl >= 0.05 && dashEl < 0.23 ? _engDashGrav : 1) * dt, PHY.maxFall);
+    const g = PHY.grav * (dashEl >= 0.05 && dashEl < 0.23 ? _engDashGrav : 1);
+    // v6 §1.3 速降：空中按住 input.down → 上限恢复旧值 360（BAL.fall.fast），否则 285（PHY.maxFall）。
+    // 风柱交互不变：'w' 净上力与落速上限无关，按↓不破解风谜题（设计书 §1.3）。
+    const cap = (!p.onGround && game.input.down) ? BAL.fall.fast : PHY.maxFall;
+    p.vy = Math.min(p.vy + g * dt, cap);
   }
   p.djT -= dt; p.turnT -= dt; // v5 §A：空翻/转身演出计时
 
@@ -1081,16 +1353,17 @@ function updateWorld(dt) {
   if (game.paused || game.state !== 'play') return;
   if (game.puzzleActive) return; // v4：谜题覆盖层打开——世界整体冻结（同 paused 语义但不改 paused 字段；
                                  // 玩家物理/敌人/计时/机关全部停摆，粒子亦冻结，ui 自绘覆盖层）
+  if (game.bagActive) return;    // v6 §G：背包开启冻结（同 puzzleActive 位；波1 恒 false 空转，波2 bag 队启用）
   const L = game.level, p = game.player;
   if (!L || !p) return;
   /* v5 §3.1：O 流星连斩 1.2s 演出状态机（放在 paused/puzzleActive 检查之后、hitStop 检查之前；
      ①② 期间世界冻结 return，floats/fxParts 由 ui 推进——数字与火花在时停里就在动） */
   if (game.ult && game.ult.on) {
     const u = game.ult; u.t += dt;
-    if (!u.fired && u.t >= 0.55) {                      // ③ 结算（t=0.55 一次性）
+    if (!u.fired && u.t >= BAL.skills.o.t[0]) {                      // ③ 结算（t=0.55 一次性）
       u.fired = true;
-      if (game.boss && _engBossHurt(5))
-        _engFloat(game.boss.x + 26, game.boss.y - 4, '5', '#48d8e8', 1); // Boss 承伤 5 青
+      if (game.boss && _engBossHurt(BAL.skills.o.dmg))
+        _engFloat(game.boss.x + 26, game.boss.y - 4, '' + BAL.skills.o.dmg, '#48d8e8', 1); // Boss 承伤 5 青
       for (const e of L.enemies) if (!(e.dead > 0) && _engOnScreen(e)) { // 屏内普通敌全灭+击飞
         _engKillEnemy(e);
         e.dvx = (_engSign(e.x - p.x) || p.face) * 150; e.dvy = -170;
@@ -1101,9 +1374,9 @@ function updateWorld(dt) {
       game.bullets = [];
       _engShake(8, 0); game.sfxQueue.push('ult2');        // 大招结算震屏 8（0 延迟）
     }
-    if (!u.flashed && u.t >= 0.9) { u.flashed = true; game.flashT = 0.1; } // ⑤ 白闪（复用现有白屏渲染）
-    if (u.t < 0.55) return;                             // ①② 时停+斩击期：世界冻结（玩家恢复操控在 ③）
-    if (u.t >= 1.2) game.ult = { on: false, t: 0, fired: false, flashed: false }; // ⑥ 余韵毕复位
+    if (!u.flashed && u.t >= BAL.skills.o.t[1]) { u.flashed = true; game.flashT = 0.1; } // ⑤ 白闪（复用现有白屏渲染）
+    if (u.t < BAL.skills.o.t[0]) return;                             // ①② 时停+斩击期：世界冻结（玩家恢复操控在 ③）
+    if (u.t >= BAL.skills.o.t[2]) game.ult = { on: false, t: 0, fired: false, flashed: false }; // ⑥ 余韵毕复位
   }
   if (game.hitStop > 0) { // v2 P1：攻击命中 → 全局冻结（世界整体暂停推进，计时到点自动恢复）
     game.hitStop -= dt;
@@ -1161,10 +1434,10 @@ function updateWorld(dt) {
         c.got = true;
         if (c.key) { game.keys++; game.sfxQueue.push('key'); _engAddParts(c.x + 5, c.y + 3, 10, '#f8d020', 60, 100);
           _engFloat(c.x + 5, c.y - 4, 'KEY', '#f8d048', 0); } // v5 §D：拾取浮字
-        else if (c.gem) { game.coins += 5; game.sfxQueue.push('gem'); _engAddParts(c.x + 4, c.y + 5, 14, '#48d8e8', 80, 100);
-          _engFloat(c.x + 4, c.y - 4, '+5', '#f8d048', 0); }
-        else { game.coins++; game.sfxQueue.push('coin'); _engAddParts(c.x + 4, c.y + 4, 5, '#f8d020', 50, 100);
-          _engFloat(c.x + 4, c.y - 4, '+1', '#f8d048', 0); }
+        else if (c.gem) { game.coins += BAL.econ.gem; game.sfxQueue.push('gem'); _engAddParts(c.x + 4, c.y + 5, 14, '#48d8e8', 80, 100);
+          _engFloat(c.x + 4, c.y - 4, '+' + BAL.econ.gem, '#f8d048', 0); }
+        else { game.coins += BAL.econ.coin; game.sfxQueue.push('coin'); _engAddParts(c.x + 4, c.y + 4, 5, '#f8d020', 50, 100);
+          _engFloat(c.x + 4, c.y - 4, '+' + BAL.econ.coin, '#f8d048', 0); }
       }
     }
   }
@@ -1290,11 +1563,22 @@ function updateWorld(dt) {
     }
   }
   game.bullets = game.bullets.filter(function (b) {
+    // v6 §3.4：法师追踪火球——home 计时内向玩家中心限角转向（转向率 BAL.enemy.mage.skill.turn rad/s）；
+    // 大炮弹/Boss 星弹无 home 字段 → undefined>0=false 天然跳过，轨迹不变
+    if (b.home > 0) { b.home -= dt;
+      const cx = p.x + p.w / 2 - (b.x + 4), cy = p.y + p.h / 2 - (b.y + 4);
+      const want = Math.atan2(cy, cx), cur = Math.atan2(b.vy, b.vx);
+      let dh = want - cur; while (dh > Math.PI) dh -= 6.283; while (dh < -Math.PI) dh += 6.283;
+      const turn = _engClamp(dh, -BAL.enemy.mage.skill.turn * dt, BAL.enemy.mage.skill.turn * dt), sp = Math.hypot(b.vx, b.vy);
+      b.vx = Math.cos(cur + turn) * sp; b.vy = Math.sin(cur + turn) * sp; }
     b.x += b.vx * dt;
     b.y += (b.vy || 0) * dt; // v3：Boss 星弹带 vy（大炮弹 vy 未定义 → +0，轨迹不变，设计 §3）
+    // v6 §3.4：火球寿命到期自爆（橙红余烬；大炮弹/Boss 星弹无 life 字段跳过）
+    if (b.life !== undefined) { b.life -= dt;
+      if (b.life <= 0) { _engAddParts(b.x + 4, b.y + 4, 6, '#f86030', 70, 150); return false; } }
     const tx = Math.floor((b.x + 4) / _engTile), ty = Math.floor((b.y + 3) / _engTile);
     if (L.solid(tx, ty, game.switchState)) { _engAddParts(b.x + 4, b.y + 3, 4, '#f8b020', 50, 150); return false; }
-    if (!p.dead && _engAabb(b, p)) { _engHurtPlayer(b.x + 4); return false; } // v3：炮弹/Boss 弹 → HP 伤害（原即死）
+    if (!p.dead && _engAabb(b, p)) { _engHurtPlayer(b.x + 4); return false; } // v3：炮弹/Boss 弹/火球 → HP 伤害（原即死）
     return b.x > -20 && b.x < L.w * _engTile + 20 && b.y > -20 && b.y < L.h * _engTile + 20; // v3：出界追加 y
   });
 
@@ -1306,8 +1590,8 @@ function updateWorld(dt) {
       continue;
     }
     e.t += dt;
-    if (e.type === 'slime' || e.type === 'knight') { // v5 §4.3：骑士重力/落地/掉头与史莱姆同构（速度取 e.vx）
-      e.vy = Math.min(e.vy + PHY.grav * dt, 300);
+    if (e.type === 'slime' || e.type === 'knight' || e.type === 'mage') { // v5 §4.3：骑士重力/落地/掉头与史莱姆同构（速度取 e.vx）；v6 §3.4：法师站桩复用同构（vx 恒 0）
+      e.vy = Math.min(e.vy + PHY.grav * dt, BAL.enemy.slime.fall); // 敌人下落上限 300（不随玩家 maxFall 变，设计 §1 表#9）
       e.y += e.vy * dt;
       e.grounded = false;
       {
@@ -1320,7 +1604,8 @@ function updateWorld(dt) {
       e.x += e.vx * dt;
       {
         const d = _engSign(e.vx);
-        if (d !== 0) {
+        // v6 §3.3：骑士冲锋段跳过掉头判定（撞墙提前结束由 _engEnemySkill 处理）
+        if (d !== 0 && !(e.ai && e.ai.st === 'charge')) {
           const tx = d > 0 ? Math.floor((e.x + e.w - _engEps) / _engTile) : Math.floor(e.x / _engTile);
           const my = Math.floor((e.y + e.h / 2) / _engTile);
           const fy = Math.floor((e.y + e.h + 2) / _engTile);
@@ -1328,13 +1613,16 @@ function updateWorld(dt) {
           if (L.solid(tx, my, game.switchState) || (e.grounded && !L.solid(tx, fy, game.switchState))) e.vx = -e.vx;
         }
       }
-      if (e.type === 'knight') e.face = _engSign(e.vx) || e.face; // v5 §4.3：面朝侧=格挡判定方向
+      if (e.type === 'knight') e.face = _engSign(e.vx) || e.face; // v5 §4.3：面朝侧=格挡判定方向（冲锋/前摇段 vx 由技能态管理）
       if (e.y > L.h * _engTile + 30) e.dead = 99; // 坠出世界
-    } else { // 蝙蝠
+    } else if (!e.ai || e.ai.st === 'idle') { // 蝙蝠巡逻（v6 §3.2：技能状态机接管期间冻结巡逻位移）
       e.x += e.vx * dt;
       if (Math.abs(e.x - e.ax) > e.rng) e.vx = -_engSign(e.x - e.ax) * Math.abs(e.vx);
       e.y = e.ay + Math.sin(e.t * 2.2) * 7;
     }
+    // v6 §E：四类敌人技能状态机推进（kb 摩擦之前；死亡态/hitStop/ult/bagActive 由 updateWorld 结构自然冻结；
+    // 前摇期间被打断不打断——前摇=硬直窗口，玩家可反制，设计书 §3 规则2）
+    _engEnemySkill(e, dt, L, p);
     // v5 §C：击退摩擦（放在正常 AI 位移之后；220²/(2*600)≈40px 滑行）
     if (e.kb) { e.x += e.kb * dt; const ks = _engSign(e.kb); e.kb -= ks * _engKbFric * dt;
       if (_engSign(e.kb) !== ks) e.kb = 0; }
@@ -1343,9 +1631,9 @@ function updateWorld(dt) {
     // 踩踏：p.vy>60 且玩家脚底深入敌体 <9px → 反弹；否则 HP 伤害（v3：原即死；v5 §F 踩踏改造）
     if (!p.dead && _engAabb(p, e)) {
       if (p.vy > 60 && p.y + p.h - e.y < 9) {
-        if (e.type === 'knight' && e.hp > 1) { // v5 §4.3：骑士踩踏扣 1 不秒杀
-          e.hp--; e.flashT = 0.15;
-          _engFloat(e.x + 6, e.y - 4, '1', '#ffffff', 0);
+        if (e.type === 'knight' && e.hp > 1) { // v5 §4.3：骑士踩踏扣 stompDmg 不秒杀
+          e.hp -= BAL.player.stompDmg; e.flashT = 0.15;
+          _engFloat(e.x + 6, e.y - 4, '' + BAL.player.stompDmg, '#ffffff', 0);
           _engShake(2, 0.05); game.sfxQueue.push('hit');
         } else { // 普通敌/残血骑士：踩杀（击飞弹道 + KO 浮字）；震屏统一 _engShake(4,0.05) 不再叠加
           _engKillEnemy(e); // v3：击杀统一入口（30% 掉回复心）
@@ -1353,7 +1641,7 @@ function updateWorld(dt) {
           _engShake(4, 0.05); game.sfxQueue.push('kill');
           _engFloat(e.x + 6, e.y - 6, 'KO', '#ffffff', 0);
         }
-        p.vy = -250; p.jumpCut = false; p.airJumps = 1; p.springAir = false; // 踩踏弹跳不吃截断+重置二段跳
+        p.vy = -BAL.player.stompBounce; p.jumpCut = false; p.airJumps = 1; p.springAir = false; // 踩踏弹跳不吃截断+重置二段跳；v6 §A 等比 −235
         _engAddCombo();                        // v2 P1：击杀计入连击
         game.sfxQueue.push('stomp');
         _engAddParts(e.x + 6, e.y + 4, 10, e.type === 'bat' ? '#8858c8' : '#58c848', 70, 250);
@@ -1386,34 +1674,101 @@ function updateWorld(dt) {
     if (m.trail <= 0) { m.trail = 1 / 30;
       _engFx(m.x + 5, m.y + 2, { vy: -30, life: 0.25, color: '#f8d048', size: 1 }); }
     let boom = m.y > L.h * _engTile + 20;
-    if (game.boss && _engAabb(m, game.boss)) { _engBossHurt(2); _engAddCombo(); boom = true; // v5：Boss 伤 1→2
-      _engFloat(game.boss.x + game.boss.w / 2, game.boss.y - 4, '2', '#48d8e8', 0); }
+    if (game.boss && _engAabb(m, game.boss)) { _engBossHurt(BAL.skills.u.bossDmg); _engAddCombo(); boom = true; // v5：Boss 伤 1→2
+      _engFloat(game.boss.x + game.boss.w / 2, game.boss.y - 4, '' + BAL.skills.u.bossDmg, '#48d8e8', 0); }
     if (!boom) for (const e of L.enemies)
       if (!(e.dead > 0) && _engAabb(m, e)) { _engKillEnemy(e); boom = true; break; }
-    if (!boom) { // 撞实心地面/砸碎 B 砖（AoE 24×24）
-      _engRectTiles(L, m.x - 7, m.y + 8, 24, 10, function (tx, ty, ch) {
-        if (ch === '#' || ch === 'I' || ch === 'B') { if (ch === 'B') { L.tiles[ty][tx] = '.'; game.coins++; _engAddCombo(); }
+    if (!boom) { // 撞实心地面/砸碎 B 砖（AoE BAL.skills.u.aoe 24×24）
+      _engRectTiles(L, m.x - 7, m.y + 8, BAL.skills.u.aoe, 10, function (tx, ty, ch) {
+        if (ch === '#' || ch === 'I' || ch === 'B') { if (ch === 'B') { L.tiles[ty][tx] = '.'; game.coins += BAL.econ.brick; _engAddCombo(); }
           boom = true; } }); }
     if (boom) { game.meteors.splice(i, 1); _engShake(3, 0); // v5：落地爆震屏 3（走分级槽）
       game.sfxQueue.push('meteor');
       _engAddParts(m.x + 5, m.y + 10, 16, '#f8d048', 110, 250);          // 爆裂粒子 12→16
       _engAddParts(m.x + 5, m.y + 10, 6, '#d8d0c0', 60, 80);             // 冲击尘 6（灰白横飞）
       game.scars.push({ x: m.x + 5, y: m.y + 12, t: 0 });                // 爆坑（ui 画椭圆坑渐隐）
-      if (game.scars.length > 8) game.scars.shift(); } }
+      if (game.scars.length > BAL.guard.scars) game.scars.shift(); } }
   for (let i = game.waves.length - 1; i >= 0; i--) { const w = game.waves[i];
     w.x += w.vx * dt; w.life -= dt;
     const ahead = Math.floor((w.x + (w.vx > 0 ? w.w : 0)) / _engTile), wy = Math.floor((w.y + 5) / _engTile);
     if (w.life <= 0 || L.solid(ahead, wy, game.switchState)) { game.waves.splice(i, 1); continue; }
     if (!p.dead && _engAabb(w, p)) { _engHurtPlayer(w.x + 6); game.waves.splice(i, 1); } }
   for (let i = game.drops.length - 1; i >= 0; i--) { const d = game.drops[i];
-    d.vy = Math.min((d.vy || 0) + 1200 * dt, 360); d.y += d.vy * dt; d.life -= dt;
+    d.vy = Math.min((d.vy || 0) + BAL.econ.dropGrav * dt, BAL.econ.dropFall); d.y += d.vy * dt; d.life -= dt;
     const ty = Math.floor((d.y + d.h) / _engTile), tx = Math.floor((d.x + 4) / _engTile);
     if (L.solid(tx, ty, game.switchState)) { d.y = ty * _engTile - d.h; d.vy = 0; }
     if (d.life <= 0) { game.drops.splice(i, 1); continue; }
     if (!p.dead && _engAabb(d, p)) { game.drops.splice(i, 1);
-      p.hp = Math.min(5, p.hp + 1); game.sfxQueue.push('heart');
-      _engFloat(d.x + 4, d.y - 4, '+1', '#f8a0b0', 0); // v5 §D：回复心浮字（粉）
+      p.hp = Math.min(p.maxHp, p.hp + BAL.econ.heartHeal); game.sfxQueue.push('heart'); // v6 §C：上限随装备 maxHp
+      _engFloat(d.x + 4, d.y - 4, '+' + BAL.econ.heartHeal, '#f8a0b0', 0); // v5 §D：回复心浮字（粉）
       _engAddParts(d.x + 4, d.y + 4, 8, '#f85888', 60, 80); } }
+
+  /* ⑨″(续) v6 波2（loot 队）§3：装备掉落实体——重力/落速帽收编 BAL.econ.dropGrav/dropFall（同回复心），
+        落地反弹一次（vy×−0.4，仅首撞 vy>60）后停驻 rest；水平速度 3/s 指数衰减；
+        永不过期（跨死亡保留 §5；换关 loadLevel 清空=放弃未拾取，Boss 关由 H4 兜底）；
+        拾取=玩家 AABB 重叠 → game.pickups 事件 {slot,r} + sfx 'pickup'（H2：入包/浮字/存档全归 ui，
+        稀有度光柱/图标浮动渲染归波2 bag 队，engine 零绘制零命名表）。 */
+  for (let i = game.gearDrops.length - 1; i >= 0; i--) { const d = game.gearDrops[i];
+    d.t += dt;
+    if (!d.rest) {
+      d.vy = Math.min(d.vy + BAL.econ.dropGrav * dt, BAL.econ.dropFall);
+      d.x += d.vx * dt; d.y += d.vy * dt; d.vx *= (1 - Math.min(1, 3 * dt));   // 水平衰减
+      const ty = Math.floor((d.y + d.h) / _engTile), tx = Math.floor((d.x + 5) / _engTile);
+      if (L.solid(tx, ty, game.switchState)) {
+        d.y = ty * _engTile - d.h;
+        if (!d.bounced && d.vy > 60) { d.vy = -d.vy * 0.4; d.bounced = true; } // 落地反弹一次
+        else { d.vy = 0; d.vx = 0; d.rest = true; }                            // 停驻
+      }
+      if (d.y > L.h * _engTile + 30) { game.gearDrops.splice(i, 1); continue; } // 兜底：坠出世界
+    }
+    if (!p.dead && _engAabb(d, p)) {                                           // 拾取
+      game.pickups.push({ slot: d.slot, r: d.r });
+      game.sfxQueue.push('pickup');
+      game.gearDrops.splice(i, 1);
+    } }
+
+  /* ⑨⁗ v6 §2.2：星刃回旋实体（技能 L）——去程直线 range 160px → 回程追踪玩家 vBack 340；
+        拖尾每 0.03s 1 枚金色细长 fx（复用冲刺风粒样式）；命中不 hit-stop/震屏（远程技能保持节奏）。
+        判定每程独立：hits 记名 'e'+i+phase / 'boss'+phase（一程一目标一伤）；斩碎弹幕（含火球）无连击。 */
+  for (let i = game.blades.length - 1; i >= 0; i--) { const bl = game.blades[i];
+    bl.life -= dt;
+    const prevBlx = bl.x; // 位移前快照（回程正面判定用当帧行进向，工单 §D）
+    if (bl.phase === 0) { bl.x += bl.vx * dt; bl.trav += Math.abs(bl.vx) * dt;
+      if (bl.trav >= BAL.skills.l.range) bl.phase = 1; }               // 去程 160px（任务书）
+    else { const cx = p.x + p.w / 2, cy = p.y + p.h / 2, bx = bl.x + 6, by = bl.y + 6;
+      const dx = cx - bx, dy = cy - by, d = Math.hypot(dx, dy) || 1;
+      bl.x += dx / d * BAL.skills.l.vBack * dt; bl.y += dy / d * BAL.skills.l.vBack * dt;   // 回程向玩家追踪 340
+      if (d < 10) { _engFx(bx, by, { ring: 1, r: 2, r1: 12, life: 0.25, color: '#f8d048' }); game.blades.splice(i, 1); continue; } }
+    // 拖尾：每 0.03s 1 枚金色细长 fx（复用冲刺风粒样式 engine.js v5 §B）
+    bl.trail = (bl.trail || 0) - dt;
+    if (bl.trail <= 0) { bl.trail = 0.03;
+      _engFx(bl.x + 5 - bl.dir * 6, bl.y + 6, { vx: -bl.dir * 60, vy: 0, life: 0.22, color: '#f8d048', size: 1 }); }
+    if (bl.life <= 0) { game.blades.splice(i, 1); continue; }          // 寿命 2.6s 防丢强制回收
+    /* —— 判定（每程独立）—— */
+    const bdir = _engSign(bl.x - prevBlx) || bl.dir;                   // 当帧行进向（回程由追踪向量决定）
+    const dmg = BAL.skills.l.dmg;                                      // 固定 2，不吃 ATK（平衡表 §P 推导）
+    // ① 敌人（含骑士格挡：星刃行进向===骑士面朝侧 → GUARD 0 伤，一程记名一次；破绽态正面失效，设计 §3.3）
+    for (let j = 0; j < L.enemies.length; j++) { const e = L.enemies[j];
+      if (e.dead > 0 || bl.hits['e' + j + bl.phase] || !_engAabb(bl, e)) continue;
+      bl.hits['e' + j + bl.phase] = 1;
+      const eface = _engSign(e.vx) || e.face || 1;
+      if (e.type === 'knight' && !e.guardDown && ((bdir > 0) === (eface > 0))) {
+        game.sfxQueue.push('clank'); _engFloat(e.x + 6, e.y - 4, 'GUARD', '#ffffff', 0);
+        _engAddStars(e.x + 6, e.y + 6, 3, '#ffe9b0'); continue; }
+      e.hp = (e.hp === undefined ? 1 : e.hp) - dmg;
+      _engAddCombo();                                                  // 与普攻同口径：命中 +1 连击
+      _engFloat(e.x + 6, e.y - 4, '' + dmg, '#f8d048', 0); _engAddStars(e.x + 6, e.y + 6, 4, '#f8d048');
+      game.sfxQueue.push('hit');
+      if (e.hp <= 0) { _engKillEnemy(e); e.dvx = bl.dir * 130; e.dvy = -150;
+        _engFloat(e.x + 6, e.y - 6, 'KO', '#f8d048', 0); game.sfxQueue.push('kill'); } }
+    // ② Boss：一程一伤，固定 2，走 _engBossHurt（免伤态自动 false 不计数）
+    if (game.boss && !bl.hits['boss' + bl.phase] && _engAabb(bl, game.boss) && _engBossHurt(dmg)) {
+      bl.hits['boss' + bl.phase] = 1;
+      _engFloat(game.boss.x + 26, game.boss.y - 4, '' + dmg, '#48d8e8', 0); game.sfxQueue.push('hit'); }
+    // ③ 弹幕（含法师火球 fire:true）：斩碎，无连击（同普攻斩弹口径）
+    for (let j = game.bullets.length - 1; j >= 0; j--) { const b = game.bullets[j];
+      if (_engAabb(bl, b)) { game.bullets.splice(j, 1);
+        _engAddParts(b.x + 4, b.y + 3, 8, b.fire ? '#f86030' : '#f8b020', 80, 200); game.sfxQueue.push('break'); } } }
 
   /* ⑩ 玩家物理（含死亡冻结计时、弹簧、平台吸附、攻击/冲刺） */
   _engUpdatePlayer(dt, L, p);
@@ -1467,9 +1822,10 @@ function updateWorld(dt) {
   game.cam.x = _engClamp(game.cam.x, 0, Math.max(0, L.w * _engTile - _engVW));
   game.cam.y = _engClamp(game.cam.y, 0, Math.max(0, L.h * _engTile - _engVH));
 
-  /* ⑬′ v3：技能三 CD 递减 / 连斩白屏递减 */
+  /* ⑬′ v3：技能四 CD 递减 / 连斩白屏递减 */
   game.skills.u = Math.max(0, game.skills.u - dt);
   game.skills.i = Math.max(0, game.skills.i - dt);
   game.skills.o = Math.max(0, game.skills.o - dt);
+  game.skills.l = Math.max(0, game.skills.l - dt); // v6 §D：技能4 星刃 CD
   if (game.flashT > 0) { game.flashT -= dt; if (game.flashT < 0) game.flashT = 0; }
 }

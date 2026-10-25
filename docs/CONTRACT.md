@@ -222,3 +222,32 @@ bossSil 104×56 / meteorStreak[2] 26×8 / cloudA/B/C 各 512×80 可平铺）；
 ### PUZZLES（键追加）
 - 增键 **8/9/10**：8 偶=数独 6×6（块 2 行×3 列，按 sol 合法性自解析）、9 奇=数织 9×9
   「王冠」、10 偶=数独 9×9；三者唯一解均经独立回溯/DFS 解数器复验（解数=1）。
+
+---
+
+## 附记（v6 手感+装备，2026-10-25 · 手感队/装备引擎队录入）
+
+> 依据：docs/specs/2026-10-24-v6-brief.md 与 docs/specs/2026-10-24-v6-design.md。
+> 本附记只增不改上文任何条款（v4/v5 先例）。
+
+### engine.js 新契约导出（第 3 节追加）
+- `const BAL` —— 全数值总表（docs/specs/2026-10-24-v6-balance.md §0 为唯一权威）。
+
+### PHY 例外记录
+- v6 任务书指定 maxFall 360→285（−20.8%，超出第 3 节"±15%"微调带）、grav 1500→1320、
+  jumpV 330→309、springV 520→488（等高换算 k=√0.88）；键名不变。
+
+### 瓦片/实体字符表（第 2 节追加）
+Y 幽焰法师(12×18,hp2,站桩读条火球,下方2格内须支撑,城堡/回廊关)
+
+### engine.js 新字段（沿「扩展字段」先例）
+- game：blades[]（星刃实体）、gearDrops[]（波2 装备掉落实体）、pickups[]（拾取事件，ui 消费）、
+  bagActive（背包开启冻结，同 puzzleActive 位）、equip{atk,hp,spd,cd}（ui 写入，默认全 0）、
+  cdMul（=1-equip.cd）、input.down、input.skillLHit、skills.l。
+- 玩家：maxHp（=5+equip.hp）。
+- 敌人：ai{st,t,cd0,...}（技能状态机）、guardDown（骑士破绽）。
+- sfx 追加：'blade','mage','pickup'（波2）。
+
+### 敌人技能语义（设计书 §3）
+- 史莱姆弹跳压顶/蝙蝠俯冲撕咬/骑士盾击冲锋(+0.7s 破绽 guardDown 正面失效)/法师读条火球
+  （追踪弹 fire:true, home 计时, 可斩碎）；全部前摇 ≥0.5s，伤害统一走 _engHurtPlayer。

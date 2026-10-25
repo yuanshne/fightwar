@@ -52,6 +52,19 @@
  * —— v5 第二波·风格队（工单 v5-wave2-style）：THEMES 换值扩十主题（+wind/castle/star）；
  *   瓦片三阶 cel 硬边；_glow 发光内描边（画布尺寸零变化）；makeBG 三新分支；windmill/
  *   starflower 装饰；puzzleUI 深蓝金皮（键不变）；SPR.cover 封面素材四件。
+ * —— v6 第一波·特效队（设计书 2026-10-24-v6-design.md §10.1，工单 v6-wave1-fx）：六组新键
+ *   全部挂 SPR、既有键零改动：blade[2] 星刃回旋 12×12 双帧（十字/斜十字四芒交替自旋，
+ *   金 #f8d048/暗金 #c89010/白芯/深藏蓝描边，_glow #ffe9b0）；skL 技能槽4图标 12×12
+ *   （回旋双刃环，金家族 _glow #fff3c0）；knightGuard[2] 举盾 14×18 双帧（基准面左同
+ *   SPR.knight 惯例，帧0 前摇举盾+盾沿高光 #fff8c8 / 帧1 冲锋盾前顶+身体前倾 1px）；
+ *   mage[2]+mageCast 幽焰法师 14×18（紫黑袍 #3a2a50/#241c38、兜帽阴影脸红瞳、木杖金火种，
+ *   读条姿态举杖过头火种 3×3）；fireball[2] 追踪火球 8×8 双帧（圆焰/焰旋，_glow #ffb090）。
+ *   神龛光柱/蝙蝠瞄准线/史莱姆压扁/蓄力尘/读条圈/装备光柱=ui 程序化绘制，不产素材（工单 §6）。
+ * —— v6 第二波·外观队（设计书 §10.2/§7.5，工单 v6-wave2-look）：装备外观部件层 SPR.look
+ *   {weapon,hat,cape} 各 3 档 16×16（内容行+冻结偏移 _lookSprite 补透明行）+ 图标 icoW/icoH/icoC
+ *   12×12 灰阶基准稿（ui source-atop 叠稀有度色）+ 背包钮 icoBag；合成在 ui（cape→基础帧→
+ *   weapon/hat，攻冲家族 dx=+1）；分区红线 hat rows0..4×cols4..11 / weapon rows7..15×cols10..15
+ *   （剑身不出右缘）/ cape rows5..15×cols0..6（_v6_look_check.js 逐像素断言）；既有键零改动。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -1189,6 +1202,349 @@ const _PZ_XMARK = [ // 8×8 叉格标记：粗叉亮灰、上下尖端收暗（�
   'ww....ww',
   'd......d'];
 
+/* ==================== v6 第一波·特效队素材（设计书 §10.1，工单 v6-wave1-fx） ====================
+ * 全部手绘字符网格（行长经 tools/_v6_fx_check.js 校验），挂载于 buildSprites() v6 块。
+ * 朝向约定：knightGuard / mage 基准帧面向左（与 SPR.knight 同向 art.js:1226 先例；
+ * ui 按 e.face>0 flipCache 翻转）。blade/fireball 为无朝向弹体，ui 仅 blade 按 dir 翻转。 */
+const _P_BLADE = { k: '#1c2450', y: '#f8d048', Y: '#c89010', w: '#ffffff' }; // 内部：星刃（描边=主角深藏蓝惯例，金/暗金/白芯）
+const _BLADE_F1 = [ // 星刃帧1 12×12：十字四芒（上下左右尖），白芯 2×2 居中，右/下半暗金
+  '.....kk.....',
+  '....kyYk....',
+  '....kyYk....',
+  '...kyyYYk...',
+  '...kyyYYk...',
+  'kyyyywwyyyyk',
+  'kYYYYwwYYYYk',
+  '...kyyYYk...',
+  '...kyyYYk...',
+  '....kyYk....',
+  '....kyYk....',
+  '.....kk.....'];
+const _BLADE_F2 = [ // 星刃帧2 12×12：帧稿旋转 45°（×形四芒），白芯+暗金内环——两帧交替产生自旋
+  'kk........kk',
+  'kyy......yyk',
+  'kyyy....yyyk',
+  '.kyyy..yyyk.',
+  '..kyYYYYyk..',
+  '...kYwwYk...',
+  '...kYwwYk...',
+  '..kyYYYYyk..',
+  '.kyyy..yyyk.',
+  'kyyy....yyyk',
+  'kyy......yyk',
+  'kk........kk'];
+const _P_SKL = { k: '#7a4a10', y: '#f8d048', Y: '#c89010', w: '#fff8c8' }; // 内部：skL（金家族同 skI 挂载调色板）
+const _SK_L = [ // 技能槽4图标 12×12：回旋双刃环——两枚小四芒刃（右上/左下）对转 + 暗金轨迹点成环
+  '............',
+  '.......k....',
+  '.......kyk..',
+  '...Y.kywyk..',
+  '.......kyk..',
+  '...k...k....',
+  '..kyk.......',
+  '.kywyk..Y...',
+  '..kyk.......',
+  '...k........',
+  '............',
+  '............'];
+const _P_KNIGHT_GUARD = Object.assign({}, _P_KNIGHT, { W: '#fff8c8' }); // 内部：举盾派生（+盾沿高光，工单 §3；钢甲色系沿用 _P_KNIGHT）
+const _KN_G1 = [ // 举盾前摇 14×18：盾上提至胸（行4..11）+盾沿高光 W，双腿开立蓄势（躯干同 SPR.knight 帧1）
+  '....kkyykk....',
+  '...kssssssk...',
+  '...kssssssk...',
+  '...kesesesk...',
+  '.WWWssssssk...',
+  'LWWLsssssssyy.',
+  'LssLLLsssssSS.',
+  'LyyLLLsssssSS.',
+  'LyyLssssssk...',
+  'LssLssssssk...',
+  'LssLssbbbsk...',
+  '.LL.ssbbbsk...',
+  '....ssbbbsk...',
+  '....ksbbbkk...',
+  '.....kkk......',
+  '....kkk.kk....',
+  '....kkk..kk...',
+  '...kkk...kkk..'];
+const _KN_G2 = [ // 冲锋 14×18：盾前顶（行5..13）+盾面受光线（W/w 竖向亮带），身体前倾 1px，弓步
+  '...kkyykk.....',
+  '..kssssssk....',
+  '..kssssssk....',
+  '..kesesesk....',
+  '..kssssssk....',
+  'LWWLssssssyy..',
+  'LWwLLsssssSS..',
+  'LssLLsssssSS..',
+  'LyyLsssssk....',
+  'LyyLsssssk....',
+  'LssLsbbbsk....',
+  'LssLsbbbsk....',
+  'LssLsbbbsk....',
+  '.LLksbbbkk....',
+  '....kkk.......',
+  '...kkk.kk.....',
+  '..kkk...kk....',
+  '..kkk....kkk..'];
+const _P_MAGE = { // 内部：幽焰法师（工单 §4：紫黑袍/兜帽阴影脸+红瞳/木杖金火种）
+  k: '#181228',  // 描边·深紫黑
+  r: '#3a2a50',  // 袍基色
+  d: '#241c38',  // 袍暗部（背光侧/下摆）
+  f: '#141020',  // 兜帽阴影脸
+  e: '#f86030',  // 红瞳
+  t: '#6a5a48',  // 木杖
+  y: '#f8d048',  // 火种·亮帧
+  o: '#c89010',  // 火种·暗帧（待机明暗交替）
+  W: '#fff8c8'   // 火种芯（读条 3×3 用）
+};
+const _MAGE_1 = [ // 待机帧1 14×18：火种亮（y 2×2）+ 袍摆收
+  '.....kkkk.....',
+  '....krrrrk....',
+  'yy.krrrrrrk...',
+  'yy.krffffrk...',
+  '.t.krefferk...',
+  '.t.krffffrk...',
+  '.t.krrrrrdk...',
+  '.t.krrrrrdk...',
+  '.t.krrrrrdk...',
+  '.tkrrrrrrdk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrdddk.',
+  '.tkddddddddk..'];
+const _MAGE_2 = [ // 待机帧2 14×18：火种转暗（o）+ 袍摆飘（下两行错位 1px）——game.tick*3 取帧
+  '.....kkkk.....',
+  '....krrrrk....',
+  'oo.krrrrrrk...',
+  'oo.krffffrk...',
+  '.t.krefferk...',
+  '.t.krffffrk...',
+  '.t.krrrrrdk...',
+  '.t.krrrrrdk...',
+  '.t.krrrrrdk...',
+  '.tkrrrrrrdk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrdddk..',
+  '.tkrrrrrrdddk.',
+  '.tkdddddddk...'];
+const _MAGE_CAST = [ // 读条姿态 14×18 单帧：双手举杖过头、火种放大 3×3（白芯）——读条 0.8s 期间
+  'yyy..kkkk.....',
+  'yWy.krrrrk....',
+  'yyykrrrrrrk...',
+  '.t.krffffrk...',
+  '.trkrefferk...',
+  '.trkrffffrk...',
+  '.t.krrrrrdk...',
+  '.tkrrrrrrdk...',
+  '.tkrrrrrrdk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrddk...',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrddk..',
+  '.tkrrrrrrdddk.',
+  '.tkddddddddk..'];
+const _P_FIREB = { o: '#f86030', i: '#f8a040', w: '#fff8c8' }; // 内部：火球（外焰/内焰/白芯，无描边——_glow 出热缘）
+const _FIREB_F1 = [ // 火球帧1 8×8：圆焰
+  '..oooo..',
+  '.oiiiio.',
+  'oiiiiiio',
+  'oiiwwiio',
+  'oiiwwiio',
+  'oiiiiiio',
+  '.oiiiio.',
+  '..oooo..'];
+const _FIREB_F2 = [ // 火球帧2 8×8：略缩 + 焰旋（对角火舌，自旋感）——(tick*10|0)%2 取帧
+  '......o.',
+  '..oooo..',
+  '.oiiioo.',
+  '.oiwwioo',
+  '.oiwwio.',
+  '.oiiiio.',
+  '..oooo..',
+  '.o......'];
+
+/* ==================== v6 第二波·外观队素材（设计书 §10.2/§7.5，工单 v6-wave2-look） ====================
+ * 装备外观部件层 + 槽位图标，全部挂 SPR（合成在 ui bag 队 heroLook，本文件只产素材）。
+ * 16×16 覆盖网格：常量只存内容行，挂载时 _lookSprite(rows, top, pal) 顶部补 top 行透明、底部
+ * 补齐 16 行（v3 boss 程序化画法同款预算授权；top 偏移=分区红线锚点，冻结 weapon=7/hat=0/cape=5）。
+ * 分区红线（工单 H3，_v6_look_check.js 按偏移逐像素断言）：hat rows0..4×cols4..11（不遮脸）；
+ * weapon rows7..15×cols10..15（不出右缘 col15，防攻冲家族 dx+1 裁边）；cape rows5..15×cols0..6
+ * （底层件，画在基础帧之下）。档位（H4）：1 朴素木/布、2 秘银蓝系、3 金+星辉。 */
+function _lookSprite(rows, top, pal) { // 内部：部件内容行 → 16×16 覆盖网格精灵
+  const out = [], dot = '................';
+  for (let i = 0; i < top; i++) out.push(dot);
+  for (let i = 0; i < rows.length; i++) out.push(rows[i]);
+  while (out.length < 16) out.push(dot);
+  return _makeSprite(out, pal);
+}
+
+// —— 档1 木剑（木两阶 #c89858/#a87848 + 深木影 + 布缠柄）——
+const _P_LOOK_W1 = { k: '#1c2450', l: '#c89858', m: '#a87848', d: '#7a5430', c: '#b89878', C: '#98826a' };
+const _LOOK_W1 = [ // 木剑内容行(rows7..15)：木圆头+布缠柄（手位 r10 对齐攻帧白手套）/木护手 r11/两阶木刃
+  '.............k..',
+  '.............kl.',
+  '.............cC.',
+  '.............cC.',
+  '............dmd.',
+  '............lm..',
+  '............lm..',
+  '.............lm.',
+  '..............d.'];
+const _P_LOOK_W2 = { k: '#1c2450', L: '#8ab8e8', d: '#48a8f8', g: '#f8d048', G: '#c89010', t: '#6a4a2a', T: '#4a3218' };
+const _LOOK_W2 = [ // 秘银长剑：金圆头+皮缠柄 / 金护手 r11 / 秘银双阶刃 #8ab8e8/#48a8f8
+  '.............k..',
+  '.............kg.',
+  '.............tT.',
+  '.............tT.',
+  '............gGg.',
+  '............Ld..',
+  '............Ld..',
+  '.............Ld.',
+  '..............d.'];
+const _P_LOOK_W3 = { k: '#1c2450', W: '#e8f4ff', V: '#b8ccf0', w: '#ffffff', y: '#f8d048', Y: '#c89010' };
+const _LOOK_W3 = [ // 星辉巨剑：金头金缠柄 / 宽金护手 / 3px 宽刃渐层+金圣纹 r13+刃心星点 r12
+  '.............k..',
+  '.............ky.',
+  '.............yY.',
+  '.............yY.',
+  '...........YyyY.',
+  '...........WwV..',
+  '...........WyV..',
+  '............WWV.',
+  '..............V.'];
+
+// —— 帽子/头冠（内容行=rows0..4，top=0；帽沿 1px 深藏蓝 'k' 与发色描边衔接）——
+const _P_LOOK_H1 = { k: '#1c2450', m: '#a87848', d: '#7a5430', C: '#c89858' };
+const _LOOK_H1 = [ // 档1 布帽：棕 #a87848 帽冠+浅布补丁 C+右垂尖 d（帽沿 k 行 r3）
+  '......kkkk......',
+  '.....kmmmmk.....',
+  '....kmCmmmk.....',
+  '....kkkkkkkd....',
+  '...........d....'];
+const _P_LOOK_H2 = { k: '#1c2450', L: '#8ab8e8', S: '#4878b8', b: '#2860c0', w: '#e8f4ff' };
+const _LOOK_H2 = [ // 档2 秘银头冠：银蓝冠圈（L/S 双阶拱圈）+ 冠带中央单颗蓝宝石 b+w 高光
+  '.......kk.......',
+  '......kLLk......',
+  '.....kLLLLk.....',
+  '....kSSbwSSk....',
+  '....kkkkkkkk....'];
+const _P_LOOK_H3 = { k: '#1c2450', y: '#f8d048', Y: '#c89010', r: '#f86030', w: '#fff8c8' };
+const _LOOK_H3 = [ // 档3 神话金冠：金三尖冠 + 冠带白星辉点 + 中央红宝石 #f86030
+  '.....y.yy.y.....',
+  '.....yyyyyy.....',
+  '....kyywyyyk....',
+  '....kYYrrYYk....',
+  '....kkkkkkkk....'];
+
+// —— 背后披风（内容行=rows5..15，top=5；底层件，画在基础帧之下）——
+const _P_LOOK_C1 = { h: '#a08e78', g: '#8a7a68', D: '#64584a' };
+const _LOOK_C1 = [ // 档1 破布披：灰褐 #8a7a68，r12 破洞 + 缺角下摆（r15 缺左角），摆幅 3px
+  'hg..............',
+  'hg..............',
+  'hg..............',
+  'hg..............',
+  'g...............',
+  'g...............',
+  'gg..............',
+  'g.g.............',
+  'Dgg.............',
+  'Dgg.............',
+  '.Dgg............'];
+const _P_LOOK_C2 = { L: '#8ab8e8', B: '#4878b8', D: '#2c5490', w: '#e8f4ff' };
+const _LOOK_C2 = [ // 档2 秘银披：蓝银双层（受光棱 L+基色 B+内层 D）+ 下摆亮线 w 角，摆幅 4px
+  'LB..............',
+  'LB..............',
+  'LB..............',
+  'LB..............',
+  'L...............',
+  'L...............',
+  'LB..............',
+  'LBB.............',
+  'LBBD............',
+  'LBBD............',
+  'LBBw............'];
+const _P_LOOK_C3 = { y: '#f8d048', B: '#2c3a70', w: '#ffffff' };
+const _LOOK_C3 = [ // 档3 星辉披风：深蓝 #2c3a70 底+左缘金边全程+散白星点，摆幅 5px
+  'yB..............',
+  'yB..............',
+  'yB..............',
+  'yB..............',
+  'y...............',
+  'y...............',
+  'yB..............',
+  'ywB.............',
+  'yBBB............',
+  'yBwBB...........',
+  'yBBBw...........'];
+
+// —— 槽位图标 12×12：灰阶三阶基准稿 #ffffff/#a8a8b8/#585868（ui source-atop 叠稀有度色，
+//     基稿不带彩色）+ 深藏蓝描边 1px（_P_HERO 'k' 惯例）——
+const _P_ICO = { k: '#1c2450', W: '#ffffff', A: '#a8a8b8', D: '#585868' };
+const _ICO_W = [ // 武器槽：斜剑剪影（刃芯 W+刃缘 A 斜行 / 护手横杠 / 柄+圆头 D）
+  '............',
+  '.........kWk',
+  '........kWAk',
+  '.......kWAk.',
+  '......kWAk..',
+  '.....kWAk...',
+  '..kkkWAkkk..',
+  '....kDk.....',
+  '...kDk......',
+  '...kkk......',
+  '...kDk......',
+  '....k.......'];
+const _ICO_H = [ // 头饰槽：三尖冠剪影（W 尖+冠带 / D 带底影）
+  '............',
+  '............',
+  '............',
+  '..W..WW..W..',
+  '.WWW.WW.WWW.',
+  '.WWWWWWWWWW.',
+  'kWWWWWWWWWWk',
+  'kDDDDDDDDDDk',
+  '.kkkkkkkkkk.',
+  '............',
+  '............',
+  '............'];
+const _ICO_C = [ // 披风槽：氅剪影（领结收顶 → 下摆展宽 → D 影底缘）
+  '............',
+  '....kWWk....',
+  '...kWWWWk...',
+  '..kAWWWWAk..',
+  '..kAWWWWAk..',
+  '.kAWWWWWWAk.',
+  '.kAWWWWWWAk.',
+  '.kAWWWWWWAk.',
+  'kAWWWWWWWWAk',
+  'kAWWWWWWWWAk',
+  'kDDDDDDDDDDk',
+  '.kkkkkkkkkk.'];
+const _P_ICO_BAG = { k: '#1c2450', m: '#a87848', d: '#7a5430', l: '#c89858', y: '#f8d048', Y: '#c89010' };
+const _ICO_BAG = [ // HUD 背包钮：囊袋（提手+盖 flap l+袋身 m）+ 中带金扣 y/Y + 袋底影 d
+  '............',
+  '....kkkk....',
+  '....k..k....',
+  '..kkkkkkkk..',
+  '.kllllllllk.',
+  '.kllllllllk.',
+  'kmlllYYlllmk',
+  'kmmmmYYmmmmk',
+  'kmmmmYYmmmmk',
+  'kmmmmmmmmmmk',
+  'kddddddddddk',
+  '.kkkkkkkkkk.'];
+
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
@@ -1409,6 +1765,19 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.skU = _glow(_makeSprite(_SK_U, _P_SKU), '#fff3c0');                 // 技能栏图标 12×12（发光件）
   SPR.skI = _glow(_makeSprite(_SK_I, { k: '#7a4a10', y: '#f8d048', Y: '#c89010', w: '#fff8c8' }), '#fff3c0'); // v5 盾徽重绘
   SPR.skO = _glow(_makeSprite(_SK_O, { k: '#181232', w: '#ffffff', c: '#48d8e8', Y: '#f8d048' }), '#fff3c0'); // v5 竖剑重绘
+  // —— v6 第一波·特效队（设计书 §10.1，工单 v6-wave1-fx）：六组新键，既有键零改动 ——
+  SPR.blade = [ // 星刃回旋 12×12 双帧（十字/斜十字交替自旋；ui (tick*14|0)%2 取帧，dir<0 flipCache）
+    _glow(_makeSprite(_BLADE_F1, _P_BLADE), '#ffe9b0'),
+    _glow(_makeSprite(_BLADE_F2, _P_BLADE), '#ffe9b0')];
+  SPR.skL = _glow(_makeSprite(_SK_L, _P_SKL), '#fff3c0'); // 技能槽4·星刃回旋图标（金家族同 skU/skI/skO）
+  SPR.knightGuard = [ // 骑士举盾 14×18 双帧：帧0=前摇举盾 / 帧1=冲锋盾前顶（基准面左，ui e.face>0 flipCache）
+    _makeSprite(_KN_G1, _P_KNIGHT_GUARD), _makeSprite(_KN_G2, _P_KNIGHT_GUARD)];
+  SPR.mage = [ // 幽焰法师 14×18 待机两帧（火种明暗+袍摆交替；ui (e.t*3|0)%2，e.face>0 flipCache）
+    _makeSprite(_MAGE_1, _P_MAGE), _makeSprite(_MAGE_2, _P_MAGE)];
+  SPR.mageCast = _makeSprite(_MAGE_CAST, _P_MAGE); // 读条姿态 14×18 单帧（杖顶火种 3×3，读条 0.8s 期间）
+  SPR.fireball = [ // 追踪火球 8×8 双帧（圆焰/焰旋；ui b.fire 分支 (tick*10|0)%2 取帧）
+    _glow(_makeSprite(_FIREB_F1, _P_FIREB), '#ffb090'),
+    _glow(_makeSprite(_FIREB_F2, _P_FIREB), '#ffb090')];
   // —— v4：谜题神龛（off 暗青石单帧；on 点亮金纹+星光 2 帧；v5 发光件）——
   SPR.shrineOff = _makeSprite(_SHRINE, _P_SH_OFF);
   SPR.shrineOn = [0, 1].map(function (f) { // [大星芒,收暗碎光]；ui 按 (tick*4|0)%2 取帧
@@ -1503,6 +1872,17 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     cv.cloudC = cloud('#5a6a94', '#3c4a72', 8, true);
     return cv;
   })();
+  // —— v6 第二波·外观队（工单 v6-wave2-look）：键名=bag 工单冻结接口（ui 逐字消费）；下标 0/1/2=
+  // 档1 木布/档2 秘银/档3 金星辉（ui look(r)=r<2?0:r<4?1:2 取档）；top 偏移=分区锚点 7/0/5。
+  SPR.look = {
+    weapon: [_lookSprite(_LOOK_W1, 7, _P_LOOK_W1), _lookSprite(_LOOK_W2, 7, _P_LOOK_W2), _lookSprite(_LOOK_W3, 7, _P_LOOK_W3)],
+    hat: [_lookSprite(_LOOK_H1, 0, _P_LOOK_H1), _lookSprite(_LOOK_H2, 0, _P_LOOK_H2), _lookSprite(_LOOK_H3, 0, _P_LOOK_H3)],
+    cape: [_lookSprite(_LOOK_C1, 5, _P_LOOK_C1), _lookSprite(_LOOK_C2, 5, _P_LOOK_C2), _lookSprite(_LOOK_C3, 5, _P_LOOK_C3)]
+  };
+  SPR.icoW = _makeSprite(_ICO_W, _P_ICO);         // 武器槽图标 12×12 灰阶基准稿（ui 叠稀有度色）
+  SPR.icoH = _makeSprite(_ICO_H, _P_ICO);         // 头饰槽图标
+  SPR.icoC = _makeSprite(_ICO_C, _P_ICO);         // 披风槽图标
+  SPR.icoBag = _makeSprite(_ICO_BAG, _P_ICO_BAG); // HUD 背包钮图标（金棕+金扣，非灰阶不叠色）
   return SPR;
 }
 
