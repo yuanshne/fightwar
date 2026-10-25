@@ -96,6 +96,29 @@
        +chestGem 入 coins 不污染 totalCoin；opened 跨死亡保留）、'R' 灯笼（纯数据光源实体）、
        '{'/'}' 水流（玩家专属水平加速，BAL.flow）；
      - 杂项：_engDecorFallback 补 sea/nether；sfx 新事件 'chest','boom','blink','sweep'（engine 只 push）。
+   v7.6 增量（审计修复：渲染表/碰撞表/伤害表/静态断言表四套口径对齐）：
+     - 缺陷1：敌人垂直落地补 '=' 单向平台（_engFootTile = solid ∪ '='，语义对齐玩家 p.standOn：
+       仅下落中且脚底上一帧在平台顶之上才吸附；掉头判定的「前方无落脚点」同步用该口径，否则平台上原地抖）；
+     - 缺陷2：飞行巡逻（蝙蝠）补前方实心探测 + 撞墙钳位掉头，正弦浮动也不许钻实心（_engBodySolid）；
+       俯冲 AI 的 aim/dive/back 状态机与撞墙提前结束判定不动；
+     - 缺陷3：炮台开火前查炮口净空（_engMuzzleBlocked，6 格/96px），被堵则空转不开火不闪；
+       挡路物是可碎木箱时玩家砸箱后自动恢复射击；
+     - 缺陷4：魂火自爆判定由「中心距 ≤ r」改为「爆心到玩家矩形最近点 ≤ r」（契约算法 5 口径），
+       BAL.enemy.boomer.skill.r 30→16（精灵 10×10，旧值中心距 30 时边缘还差 20px 就掉血）；
+     - 缺陷5：弹簧触发带 s.y±10（20px）收紧到精灵可视区间 [s.y-2, s.y+6]，改用本帧脚底扫掠区间判定；
+     - 缺陷6：移动平台行程不再写死 ±56/±48，构造期沿运动方向逐格扫 _railSolid 截断（<1 格退化为静止+warn）；
+     - 缺陷7：_railSolid 补齐 'G' '(' ')' 与 solid() 同步（电锯/平台轨道不再穿过隐藏砖与传送带）；
+       levels.js 的 SOLIDISH 同步补 '(' ')'。
+   v7.7 增量（手感：对照空洞骑士逐项实测后只动「衔接」，不动「机动」）：
+     - 冲刺：BAL.dash.cd 0.8→0.5 + 落地瞬间 p.dashCd 清零（触地即刷新）；蓄力段 0.05s 不再把跑速砍到
+       60（同向保留当前速度）——起手 3 帧顿挫消失。dur/v 一字未动 ⇒ 冲刺距离 59.53px 不变；
+     - 攻击：输入缓冲 p.abuf 0.12s（原冷却中按下直接丢弃 = 吞键）；松键截断去掉 prevJump 前提
+       （缓冲跳也一致：短按永远矮、长按永远满高）；
+     - 空中：_engAirAcc 0.75→1.0（同向加速与地面同档，转向仍 1.5×）；jumpV/grav/maxRun 全部不动；
+     - 局外成长：v7.7 曾加过读侧（hp/atk/冲刺冷却三键加成），已按决定整体移除——数值回到
+       纯基础值 + 装备加成；BAL.dash.cd=0.5 属手感改动，保留。
+     实测（tools/_v77_feel.js）：满跳 33.6px 不变、短按 16.87→14.99px、跑速位移 115.83px 不变、
+     冲刺距离 59.53px 不变、冲刺冷却 48→31 帧；reach 26/26 保持。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -188,7 +211,8 @@ const BAL = {
   player:{ hpBase: 5, atkBase: 1, critMul: 2, critMod: 4,
            stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
   atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
-  dash:  { cd: 0.8, dur: 0.28, v: 260, gravMul: 0.5 },
+  // v7.7 手感：cd 0.8→0.5（对照空洞骑士 0.45~0.55s；dur/v 不动 ⇒ 冲刺距离 59.53px 不变）
+  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5 },
   combo: { win: 2, ultNeed: 8 },
   // v7.1 O 重做：连击门槛与实战节奏脱节（怪少窗短叠不满 8）→ 改能量充能制：
   // 任何命中充 ultCharge.hit（碎砖减半），满 ultNeed 释放；死亡/断连击不清充能
@@ -209,7 +233,7 @@ const BAL = {
     lancer: { hp: 3, spd: 34, fall: 300, skill: { rngX: 72, rngY: 24, wind: 0.55, vx: 240, dur: 0.28, recover: 0.5, cd: 4.5 } },
     jelly:  { hp: 2, skill: { rng: 40, wind: 0.6, dur: 0.4, ring: 18, cd: 5.0 } },
     ghost:  { hp: 3, skill: { wake: 150, lose: 260, spd: 26, home: 40 } },
-    boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 30 } } },
+    boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 16 } } },
   boss:  { hp: 60, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
            windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55 }, p2WindMul: 0.85,
            idleT: [0.6, 0.45], walk: [20, 25],
@@ -287,13 +311,19 @@ const _engComboWin = BAL.combo.win;   // 内部：连击计数窗口（s）
 /* ==================== v5 手感常量（内部，设计 §1/§4；工单 §A/§B/§F） ==================== */
 const _engDjV = 0.92;                 // 内部：二段跳速度系数（vy=-jumpV*0.92=-284.3；v6 随 jumpV 等比）
 const _engDjT = 0.4;                  // 内部：二段跳空翻演出时长（s，ui 渲染用）
-const _engAirAcc = 0.75;              // 内部：空中同向加速度倍率（0.75×acc=1050）
+const _engAirAcc = 1.0;               // 内部：空中同向加速度倍率（v7.7：0.75→1.0——与地面同档，去掉「空中变笨」的 25% 惩罚）
 const _engAirTurn = 1.5;              // 内部：空中转向加速度倍率（1.5×acc=2100，惯性减半感）
 const _engAirDrag = 240;              // 内部：空中无输入阻尼（保留漂移惯性，不再全额摩擦）
 const _engKbV = 220, _engKbFric = 600; // 内部：击退速度/摩擦（220²/(2*600)≈40px，设计 §2#2）
 const _engWindUp = 1900, _engWindCap = 170; // 内部：上升气流加速度/上升终速（净 -400px/s²，设计 §4.1）
 const _engAtkAnim = 0.25;             // 内部：攻击总动画时长（起手 0.05+判定 0.12+余韵 0.08，设计 §2#8）
 const _engAtkWind = 0.05;             // 内部：攻击起手时长（期间无判定）
+
+/* ==================== v7.7 手感常量（内部；对照空洞骑士「动作衔接」逐项） ====================
+   攻击输入缓冲：冷却中按下不再直接吞键（原来 0.35s 冷却里狂按只剩「没反应」），
+   冷却一结束立刻起手——空洞骑士的「按下=出手」在引擎侧的等价物。
+   （v7.7 曾在此为「局外成长削减冲刺冷却」留过一个每级步长常量，局外成长移除后一并删除。） */
+const _engAtkBuf = 0.12;              // 内部：攻击输入缓冲窗口（s，约 7 帧；> 1 帧输入抖动，< 冷却 0.35）
 
 /* ==================== v3 Boss/技能常量（内部） ====================
    v7 §6：Boss 激活半径改由 _engBossTable(kind).actDist 供表（三表同值 176，零行为变化），
@@ -458,6 +488,40 @@ class Level {
       }
     }
 
+    /* ---------- v7.6 缺陷6：移动平台轨道扫描（沿运动方向逐格探，遇实心截断行程） ----------
+       背景：_mkPlat 的行程写死 ±56/±48，从不问地图——L3 plat#4 左行压进 7 格墙、plat#5 压进 2 格，
+       平台整个穿墙而过（画面上是「铁板从砖里穿出来」）。这里沿用上面电锯轨道的扫描写法（同一套
+       _railSolid 语义，含 v7.6 缺陷7 补齐的 'G' '(' ')'），只是平台宽 48/高 8，要按整块矩形判。
+       行程按 16px 步进截断：平台宽高均为 16 的整数倍且瓦片对齐，所以逐格步进的端点判定已覆盖扫掠区域。
+       截断后总行程 < 1 格 → 退化为静止平台 + console.warn（宁可不动的可见平台，也不要穿墙的假机关）。 */
+    for (const pl of this.plats) {
+      const spanClear = (nx, ny) => {
+        const x0 = Math.floor(nx / _engTile), x1 = Math.floor((nx + pl.w - _engEps) / _engTile);
+        const y0 = Math.floor(ny / _engTile), y1 = Math.floor((ny + pl.h - _engEps) / _engTile);
+        for (let ty = y0; ty <= y1; ty++)
+          for (let tx = x0; tx <= x1; tx++) if (this._railSolid(tx, ty)) return false;
+        return true;
+      };
+      if (pl.hz) {
+        // 步进档位 = 原行程 56 的 16px 整数分段 + 末段 8px（保持「无墙时行程与 v7.5 完全一致」）
+        let l = 0, r = 0;
+        for (const off of [16, 32, 48, 56]) { if (!spanClear(pl.x - off, pl.y)) break; l = off; }
+        for (const off of [16, 32, 48, 56]) { if (!spanClear(pl.x + off, pl.y)) break; r = off; }
+        if (l + r < _engTile) {
+          console.warn('[engine] L' + (idx + 1) + ' 移动平台(' + pl.x + ',' + pl.y + ') 水平行程不足 1 格（左右各 ' + l + '/' + r + 'px），退化为静止');
+          pl.minX = pl.x; pl.maxX = pl.x;
+        } else { pl.minX = pl.x - l; pl.maxX = pl.x + r; }
+      } else {
+        let u = 0, d = 0;
+        for (const off of [16, 32, 48]) { if (!spanClear(pl.x, pl.y - off)) break; u = off; }
+        for (const off of [16, 32, 48]) { if (!spanClear(pl.x, pl.y + off)) break; d = off; }
+        if (u + d < _engTile) {
+          console.warn('[engine] L' + (idx + 1) + ' 移动平台(' + pl.x + ',' + pl.y + ') 垂直行程不足 1 格（上下各 ' + u + '/' + d + 'px），退化为静止');
+          pl.minY = pl.y; pl.maxY = pl.y;
+        } else { pl.minY = pl.y - u; pl.maxY = pl.y + d; }
+      }
+    }
+
     /* ---------- v5 §F：传送门配对——按 (x,y) 字典序排序后两两相邻（'e' 数量须为偶，
           validateLevels 断言；奇数个时最后一门 partner=null 永不触发，空转安全） ---------- */
     this.portals.sort(function (a, b) { return a.x - b.x || a.y - b.y; });
@@ -494,9 +558,13 @@ class Level {
     };
   }
 
-  _railSolid(tx, ty) { // 内部（类成员）：电锯轨道的「实心」语义（构造期恒实的瓦片）
+  _railSolid(tx, ty) { // 内部（类成员）：电锯/移动平台轨道的「实心」语义（构造期恒实的瓦片）
+    // v7.6 缺陷7：补齐 'G'（隐藏砖 v7 §4.2）、'(' / ')'（传送带 v7.5）。此前本集合只认 7 个字符，
+    // 而 solid() 认 10 个 → 电锯会穿过隐藏砖、平台会压进传送带。
+    // **必须与 solid() 保持同步，否则电锯会穿过或卡在墙上**（两边任一侧漏字符都是隐形墙/假穿墙）。
     const ch = this.tileAt(tx, ty);
-    return ch === '#' || ch === 'I' || ch === 'a' || ch === 'b' || ch === 'D' || ch === 'C' || ch === 'B';
+    return ch === '#' || ch === 'I' || ch === 'a' || ch === 'b' || ch === 'D' || ch === 'C' || ch === 'B'
+        || ch === 'G' || ch === '(' || ch === ')';
   }
 
   tileAt(tx, ty) { // 越界规则：x 方向返回'#'（左右墙），y<0 与 y≥h 返回'.'
@@ -600,12 +668,13 @@ function _engMkEnemy(type, px, py, elite) { // 内部：v7 新敌统一工厂（
 }
 
 function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 + v2 P1 攻击/冲刺字段 + v3/v5/v6 扩展）
-  const maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0); // v6 §C：装备头饰加成上限（缺省=5）
+  const maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0); // v6 §C：装备头饰加成上限（缺省=5）；v7.7：局外成长项已删（纯基础值+装备）
   return {
     x: x, y: y, w: 10, h: 14, vx: 0, vy: 0, face: 1,
     onGround: false, coyote: 0, jbuf: 0, anim: 'idle', animT: 0,
     dead: false, deadT: 0, standOn: null, landT: 0,
     atkCd: 0, atkT: 0,     // v2 P1：攻击冷却剩余 / 判定框剩余存在时间
+    abuf: 0,               // v7.7：攻击输入缓冲剩余（冷却中按下 → 冷却一结束立刻起手）
     dashCd: 0, dashT: 0, dashDir: 1, // v2 P1：冲刺冷却剩余 / 持续剩余 / 方向
     hp: maxHp, maxHp: maxHp, invT: 0, shieldT: 0, castT: 0, // v3：心形 HP / 受伤无敌剩余 / 护盾剩余 / 施法姿态剩余；v6 §C：maxHp=5+equip.hp
     jumpCut: false, prevJump: 0, // v2.6：松手截断只作用于普通跳；prevJump 记录跳键上一帧状态
@@ -655,9 +724,9 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.x = game.respawnAt.x; p.y = game.respawnAt.y;
   p.vx = 0; p.vy = 0; p.dead = false; p.deadT = 0;
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
-  p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; // v2 P1：动作状态复位
+  p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; p.abuf = 0; // v2 P1：动作状态复位（v7.7 追加攻击缓冲）
   // v6 §C：HP 回满（maxHp 含装备头饰加成）+ BAL 出生保护；技能 CD 保留计时（设计 §5）
-  p.maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0);
+  p.maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0); // v7.7：局外成长项已删（否则复活后上限与出生时不一致）
   p.hp = p.maxHp; p.invT = BAL.player.respawnInvT; p.shieldT = 0; p.castT = 0;
   p.jumpCut = false; p.prevJump = 0;
   // v5 §A：二段跳/手感演出状态复位（复活=重置为 1，设计 §1.1；floats/fx 保留自然消散）
@@ -693,7 +762,7 @@ function killPlayer() {
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return;
   p.dead = true; p.deadT = 0;
-  p.atkT = 0; p.dashT = 0; // v2 P1：动作状态随死亡终止
+  p.atkT = 0; p.dashT = 0; p.abuf = 0; // v2 P1：动作状态随死亡终止（v7.7 追加攻击缓冲）
   game.deaths++; game.shake = 8; // v2 P1：死亡震屏 6→8
   game.sfxQueue.push('die'); // 音效只能入队，engine 不发声
   _engAddParts(p.x + 5, p.y + 7, 18, '#f08830', 120);
@@ -1124,6 +1193,34 @@ function _engPlayerInSolid(L) { // 内部：玩家矩形是否与实心瓦片重
   return hit;
 }
 
+const _engMuzzleRange = 6; // 内部（v7.6 缺陷3）：炮口净空门禁 = 前方 6 格（96px）；短于此的弹道玩家读不出来
+function _engMuzzleBlocked(L, cn) { // 内部（v7.6 缺陷3）：炮口前方 _engMuzzleRange 格内是否有实心瓦片
+  // 与炮弹自身的死亡判据（⑧ 滤池里 floor((b.x+4)/16) 查 solid）同口径，只是提前在开火前问一次；
+  // 含 'B' 木箱（可碎 → 砸开后自动放行）与随开关变化的 a/b、未开的 D、未塌的 C。
+  const y0 = Math.floor((cn.y + 4) / _engTile), y1 = Math.floor((cn.y + 9) / _engTile);
+  const tx0 = Math.floor((cn.x + (cn.dir > 0 ? 16 : -8)) / _engTile);
+  for (let d = 0; d < _engMuzzleRange; d++) {
+    const tx = cn.dir > 0 ? tx0 + d : tx0 - d;
+    for (let ty = y0; ty <= y1; ty++) if (L.solid(tx, ty, game.switchState)) return true;
+  }
+  return false;
+}
+
+function _engBodySolid(L, e, x, y) { // 内部（v7.6 缺陷2）：矩形 (x,y,e.w,e.h) 是否压到实心瓦片
+  // 飞行巡逻者（蝙蝠/水母/幽灵）的「不嵌墙」判据；只读 solid()，不含 '='（单向平台对飞行体是空气）。
+  const x0 = Math.floor(x / _engTile), x1 = Math.floor((x + e.w - _engEps) / _engTile);
+  const y0 = Math.floor(y / _engTile), y1 = Math.floor((y + e.h - _engEps) / _engTile);
+  for (let ty = y0; ty <= y1; ty++)
+    for (let tx = x0; tx <= x1; tx++) if (L.solid(tx, ty, game.switchState)) return true;
+  return false;
+}
+
+function _engFootTile(L, tx, ty) { // 内部（v7.6 缺陷1）：敌人的「可落脚面」口径 = solid() ∪ '=' 单向平台
+  // 与玩家落地判定（updatePlayer 的 '=' 分支）同集合；敌人的水平掉头/垂直吸附都必须走这一个口径，
+  // 否则 levels.js 的 STAND 集合（认 '='）与引擎（只认 solid()）分叉 → 单向平台上的敌人掉下去或原地抖。
+  return L.solid(tx, ty, game.switchState) || L.tileAt(tx, ty) === '=';
+}
+
 function _engOnCrumble(p, c) { // 内部：玩家是否正踩在此崩塌砖顶面上
   if (!p.onGround) return false;
   const bx = c.x * _engTile, by = c.y * _engTile;
@@ -1317,7 +1414,16 @@ function _engEnemySkill(e, dt, L, p) { // 内部（v6 §E）：四类敌人技�
         _engAddParts(e.x + 5, e.y + 5, 18, '#f8a030', 150, 200);
         _engAddParts(e.x + 5, e.y + 5, 10, '#f86030', 110, 150);
         _engShake(5, 0); game.sfxQueue.push('boom');
-        if (!p.dead && Math.hypot(dx, dy) <= sk.r) _engHurtPlayer(e.x + e.w / 2);
+        // v7.6 缺陷4：自爆判定从「中心距 ≤ r(30)」改成「爆心到玩家矩形最近点 ≤ r(16)」——
+        // 口径与电锯/摆锤一致（契约算法 5）。旧写法只看中心距，而精灵只有 10×10、玩家 10×14，
+        // 中心距 30 时两者边缘还差 20px，视觉上明显没碰到就掉血。改后实际触及距离 =
+        // r + 玩家半宽/半高（水平 ≈21px、垂直 ≈23px），20px 内必中、30px 外不中（实测见报告）。
+        if (!p.dead) {
+          const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+          const nx = _engClamp(ex, p.x, p.x + p.w), ny = _engClamp(ey, p.y, p.y + p.h);
+          const ddx = ex - nx, ddy = ey - ny;
+          if (ddx * ddx + ddy * ddy <= sk.r * sk.r) _engHurtPlayer(ex);
+        }
       }
     } else { // idle
       if (Math.abs(dx) <= sk.wake) e.vx = _engSign(dx) * BAL.enemy.boomer.spd * (e.elite ? BAL.elite.spdMul : 1);
@@ -1332,7 +1438,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   if (!(p.atkT > 0) || p.dead) return;
   const box = { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
   // v5 §2#4：暴击——本击使连击数到 critMod 的倍数 → 伤害×critMul、金色数字（hit-stop 不变）；全分支共用
-  // v6 §C：ATK = atkBase + equip.atk（装备武器注入，波1 恒 1）
+  // v6 §C：ATK = atkBase + equip.atk（装备武器注入，波1 恒 1）；v7.7：局外成长项已删（暴击仍 ×critMul）
   const crit = ((game.combo + 1) % BAL.player.critMod) === 0;
   const ATK = BAL.player.atkBase + (game.equip ? game.equip.atk : 0);
   const dmg = crit ? ATK * BAL.player.critMul : ATK;
@@ -1438,7 +1544,12 @@ function _engUpdatePlayer(dt, L, p) {
   }
   if (game.input.attackHit) {
     game.input.attackHit = 0; // 消费边沿（空挥也进入冷却，防止按住刷判定）
+    p.abuf = _engAtkBuf;      // v7.7：改存缓冲——冷却中按下不再被吞（原先 atkCd>0 时边沿直接丢弃，0.35s 冷却里连按只剩「没反应」）
+  }
+  if (p.abuf > 0) {           // v7.7：缓冲到点即起手（对照空洞骑士「按下=出手」，冷却只限频率、不吃输入）
+    p.abuf -= dt;
     if (p.atkCd <= 0 && p.dashT <= 0) { // v5 §C：冲刺期间不起手（三段占用操控）
+      p.abuf = 0;
       p.atkCd = _engAtkCd; p.atkAnim = _engAtkAnim; p.atkWind = _engAtkWind; p.atkT = 0;
       p.atkSeq = (p.atkSeq || 0) + 1; // v5：新摆新序号（§N.c 一摆一伤口径）
       game.sfxQueue.push('swing'); // v5 §H：呼啸（原 'slash' 废弃）
@@ -1447,7 +1558,7 @@ function _engUpdatePlayer(dt, L, p) {
   if (game.input.dashHit) {
     game.input.dashHit = 0;
     if (p.dashCd <= 0) {
-      p.dashCd = _engDashCd; p.dashT = _engDashDur; // v5 §B：总时长 0.28（原 0.18）
+      p.dashCd = _engDashCd; p.dashT = _engDashDur; // v5 §B：总时长 0.28（原 0.18）；v7.7：冷却回到基础值 0.5s（局外成长已删）
       p.dashDir = dir !== 0 ? dir : p.face; // 有方向输入用输入向，否则用面向
       game.sfxQueue.push('dash');
       _engAddParts(p.x + 5 - p.dashDir * 6, p.y + 7, 6, '#48d8e8', 60, 0);
@@ -1476,7 +1587,9 @@ function _engUpdatePlayer(dt, L, p) {
     const el = _engDashDur - p.dashT; // 已流逝秒
     p.face = p.dashDir;
     if (el < 0.05) {
-      p.vx = p.dashDir * 60; // 蓄力段（ui 按 el<0.05 画后仰帧 heroDashWind）
+      // v7.7：蓄力段不再把跑速砍到 60——原来「120 跑着按冲刺」会先掉到 60 再爆到 260，起手有 3 帧顿挫。
+      // 同向保留当前速度（≤dashV），反向/静止仍 60：只增不减，冲刺距离不缩水。
+      p.vx = p.dashDir * ((_engSign(p.vx) === p.dashDir) ? Math.max(60, Math.min(_engDashV, Math.abs(p.vx))) : 60);
     } else if (el < 0.23) { // 爆发段
       p.vx = p.dashDir * _engDashV;
       p.windT = (p.windT || 0) - dt;
@@ -1542,8 +1655,10 @@ function _engUpdatePlayer(dt, L, p) {
     game.sfxQueue.push('jump');
     _engAddParts(p.x + 5, p.y + 14, 8, (L.theme && L.theme.dust) || '#ffffff', 55, 220); // v2 P1：起跳粒子加强 4→8
   }
-  if (p.jumpCut && p.vy < 0 && p.prevJump && !game.input.jump) p.vy *= 0.45; // 松键瞬间一次性截断=可变跳高（弹簧/踩踏不受影响）
-  p.prevJump = game.input.jump ? 1 : 0;
+  // v7.7：去掉 prevJump 前提——缓冲跳（落地瞬间自动补跳）同样吃松手截断。
+  // 原来「按一下就在空中松开、落地才生效」的缓冲跳永远满高，短按有时矮有时满，手感不一致。
+  if (p.jumpCut && p.vy < 0 && !game.input.jump) p.vy *= 0.45;
+  p.prevJump = game.input.jump ? 1 : 0; // v7.7：仅保留记录（不再参与截断判定）
   { // v5 §B：重力减半仅冲刺爆发段（0.05~0.23s）；蓄力/滑行正常重力
     const dashEl = p.dashT > 0 ? _engDashDur - p.dashT : -1;
     const g = PHY.grav * (dashEl >= 0.05 && dashEl < 0.23 ? _engDashGrav : 1);
@@ -1621,13 +1736,22 @@ function _engUpdatePlayer(dt, L, p) {
     else game.sfxQueue.push('land');
     p.jumpCut = false; // 落地解除截断（音效按档位入队）
   }
+  // v7.7：落地瞬间冲刺冷却清零（对照空洞骑士「触地即刷新冲刺」）——长距离下落/被击飞后落地能立刻接冲刺，
+  // 原来 0.8s 冷却跨过落地仍要继续等；放在 landT 门控之外，连跳二段落地（landT 未归零）同样刷新。
+  if (p.onGround && !wasGround) p.dashCd = 0;
   p.landT -= dt;
 
-  /* ---- 弹簧（契约算法 7：vy≥0 + 水平重叠 + 脚底在弹簧顶 ±10px） ---- */
+  /* ---- 弹簧（契约算法 7：vy≥0 + 水平重叠 + 脚底扫过弹簧可视面） ---- */
   for (const s of L.springs) {
     s.t -= dt;
+    // v7.6 缺陷5：触发带从 s.y±10（20px 宽）收紧到精灵实际可视区间 [s.y-2, s.y+6]。
+    // 依据：ui.js:1078 以 (s.x, s.y-2) 绘制 SPR.springC，而 springC 是 12×8 → 可视顶 s.y-2、可视底 s.y+6。
+    // 旧口径下脚底相对 s.y 偏移 -12..+14 都会弹（视觉上还差 10px 就弹飞），现在偏差 0。
+    // 用「本帧扫过区间」而非单点：wasFeet 是 Y 位移前的脚底（updatePlayer 开头取值），
+    // 因此下落再快也不会跨过 8px 可视带漏判——「踩上了不弹」比「弹早一点」严重得多。
+    const feet = p.y + p.h;
     if (p.vy >= 0 && p.x + p.w > s.x && p.x < s.x + s.w &&
-        p.y + p.h >= s.y - 10 && p.y + p.h <= s.y + 10) {
+        feet >= s.y - 2 && wasFeet <= s.y + 6) {
       p.vy = -PHY.springV; p.onGround = false; p.standOn = null;
       p.jbuf = 0; p.coyote = 0; p.jumpCut = false; // 清缓冲防弱跳覆盖弹簧；弹簧不吃松手截断
       p.airJumps = 1; p.springAir = true; // v5 §1.1：重置二段跳但弹跳全程锁定（保 L5 弹簧岛链弧线）
@@ -1887,9 +2011,17 @@ function updateWorld(dt) {
   for (const cn of L.cannons) {
     cn.t -= dt; cn.flash -= dt;
     if (cn.t <= 0) {
-      cn.t = 1.9; cn.flash = 0.12;
-      game.sfxQueue.push('shot');
-      game.bullets.push({ x: cn.x + (cn.dir > 0 ? 16 : -8), y: cn.y + 4, w: 8, h: 6, vx: cn.dir * 105 });
+      cn.t = 1.9;
+      // v7.6 缺陷3：炮口净空不足则不开火（门禁见 _engMuzzleBlocked）。此前 L4#1 正前方 2 格是 'B' 木箱、
+      // L6#0 正前方 3 格是 'B'，炮台对着箱子一直空放，子弹只飞 9px / 25px 就消失——「看得见没反应」。
+      // 选 (b) 逻辑层修而非 (a) 搬关卡数据：挡路物是**可碎木箱**（每箱含 1 金币），玩家砸箱取币后
+      // 炮台自动恢复射击（cn.t 照常 1.9s 重试），既不丢金币经济也不改关卡美术；副作用是 L4#0
+      // （炮口 4 格即撞 '#'，净空 44px）也一并静默——它同样属于「子弹出膛即没」这一类，逐台数字见报告。
+      if (!_engMuzzleBlocked(L, cn)) {
+        cn.flash = 0.12;
+        game.sfxQueue.push('shot');
+        game.bullets.push({ x: cn.x + (cn.dir > 0 ? 16 : -8), y: cn.y + 4, w: 8, h: 6, vx: cn.dir * 105 });
+      }
     }
   }
   game.bullets = game.bullets.filter(function (b) {
@@ -1923,6 +2055,8 @@ function updateWorld(dt) {
     // v7 §5.1/§5.4：枪虾/魂火为地面型——重力/落地/掉头与史莱姆同构（速度取 e.vx）
     if (e.type === 'slime' || e.type === 'knight' || e.type === 'mage'
         || e.type === 'lancer' || e.type === 'boomer') {
+      // v7.6 缺陷1：本帧 Y 位移前的脚底（'=' 单向平台穿越判定基准，与玩家 p.standOn 同口径）
+      const eWasFeet = e.y + e.h;
       e.vy = Math.min(e.vy + PHY.grav * dt, BAL.enemy.slime.fall); // 敌人下落上限 300（不随玩家 maxFall 变，设计 §1 表#9）
       e.y += e.vy * dt;
       e.grounded = false;
@@ -1931,6 +2065,12 @@ function updateWorld(dt) {
         const ex0 = Math.floor(e.x / _engTile), ex1 = Math.floor((e.x + e.w - _engEps) / _engTile);
         for (let tx = ex0; tx <= ex1; tx++) {
           if (L.solid(tx, ty, game.switchState)) { e.y = ty * _engTile - e.h; e.vy = 0; e.grounded = true; break; }
+          // v7.6 缺陷1：敌人补「单向平台」概念。levels.js 的 STAND 把 '=' 算可站立面，而 solid() 不认它
+          // （对玩家是正确语义：可从下方跳穿）——此前敌人只查 solid()，站在 '=' 上的史莱姆/魂火直接穿下去。
+          // 语义逐字对齐 engine.js 玩家落地（'=' 分支）：只在下落中、且脚底上一帧仍在平台顶面之上才吸附。
+          if (L.tileAt(tx, ty) === '=' && e.vy > 0 && eWasFeet <= ty * _engTile + 0.5) {
+            e.y = ty * _engTile - e.h; e.vy = 0; e.grounded = true; break;
+          }
         }
       }
       e.x += e.vx * dt;
@@ -1942,16 +2082,38 @@ function updateWorld(dt) {
           const my = Math.floor((e.y + e.h / 2) / _engTile);
           const fy = Math.floor((e.y + e.h + 2) / _engTile);
           // 前方齐腰有墙，或悬空无落脚点 → 掉头
-          if (L.solid(tx, my, game.switchState) || (e.grounded && !L.solid(tx, fy, game.switchState))) e.vx = -e.vx;
+          // v7.6 缺陷1：落脚点口径补 '='（否则站在单向平台上的敌人第一帧就判定「前方悬空」原地掉头抖动）
+          if (L.solid(tx, my, game.switchState) || (e.grounded && !_engFootTile(L, tx, fy))) e.vx = -e.vx;
         }
       }
       if (e.type === 'knight' || e.type === 'lancer') e.face = _engSign(e.vx) || e.face; // v5 §4.3：面朝侧=格挡判定方向；v7 §5.1：枪虾面朝侧供 ui 翻帧/突刺兜底向
       if (e.y > L.h * _engTile + 30) e.dead = 99; // 坠出世界
     } else if (!e.ai || e.ai.st === 'idle') { // 蝙蝠巡逻（v6 §3.2：技能状态机接管期间冻结巡逻位移）
       // v7 §5.2：水母/幽灵悬浮复用本分支——正弦频率/振幅读 e.frq/e.amp（缺省 2.2/7=蝙蝠现行值，零变化）
+      // v7.6 缺陷2：巡逻补「前方实心」探测。此前只做锚点左右 ±rng 往返，整只可以飞进墙体
+      // （L8 bat#5 锚 802 飞到 762 后整只进入 9 格宽墙内，300 帧里 79 帧在实心里）。
+      // 撞墙处理=把 x 钳位回墙面外侧一格再掉头，因此不存在「掉头后又立刻撞回来」的抖动
+      // （钳位后下一帧探测的已是身后那一格）。只作用于有水平速度的巡逻者（水母/幽灵 vx=0 天然跳过）；
+      // 俯冲 AI（_engEnemySkill 的 aim/dive/back）不经过本分支，其撞墙提前结束判定保持原样。
+      const bdir = _engSign(e.vx);
+      if (bdir !== 0) {
+        // +0.01：右缘恰好落在瓦片边界时 floor 会退到上一格（浮点 639.9999→39），漏判一帧后才会撞上
+        const leadTx = bdir > 0 ? Math.floor((e.x + e.w + 0.01) / _engTile) : Math.floor((e.x - 1) / _engTile);
+        const by0 = Math.floor((e.y + 2) / _engTile), by1 = Math.floor((e.y + e.h - 2) / _engTile);
+        let wall = false;
+        for (let ty = by0; ty <= by1; ty++) if (L.solid(leadTx, ty, game.switchState)) { wall = true; break; }
+        if (wall) {
+          e.x = bdir > 0 ? leadTx * _engTile - e.w : (leadTx + 1) * _engTile;
+          e.vx = -e.vx;
+        }
+      }
       e.x += e.vx * dt;
       if (Math.abs(e.x - e.ax) > e.rng) e.vx = -_engSign(e.x - e.ax) * Math.abs(e.vx);
-      e.y = e.ay + Math.sin(e.t * (e.frq || 2.2)) * (e.amp || 7);
+      // v7.6 缺陷2（垂直侧）：正弦浮动同样不许钻进实心——会顶穿天花板/沉进地板（L8 bat#0 就是
+      // 正弦下沉 5px 后整只没入 row9 的地板）。新高度若压到实心就保持上一帧合法高度=贴面滑行，
+      // 既不抖动也不穿墙；上一帧高度恒合法（出生格必空 + 水平探测保证不换列）。
+      const ny = e.ay + Math.sin(e.t * (e.frq || 2.2)) * (e.amp || 7);
+      if (!_engBodySolid(L, e, e.x, ny)) e.y = ny;
     }
     // v6 §E：四类敌人技能状态机推进（kb 摩擦之前；死亡态/hitStop/ult/bagActive 由 updateWorld 结构自然冻结；
     // 前摇期间被打断不打断——前摇=硬直窗口，玩家可反制，设计书 §3 规则2）

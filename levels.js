@@ -607,7 +607,10 @@ const PUZZLES={
 // ---------- 几何断言（尽力而为的静态检查；误报优于漏报，但不得误报正常设计） ----------
 function validateLevels(){
   aggregateLevels();   // v7 §10-1：先聚合（幂等）；遍历对象=ALL_LEVELS（章未合入时=LEVELS 10 关）
-  const SOLIDISH=new Set(['#','I','a','b','C','D','B','G']);   // B=可碎木箱(v2)：实心；v7 §10-2：追加 G 隐藏砖（实心）
+  // v7.6 缺陷7：补 '(' / ')' 传送带（v7.5 只把 engine 侧 solid() 补齐，本集合漏了 → 静态断言与碰撞表分叉：
+  // 断言认为传送带不是实心，于是「木箱/神龛/骑士脚下 2 格内无支撑」之类的检查会误报/漏报）。
+  // 口径必须与 engine.js 的 solid() 完全一致：'#' 'I' 'B' 'G' '(' ')' 恒实 + a/b/C/D 条件实。
+  const SOLIDISH=new Set(['#','I','a','b','C','D','B','G','(',')']);   // B=可碎木箱(v2)：实心；v7 §10-2：追加 G 隐藏砖（实心）
   const STAND=new Set(['#','I','a','b','C','D','B','G','=','(',')']);   // v7 §10-2：追加 'G'
   const errs=[],warns=[];
   for(let li=0;li<ALL_LEVELS.length;li++){

@@ -1948,6 +1948,102 @@ function _buildJudgeBody(pal) { // 内部：判官身体 40×52（官帽+兜帽�
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
+/* ==================== v7.7 换色皮肤系统：17 套主角换色 ====================
+ * 为什么这样分层：主角是纯调色板驱动的程序化 sprite（_makeSprite 按字符网格上色），
+ *   所以「换皮肤」= 换一张调色板，16×16 字符网格（像素画本身）一字不动——17 套共用同一套
+ *   网格，帧数/轮廓/动作完全一致，不存在漏帧或错位。
+ * 色阶规则（照抄 _P_HERO 的硬规范，违反任何一条角色就会「变糊」）：
+ *   · 不变的键：k 描边深藏蓝 / w 纯白脸·手套·眼高光 / e 眼睛嘴 / p 腮红。
+ *     描边与五官是角色的身份锚点，跨皮肤保持一致，剪影在任何配色下都可读；
+ *     k 恒为 #1c2450（深藏蓝，有色相，禁纯黑——纯黑描边在暗背景上会糊成一坨）。
+ *   · 要换的键：b 亮主体 / B 暗主体 / W 高光（主体三阶）+ o/s/O/y/Y（围巾系）。
+ *   · 明度关系（与 _P_HERO 逐位对齐，保证阴影方向/受光面在 17 套下都正确）：
+ *       B = b 同色相 HSL-L ×0.66（约 −34%，暗部；饱和 +0.06 防发灰）
+ *       W = b 同色相 HSL-L ×1.52（约 +52%，高光；饱和收到 0.95b+0.03，色相偏冷 +6°）
+ *       o → s → y = 同色系三段（L +0 / +0.09 / +0.19，色相 +0 / +6° / +12°，越往后越亮越暖）
+ *       O = o 的暗部（L ×0.66）、Y = y 的暗部（L ×0.80）
+ *   · 17 套 b 的色相角在色轮上两两 ≥14°（tools/_v77_skins_art.js 断言 ≥12°），
+ *     避免出现「深蓝/藏蓝/靛蓝」三套肉眼分不清。
+ * 顺序契约（不可变）：ui.js 按「关卡索引 i → HERO_SKINS[i+1].id」掉落，改顺序=发错皮肤。
+ * 生成策略：blue 直接引用现有 SPR.hero* 帧（零重复绘制）；其余 16 套首次 getHeroSkin 才
+ *   _makeSprite，结果冻结后缓存进 SPR.skins[id]（buildSprites 末尾只预生成 blue，额外耗时≈0）。 */
+const HERO_SKINS = [ // 调色板键序同 _P_HERO：k 描边/b 亮主体/B 暗主体/W 高光/w 纯白/o-s-y 围巾三段/O-Y 暗部/e 眼嘴/p 腮红
+  { id: 'blue', name: '星蓝', pal: { k: '#1c2450', b: '#38b8f8', B: '#1e78c8', W: '#d8f4ff', w: '#ffffff', o: '#f88838', s: '#f8b040', O: '#c85820', y: '#f8d048', Y: '#d8a020', e: '#182850', p: '#f8a0b0' } }, // 默认（= _P_HERO 原色，开局即有）
+  { id: 'sprout', name: '草绿', pal: { k: '#1c2450', b: '#6bd039', B: '#4e931c', W: '#b8eba8', w: '#ffffff', o: '#f6b828', s: '#f8d754', O: '#b58108', y: '#fbef83', Y: '#f9e639', e: '#182850', p: '#f8a0b0' } }, // L1 草原
+  { id: 'crystal', name: '紫晶', pal: { k: '#1c2450', b: '#a06ed8', B: '#5c27b1', W: '#f4edfa', w: '#ffffff', o: '#35c2de', s: '#5dc0e5', O: '#19879c', y: '#88c8ed', Y: '#47aae3', e: '#182850', p: '#f8a0b0' } }, // L2 洞窟
+  { id: 'azure', name: '天青', pal: { k: '#1c2450', b: '#47e1c2', B: '#15ae83', W: '#cbf6f2', w: '#ffffff', o: '#e63763', s: '#eb6075', O: '#a81539', y: '#f28d92', Y: '#ea4850', e: '#182850', p: '#f8a0b0' } }, // L3 天空
+  { id: 'steel', name: '铁灰', pal: { k: '#1c2450', b: '#8d98b0', B: '#4f6481', W: '#edeff3', w: '#ffffff', o: '#eaaa2a', s: '#eeca53', O: '#a57410', y: '#f4e481', Y: '#eed63c', e: '#182850', p: '#f8a0b0' } }, // L4 工厂
+  { id: 'ember', name: '赤焰', pal: { k: '#1c2450', b: '#ee362f', B: '#b40811', W: '#f9c2b9', w: '#ffffff', o: '#f6c228', s: '#f8df54', O: '#b58a08', y: '#fbf583', Y: '#f9ef39', e: '#182850', p: '#f8a0b0' } }, // L5 烈焰
+  { id: 'ivory', name: '石白', pal: { k: '#1c2450', b: '#c6caaf', B: '#9a9d5c', W: '#f5f6f1', w: '#ffffff', o: '#36a4c9', s: '#5aa9d3', O: '#236d85', y: '#81b5df', Y: '#4994d0', e: '#182850', p: '#f8a0b0' } }, // L6 塔
+  { id: 'starcore', name: '星核金', pal: { k: '#1c2450', b: '#f8dd62', B: '#e3a702', W: '#fefce9', w: '#ffffff', o: '#ae41d2', s: '#ca66db', O: '#772393', y: '#e18fe6', Y: '#d152d8', e: '#182850', p: '#f8a0b0' } }, // L7 Boss（比 _P_HERO_GOLD 更亮）
+  { id: 'jade', name: '翡翠', pal: { k: '#1c2450', b: '#47c281', B: '#27894c', W: '#afe5cd', w: '#ffffff', o: '#e03e74', s: '#e66583', O: '#a21a48', y: '#ee909d', Y: '#e44e62', e: '#182850', p: '#f8a0b0' } }, // L8 风谷
+  { id: 'sunset', name: '落日渐金', pal: { k: '#1c2450', b: '#f3ac49', B: '#ca6806', W: '#fdf5e4', w: '#ffffff', o: '#248fdb', s: '#4b94e2', O: '#185e91', y: '#76a2ea', Y: '#3979e1', e: '#182850', p: '#f8a0b0' } }, // L9 王城
+  { id: 'nebula', name: '星紫', pal: { k: '#1c2450', b: '#d263e3', B: '#9a1abe', W: '#fbecfc', w: '#ffffff', o: '#efbf2e', s: '#f3db59', O: '#af870d', y: '#f7f287', Y: '#f2ea40', e: '#182850', p: '#f8a0b0' } }, // L10 星空
+  { id: 'abyss', name: '海青', pal: { k: '#1c2450', b: '#27afb9', B: '#157f7d', W: '#74cfe1', w: '#ffffff', o: '#ef552e', s: '#f38759', O: '#af2e0d', y: '#f7b487', Y: '#f28740', e: '#182850', p: '#f8a0b0' } }, // L11 龙宫
+  { id: 'coral', name: '珊瑚粉', pal: { k: '#1c2450', b: '#ed6e87', B: '#d31249', W: '#fcebec', w: '#ffffff', o: '#36d3c6', s: '#5cd9db', O: '#209086', y: '#85dae5', Y: '#49c8d9', e: '#182850', p: '#f8a0b0' } }, // L12 珊瑚
+  { id: 'tide', name: '蛟蓝', pal: { k: '#1c2450', b: '#393ed0', B: '#1c2a93', W: '#ada8eb', w: '#ffffff', o: '#f29f2c', s: '#f4c357', O: '#b16c0b', y: '#f8e086', Y: '#f5cd3d', e: '#182850', p: '#f8a0b0' } }, // L13 Boss
+  { id: 'wraith', name: '幽绿', pal: { k: '#1c2450', b: '#69b56e', B: '#3a8439', W: '#cce6d0', w: '#ffffff', o: '#9f49ca', s: '#bc6dd5', O: '#6c298d', y: '#d694e1', Y: '#c159d0', e: '#182850', p: '#f8a0b0' } }, // L14 幽冥（低饱和青绿+鬼火紫围巾）
+  { id: 'magma', name: '熔橙', pal: { k: '#1c2450', b: '#f46a2a', B: '#b92e04', W: '#fbd3b7', w: '#ffffff', o: '#fadf2e', s: '#fbf55b', O: '#bea605', y: '#f6fd8c', Y: '#effc3e', e: '#182850', p: '#f8a0b0' } }, // L15 熔渊（橙红主体+亮黄围巾）
+  { id: 'judge', name: '判官黑', pal: { k: '#1c2450', b: '#7c3a68', B: '#542348', W: '#b06e96', w: '#ffffff', o: '#df1631', s: '#eb373d', O: '#930f20', y: '#f16e64', Y: '#ec3326', e: '#182850', p: '#f8a0b0' } } // L16 Boss（深紫黑主体+猩红围巾）
+];
+SPR.skins = {}; // v7.7：皮肤帧缓存（惰性填充；键=皮肤 id，值=冻结的帧对象）
+
+const _HERO_SKIN_GOLD = { b: '#f8d048', B: '#c89010', W: '#fff8c8' }; // 内部：施法金三键（与 _P_HERO_GOLD 同值，每套皮肤各叠一次）
+
+function _heroSkinDef(id) { // 内部：按 id 查皮肤定义（未知 id 静默回落 blue——ui 传错不炸游戏）
+  for (let i = 0; i < HERO_SKINS.length; i++) if (HERO_SKINS[i].id === id) return HERO_SKINS[i];
+  return HERO_SKINS[0];
+}
+
+function _heroSkinFrames(pal) { // 内部：用一张调色板重绘整套主角帧（网格/键名与 buildSprites 的 hero* 逐一对齐）
+  const gp = Object.assign({}, pal, _HERO_SKIN_GOLD); // 施法金：只换主体三阶，围巾/描边/五官沿用本皮肤
+  const o = {
+    idle1: _makeSprite(_H_IDLE1, pal),
+    idle2: _makeSprite(_H_IDLE2, pal),
+    run: _H_RUNS.map(function (g) { return _makeSprite(g, pal); }), // 6 帧跑动
+    jump: _makeSprite(_H_JUMP, pal),
+    fall: _makeSprite(_H_FALL, pal),
+    attack: _makeSprite(_H_ATTACK, pal),
+    dash: _makeSprite(_H_DASH, pal),
+    squash: _makeSprite(_H_SQUASH, pal),
+    dashWind: _makeSprite(_H_DASHWIND, pal),
+    attackGold: _makeSprite(_H_ATTACK, gp)
+  };
+  o.idle1L = flipSprite(o.idle1); // L = 左向翻转版（与 buildSprites 的 hero*L 同法）
+  o.idle2L = flipSprite(o.idle2);
+  o.runL = o.run.map(flipSprite);
+  o.jumpL = flipSprite(o.jump);
+  o.fallL = flipSprite(o.fall);
+  o.attackL = flipSprite(o.attack);
+  o.dashL = flipSprite(o.dash);
+  o.squashL = flipSprite(o.squash);
+  o.dashWindL = flipSprite(o.dashWind);
+  o.attackGoldL = flipSprite(o.attackGold);
+  return o;
+}
+
+function _heroBlueFrames() { // 内部：blue 皮肤 = 直接引用 buildSprites 已画好的 hero* 帧（不重复绘制、零额外像素）
+  return {
+    idle1: SPR.heroIdle1, idle2: SPR.heroIdle2, run: SPR.heroRun,
+    jump: SPR.heroJump, fall: SPR.heroFall, attack: SPR.heroAttack,
+    dash: SPR.heroDash, squash: SPR.heroSquash, dashWind: SPR.heroDashWind, attackGold: SPR.heroAttackGold,
+    idle1L: SPR.heroIdle1L, idle2L: SPR.heroIdle2L, runL: SPR.heroRunL,
+    jumpL: SPR.heroJumpL, fallL: SPR.heroFallL, attackL: SPR.heroAttackL,
+    dashL: SPR.heroDashL, squashL: SPR.heroSquashL, dashWindL: SPR.heroDashWindL, attackGoldL: SPR.heroAttackGoldL
+  };
+}
+
+function getHeroSkin(id) { // 取某套皮肤的全部帧（惰性生成 + 缓存；未知 id → 回落 blue，契约导出）
+  const sk = _heroSkinDef(id);
+  if (SPR.skins[sk.id]) return SPR.skins[sk.id]; // 命中缓存：同一 id 永远返回同一对象
+  if (!SPR.heroIdle1) buildSprites();            // 未构建时自举（blue 帧依赖 hero*，幂等调用）
+  if (SPR.skins[sk.id]) return SPR.skins[sk.id]; // 自举期间 buildSprites 末尾已预生成 blue：直接复用
+  const f = sk.id === 'blue' ? _heroBlueFrames() : _heroSkinFrames(sk.pal);
+  Object.freeze(f.run); Object.freeze(f.runL);   // v7.7：帧对象冻结——防 ui 误改写串皮肤
+  SPR.skins[sk.id] = Object.freeze(f);
+  return SPR.skins[sk.id];
+}
+
 function buildSprites() { // 一次性构建全部精灵（幂等：重复调用直接返回，契约导出）
   if (SPR.heroIdle1) return SPR;
   // —— 主角「星之勇者」（16×16，右向为基准，左向为翻转版）——
@@ -2338,6 +2434,9 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     arm: _whiteVariant(SPR.boss3.arm),
     jaw: _whiteVariant(SPR.boss3.jaw[1])
   };
+  // —— v7.7：预生成 blue 皮肤帧对象（纯引用上面已画好的 hero* 帧，零额外像素绘制，耗时≈0）；
+  //     其余 16 套留待 ui 首次取用时惰性生成，启动期不付 16×20 张画布的钱。——
+  getHeroSkin('blue');
   return SPR;
 }
 

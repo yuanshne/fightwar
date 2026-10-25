@@ -1,0 +1,49 @@
+{
+  "maxJump": 33.6,
+  "shortJump": 14.99,
+  "run1s": 115.83,
+  "dashDist": 59.53,
+  "dashFrames": 18,
+  "dashCdFrames": 31,
+  "atkToJump": 0,
+  "landToMove": 0,
+  "landToJump": 0,
+  "djRise": {
+    "rise": true,
+    "used": 1,
+    "kicked": true,
+    "vyBefore": -177,
+    "vyAfter": -262.3
+  },
+  "atkQueue": 22,
+  "meta": {
+    "none": {
+      "maxHp": 5,
+      "dashCdSec": 31,
+      "atkDmg": null
+    },
+    "bonus": {
+      "maxHp": 7,
+      "atkDmg": 4,
+      "dashCdSec": 13
+    },
+    "zero": {
+      "maxHp": 5,
+      "dashCdFrames": 31
+    },
+    "partial": {
+      "maxHp": 6,
+      "dashCdFrames": 31
+    }
+  },
+  "phy": {
+    "jumpV": 309,
+    "grav": 1320,
+    "maxRun": 120,
+    "dashCd": 0.5,
+    "dashV": 260,
+    "dashDur": 0.28,
+    "buffer": 0.18,
+    "coyote": 0.12
+  }
+}

@@ -126,6 +126,16 @@
 //   金币 <=0 照给提示、不欠账、不阻断（无限次/永不卡死红线不变）；扣费反馈复用金币拾取同一套机制
 //   （_bagFloat 浮字 + game.sfxQueue 'coin' → SFX.coin），谜题层内可见；底部操作条与左上
 //   「提示 ×N」行标出代价与余额；puzzle.hintN 保留。
+// v7.7 增量（局外成长撤销 + 换色皮肤衣橱）：
+//   ① 撤销：永久货币/三条升级线整块删除——gold/meta/goldBest 存档字段、META_* 常量、
+//      metaLv/metaCost/metaVal/metaUpgrade/awardGold/clearGoldGain、成长面板渲染与输入、KeyG 成长入口、
+//      startLevel 的 game.metaBonus 注入、recomputeEquip 里掺入的永久生命；属性回到「基础 + 装备」原式。
+//      「全关开放」开关（progress.unlockAll / F 键 / 标题页 104×18 开关）行为原样保留。
+//   ② 换色皮肤：成长面板原位改造为衣橱（300×172 切角面板 / 17 格 6×3 网格 / 方向选 / 回车装备 /
+//      G·Esc 关 / 鼠标等价）；每关首次通关掉该关对应色（关卡 idx → HERO_SKINS[idx+1]），已解锁不重复、
+//      全关开放下直打 L16 只掉 L16 那套；结算屏加一行「获得新衣」。
+//   ③ 渲染取帧全部改「当前皮肤帧优先、SPR.* 兜底」——art.js 未合入 HERO_SKINS/getHeroSkin 时静默回落
+//      静态帧（零回归）；heroAttackGold 属技能特效态，不随皮肤变。
 // ============================================================
 'use strict';
 (function(){
@@ -157,6 +167,8 @@ const KEYMAP={
   puzzleHint:['KeyH'],                  // v7.4：谜题层提示键（每次揭示一格正解；H 未被任何既有键占用）
   pause:['KeyP'],mute:['KeyM'],restart:['KeyR'],back:['Escape'],
   bag:['KeyB'], // v6 波2 §7.1：背包开关键（B 未被既有键占用；hit('bag') 仅背包层与 play 态消费）
+  unlockAll:['KeyF'], // v7.7：首页「全关开放」开关键（F 未被既有键占用；仅 title 态消费）
+  wardrobe:['KeyG'],  // v7.7：衣橱开关键（G 未被既有键占用；仅 title/select 态消费；原「成长」面板键位复用）
   confirm:['Enter','Space','KeyW','ArrowUp']
 };
 const keys={},pressed={};
@@ -324,6 +336,15 @@ function migrateProgress(p){
   // v7 §2.3（设计书代码照抄；R2/H2：幂等只增、无标记位）：老玩家已通关旧终关 L10（stars['9']>=1）
   // → 直接解锁 L11（不必重打 L10）。不落盘：迁移幂等，重复执行同值，下次任意 saveProgress 自然持久化。
   if (p.stars && p.stars['9'] >= 1) p.unlocked = Math.max(p.unlocked, 11);
+  // v7.7：全关开放开关（唯一新增的持久开关；沿用「只增键、缺省补齐、幂等」约定，不覆盖玩家已有值）。
+  // 局外成长撤销：gold / meta / goldBest 不再补齐也不再产生（旧档残留的同名键不再被读取，下次 saveProgress 自然消失）。
+  if (typeof p.unlockAll !== 'boolean') p.unlockAll = false;
+  // v7.7：换色皮肤存档——skin=当前装备 / skins=已解锁（'blue' 为默认色，必须永远在列）。
+  // 幂等：只补缺失键、只补 'blue'；脏值（skin 不在 skins 里，如存档被篡改或版本回退）一律回落 'blue'。
+  if (typeof p.skin !== 'string' || !p.skin) p.skin = 'blue';
+  if (!Array.isArray(p.skins)) p.skins = ['blue'];
+  if (p.skins.indexOf('blue') < 0) p.skins.unshift('blue');
+  if (p.skins.indexOf(p.skin) < 0) p.skin = 'blue';
   return p;
 }
 let progress=migrateProgress(loadProgress()); // v6 波2 §A：新档回退对象同样补 v6 缺省字段（幂等）
@@ -339,6 +360,24 @@ const BAL_GEAR=(typeof BAL!=='undefined'&&BAL&&BAL.gear)
   :{stat:{w:[1,2,3,4,6],h:[1,2,3,4,4],cSpd:[4,6,8,10,12],cCd:[4,6,8,10,12]},
     shardsPerStep:3,shardsPerSalvage:2,bagSize:12};
 const BAL_PLAYER_HP=(typeof BAL!=='undefined'&&BAL&&BAL.player&&BAL.player.hpBase)||5;
+// ---------- v7.7 换色皮肤（通关掉落；17 套顺序固定，由 art.js 产出 HERO_SKINS/getHeroSkin） ----------
+// 守卫：art.js 皮肤接口未合入时回落「只有星蓝一套」+ 静态 SPR 帧——衣橱、掉落、渲染全部照常可跑（零异常）。
+const SKIN_LIST=(typeof HERO_SKINS!=='undefined'&&Array.isArray(HERO_SKINS)&&HERO_SKINS.length)
+  ?HERO_SKINS:[{id:'blue',name:'星蓝'}];
+const SKIN_MAX=SKIN_LIST.length;          // 17（art 未合入=1）
+function skinIdx(id){for(let i=0;i<SKIN_LIST.length;i++)if(SKIN_LIST[i].id===id)return i;return -1;} // v7.7：id→序号（-1=未知）
+function skinName(id){const i=skinIdx(id);return i<0?(id||'星蓝'):(SKIN_LIST[i].name||id);}          // v7.7：id→中文名（格内 7px）
+function skinFrames(id){ // v7.7：取某套皮肤全部帧（art.js 侧惰性生成+缓存；接口未合入 → null 走 SPR.* 兜底）
+  return (typeof getHeroSkin==='function')?getHeroSkin(id||'blue'):null;
+}
+function skinOwned(){ // v7.7：已解锁套数（按 SKIN_LIST 计，存档里若残留未知 id 不会被算进 N/17）
+  let n=0;for(let i=0;i<SKIN_LIST.length;i++)if(progress.skins.indexOf(SKIN_LIST[i].id)>=0)n++;
+  return n;
+}
+function skinIdle1(id){ // v7.7：某套皮肤的待机帧（缺键/未合入 → SPR.heroIdle1；衣橱缩略图与背包预览共用）
+  const f=skinFrames(id===undefined?progress.skin:id);
+  return (f&&f.idle1)?f.idle1:SPR.heroIdle1;
+}
 const BAL_GEAR_STAT=BAL_GEAR.stat;        // 平衡表 §Q stat 表（§D 冻结公式引用名）
 const BAL_GEAR_BAG=BAL_GEAR.bagSize;      // 12
 const BAL_GEAR_STEP=BAL_GEAR.shardsPerStep;     // 3
@@ -445,6 +484,9 @@ const q=new URLSearchParams(location.search);
 const GOD=q.get('god')==='1';
 let uiState='title',menuSel=0,fade=1,fadeDir=-1,hintT=0,lastLevelIdx=-1;
 let clearStars=0,clearShown=0,creditsT=0; // v3 §E：致谢屏计时
+// v7.7：衣橱面板（title/select 两态可开；打开期间独占输入与悬停，世界本就不在跑）
+let wardrobeOpen=false,wardrobeSel=0;
+let clearSkinGain=null;       // v7.7：本次通关掉落的皮肤 id（无掉落=null；结算屏展示用）
 // v6 §D/§E：引导与提示计时（渲染按 uiState==='play' 门控；startLevel 重置，见下）
 let oHintDone=false,oHintT=0; // §D2：O 大提示每关一次（上升沿置 oHintT=2.5）
 let skillHintT=0;             // §E1：L1 技能提示条（仅 L1 置 6.0）
@@ -460,7 +502,10 @@ if(GOD&&typeof killPlayer==='function'){const orig=killPlayer;window.killPlayer=
 // 全部带存在性守卫：任一依赖未合入时功能整体静默降级（神龛与覆盖层不出现），v3 行为不变。
 // 工单 §界面② 状态机 puzzle={open,idx,type,size,grid,cur,err,done}
 // （grid：数织 0空/1填/2叉，数独 0空/1..n 数字；given/doneT/view 为内部扩展字段）
-const puzzle={open:false,idx:0,type:'',size:0,grid:null,given:null,cur:{x:0,y:0},err:0,done:false,doneT:0,view:false,hintN:0};
+// v7.6：ruleSeen=一次性规则卡「按谜题类型」记忆（'nono'/'sudoku'，仅本会话内存，不落盘）；
+//       ruleOn/ruleT=本次进入的规则卡显示态与倒计时（8s 自动关，永不卡死玩家）
+const puzzle={open:false,idx:0,type:'',size:0,grid:null,given:null,cur:{x:0,y:0},err:0,done:false,doneT:0,view:false,hintN:0,
+  ruleOn:false,ruleT:0,ruleSeen:{nono:false,sudoku:false}};
 let puzzleRep=0,puzzleSkip=0;   // 内部：方向键持键重复计时 / 开层当步跳过输入（防开启键泄漏为光标移动）
 const sudokuBoxCache={};        // 内部：数独块尺寸按题号缓存（6×6 的 2×3/3×2 歧义按 sol 合法性自解析）
 
@@ -522,6 +567,11 @@ function puzzleNearIdx(){
 function isPuzzleSolved(idx){ // 已解判定：engine 置位（本关内）或本地存档（跨关）
   return !!((game.solvedPuzzles&&game.solvedPuzzles[idx])||(progress.puzzles&&progress.puzzles[idx]));
 }
+function puzzleTypeSolved(type){ // 内部 v7.6：该类型（数织/数独）是否已有任一一题解过——已解过就不再教学
+  if(typeof PUZZLES==='undefined')return false;
+  for(const k in PUZZLES){const p=PUZZLES[k];if(p&&p.type===type&&isPuzzleSolved(+k))return true;}
+  return false;
+}
 function openPuzzle(idx){ // 仅 play 态且 puzzleNear>=0 时由 step() 输入桥接调用
   if(typeof PUZZLES==='undefined')return;
   const pz=PUZZLES[idx];if(!pz)return;
@@ -532,6 +582,9 @@ function openPuzzle(idx){ // 仅 play 态且 puzzleNear>=0 时由 step() 输入�
   const resume=!puzzle.done&&puzzle.idx===idx&&puzzle.type===pz.type&&puzzle.grid&&puzzle.grid.length===pz.size;
   puzzle.open=true;puzzle.idx=idx;puzzle.type=pz.type;puzzle.size=pz.size;
   puzzle.err=0;puzzle.done=false;puzzle.doneT=0;puzzle.view=isPuzzleSolved(idx);
+  // v7.6：首次进入该类谜题（且未解过、非回看谜底）→ 弹一次性规则卡；view 状态永不弹
+  puzzle.ruleOn=!puzzle.view&&!puzzle.ruleSeen[pz.type]&&!puzzleTypeSolved(pz.type);
+  puzzle.ruleT=8;
   puzzleSkip=1;
   if(!resume)puzzle.hintN=0; // v7.4：提示计数按题计（续玩同一题不清零）
   if(!puzzle.view&&!resume){ // 已解→只读谜底；未解→续用内存进度（重进关卡由 startLevel 重置）
@@ -546,6 +599,7 @@ function openPuzzle(idx){ // 仅 play 态且 puzzleNear>=0 时由 step() 输入�
 }
 function closePuzzle(){
   puzzle.open=false;game.puzzleActive=false;puzzleSkip=0;
+  puzzle.ruleOn=false;puzzle.ruleT=0; // v7.6：关层顺手收起规则卡（下次进入按 ruleSeen 决定是否再弹）
   game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0; // 关层清 stale 边沿，防带入恢复后
   game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0;
   game.input.skillLHit=0; // v6：同上
@@ -659,6 +713,10 @@ function puzzleHint(){ // v7.4：H 键提示——按「光标格优先」修正
   puzzle.hintN++;puzzle.err=0;
   if(pz.type==='nono')checkNonoDone();else checkSudokuDone();
 }
+function puzzleRuleDismiss(){ // v7.6：规则卡关闭——本类型一次性教学记为已看，本次进入不再重复弹出
+  puzzle.ruleOn=false;puzzle.ruleT=0;
+  if(puzzle.type)puzzle.ruleSeen[puzzle.type]=true;
+}
 function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/H/Esc/数字键（工单 §界面①②③）
   if(puzzle.err>0)puzzle.err=Math.max(0,puzzle.err-dt);
   if(puzzle.done){ // 已解开：2s 自动关层（Esc 可提前；关层后世界恢复，烟花粒子在场景中绽放）
@@ -667,6 +725,15 @@ function stepPuzzleInput(dt){ // 覆盖层输入：方向/J/K/R/H/Esc/数字键�
     return;
   }
   if(puzzleSkip){puzzleSkip=0;return;}
+  // v7.6：规则卡显示期间独占输入——任意键（含 Esc）只关卡、不透传给棋盘（否则玩家在看不见棋盘的
+  // 情况下误操作）；8s 超时自动关（绝不卡死）。放在 puzzleSkip 之后：开层那一键不会立刻把卡关掉。
+  if(puzzle.ruleOn){
+    puzzle.ruleT-=dt;
+    let anyKey=false;
+    for(const k in pressed)if(pressed[k]){anyKey=true;break;}
+    if(puzzle.ruleT<=0||anyKey)puzzleRuleDismiss();
+    return;
+  }
   if(puzzle.view){if(hit('back')||hit('confirm'))closePuzzle();return;} // 已解神龛只读查看
   const s=puzzle.size;
   puzzleRep-=dt; // 方向键：单击即移 + 持键重复（10×10 网格可用性）。
@@ -777,6 +844,62 @@ function stepBagInput(){
   }
 }
 
+// ---------- v7.7 §1 全关开放 + 换色皮肤（掉落 / 装备 / 衣橱输入） ----------
+// 锁定判定的唯一出口：渲染（??? / 锁形）与进入（回车 / 双击）都走这里，保证开/关两态永远同步。
+function levelLocked(i){return progress.unlockAll!==true&&i+1>progress.unlocked;}      // v7.7：关卡锁
+function chapterLocked(ch){return progress.unlockAll!==true&&progress.unlocked<ch.first+1;} // v7.7：章锁
+function canEnterLevel(i){return progress.unlockAll===true||i+1<=progress.unlocked;}  // v7.7：可否进入
+function toggleUnlockAll(){ // v7.7：开关型（再点一次关闭）；只写 unlockAll，不动 unlocked/stars/puzzles/equip
+  progress.unlockAll=!progress.unlockAll;
+  saveProgress(progress);
+  SFX.select();
+}
+// v7.7：关卡 idx → 皮肤 id（HERO_SKINS[idx+1]，顺序冻结：L1 草绿 … L16 判官黑）。越界/art 未合入 → null。
+function skinForLevel(i){
+  if(!(i>=0)||i+1>=SKIN_LIST.length)return null;
+  return SKIN_LIST[i+1].id;
+}
+// v7.7：首次通关掉落——已解锁则不重复掉、不弹提示、返回 null（调用方据此决定是否播反馈）。
+// 「全关开放」下直打 L16 只走 idx=15 这一次映射，绝不补发前面关卡的皮肤（掉落只按本次通关关号算）。
+function awardSkin(i){
+  const id=skinForLevel(i);
+  if(!id)return null;
+  if(progress.skins.indexOf(id)>=0)return null;
+  progress.skins.push(id);
+  return id;
+}
+// v7.7：装备皮肤——未解锁一律拒绝（拒绝音同选关锁 SFX.shot）；成功后落盘 + 浮字反馈。
+function equipSkin(id){
+  if(progress.skins.indexOf(id)<0){SFX.shot();return false;}
+  progress.skin=id;
+  saveProgress(progress);
+  SFX.select();
+  _bagFloat('已装备 · '+skinName(id),'#f8d048',1,VIEW_W/2,185); // 锚在面板底缘内侧（避开 176 的操作行）
+  return true;
+}
+function openWardrobe(){ // v7.7：仅 title/select 可开（play 态不响应，避免与世界输入交叉）
+  if(uiState!=='title'&&uiState!=='select')return;
+  wardrobeOpen=true;wardrobeSel=Math.max(0,skinIdx(progress.skin));SFX.select();
+}
+function closeWardrobe(){wardrobeOpen=false;}
+function stepWardrobeInput(){ // v7.7：面板独占输入（方向选格 / 回车装备 / G·Esc 关闭 / 鼠标等价）
+  if(hit('back')||hit('wardrobe')){closeWardrobe();return;}
+  const n=SKIN_MAX,cols=6; // 6 列网格：←→ ±1、↑↓ ±6（与渲染 _skinCellXY 同源，越界钳位）
+  if(hit('right')&&wardrobeSel<n-1){wardrobeSel++;SFX.select();}
+  if(hit('left')&&wardrobeSel>0){wardrobeSel--;SFX.select();}
+  if(hit('down')){ // ↓：末行 5 格时从第 11 格落到第 17 格（不是死键）；已在末行则不动
+    const t=Math.min(n-1,wardrobeSel+cols);
+    if(((t/cols)|0)>((wardrobeSel/cols)|0)){wardrobeSel=t;SFX.select();}
+  }
+  if(hit('up')&&wardrobeSel-cols>=0){wardrobeSel-=cols;SFX.select();}
+  if(pressed['Enter'])equipSkin(SKIN_LIST[wardrobeSel]?SKIN_LIST[wardrobeSel].id:progress.skin);
+  if(mouse.click&&hover){
+    if(hover.indexOf('skin:')===0){const i=+hover.slice(5);wardrobeSel=i;
+      equipSkin(SKIN_LIST[i]?SKIN_LIST[i].id:progress.skin);}
+    else if(hover==='skinclose')closeWardrobe();
+  }
+}
+
 function startLevel(idx){
   loadLevel(idx,false);
   uiState='play';game.state='play';
@@ -843,13 +966,26 @@ function _textW(str,s){ // 内部：CNText 宽度估算（CJK≈s px/字，ASCII
 let hover=null;        // 当前帧悬停目标 id（step() 消费鼠标点击时读上一渲染帧的值，一帧延迟无碍）
 let selClickTick=-999; // §A.4 选关卡双击计时（单击选中、双击=进入；单位=game.tick）
 const SK_SLOT_KEYS=['skillU','skillI','skillO','skillL']; // §A.3 槽位 i → 输入边沿键（与键盘 hit() 同管线）
+// v7.7：衣橱面板几何（渲染与悬停同源，避免两处漂移）——面板 42,24,300,172；6 列 × 3 行、
+// 格 40×36、pitch 46×38；17 格末格右缘 318 / 末行下缘 164，均在面板内留 4~8px 呼吸，不压边框。
+const WD_PANEL=[42,24,300,172],WD_CELL=[40,36],WD_X0=48,WD_Y0=52,WD_PX=46,WD_PY=38,WD_COLS=6;
+function _skinCellXY(i){return [WD_X0+(i%WD_COLS)*WD_PX,WD_Y0+((i/WD_COLS)|0)*WD_PY];}
 function computeHover(){
   hover=null;
   if(!mouse.inside)return;
   const mx=mouse.x,my=mouse.y;
+  if(wardrobeOpen&&(uiState==='title'||uiState==='select')){ // v7.7：衣橱面板独占悬停（格优先于关闭钮）
+    for(let i=0;i<SKIN_MAX;i++){const xy=_skinCellXY(i);
+      if(ptIn(mx,my,xy[0],xy[1],WD_CELL[0],WD_CELL[1])){hover='skin:'+i;break;}}
+    if(!hover&&ptIn(mx,my,322,28,12,12))hover='skinclose';
+    return;
+  }
   if(uiState==='title'){ // §A.4：title 开始钮（键盘等价=回车）
     if(ptIn(mx,my,VIEW_W/2-52,146,104,22))hover='titleStart';
+    else if(ptIn(mx,my,140,110,104,18))hover='titleUnlock';  // v7.7：全关开放开关（键盘等价=F）
+    else if(ptIn(mx,my,250,110,72,18))hover='titleWardrobe'; // v7.7：衣橱入口（键盘等价=G）
   }else if(uiState==='select'){ // §A.4：选关卡（键盘等价=方向+回车）；v7 §9.2：章节布局矩阵（与渲染同源 _chapters）
+    if(ptIn(mx,my,316,20,62,13)){hover='menuWardrobe';return;} // v7.7：选关屏衣橱入口（键盘等价=G）
     chsLoop:for(const ch of _chapters()){
       for(let j=0;j<ch.len;j++){
         const xy=_cardXY(ch,j);
@@ -897,7 +1033,10 @@ function render(){
   const L=game.level,th=L?L.theme:THEMES.grass;
   computeHover(); // v6 §A.2：悬停目标表（render() HUD 段之前，用最新 mouse）
 
-  if(uiState==='title'||uiState==='select'){renderMenu(th,tick);}
+  if(uiState==='title'||uiState==='select'){
+    renderMenu(th,tick);
+    if(wardrobeOpen)renderWardrobe(tick); // v7.7：衣橱面板覆盖在封面/选关之上（仅这两态可开）
+  }
   else if(L){
     // 天空
     const grad=ctx.createLinearGradient(0,0,0,VIEW_H);
@@ -1023,6 +1162,16 @@ function renderTiles(L,tick){
         break;}
       case 'G':{ // v7 §4.2/§9.5：隐藏砖（实心；tiles.hidden 缺失→主题 block+深色裂纹暗记兜底）
         if(T.hidden)ctx.drawImage(T.hidden,dx,dy);
+        else{ctx.drawImage(T.block,dx,dy);
+          ctx.fillStyle='rgba(18,14,30,0.8)';
+          ctx.fillRect(dx+4,dy+8,4,1);ctx.fillRect(dx+8,dy+7,3,1);ctx.fillRect(dx+11,dy+9,2,1);}
+        break;}
+      case 'B':{ // v7.6 P0：「木箱隐形墙」——'B' 在引擎 solid() 里是实心瓦片（攻击命中→'.'+1 金币），
+        // 此前 switch 漏了这一支，画面上完全不绘制=玩家眼里一面看不见的墙（16 关共 80 处）。
+        // 素材：art.js buildThemeArt 无条件产出 tiles.breakBrick（12 主题全覆盖，木箱棕色+X 斜撑+
+        // 裂纹，与普通砖 '#' 的石质/主题母题区分明显，故不再叠额外装饰）。
+        // 兜底：旧美术/裁剪主题缺该键时回落主题 block + 深色裂纹暗记（写法与上方 'G' 一致）。
+        if(T.breakBrick)ctx.drawImage(T.breakBrick,dx,dy);
         else{ctx.drawImage(T.block,dx,dy);
           ctx.fillStyle='rgba(18,14,30,0.8)';
           ctx.fillRect(dx+4,dy+8,4,1);ctx.fillRect(dx+8,dy+7,3,1);ctx.fillRect(dx+11,dy+9,2,1);}
@@ -1557,22 +1706,32 @@ function heroPoseImg(tick){
   if(!p.onGround)anim=p.vy<0?'jump':'fall';
   else anim=Math.abs(p.vx)>10?'run':'idle';
   let img,fam='idle';
-  if(anim==='idle')img=(tick%40<38)?SPR.heroIdle1:SPR.heroIdle2;
-  else if(anim==='run')img=SPR.heroRun[(p.animT*12|0)%SPR.heroRun.length]; // v2：6 帧取帧适配（animT*12%帧数）
-  else if(anim==='jump')img=SPR.heroJump;
-  else img=SPR.heroFall;
-  if(p.landT>0&&SPR.heroSquash)img=SPR.heroSquash; // 落地压扁帧（P2 就位后生效）
+  // v7.7：本帧只取一次当前皮肤帧集（art.js 侧有缓存，这里避免每处取帧重复调用）；
+  // 未合入/缺键一律回落 SPR.*——与 v6 逐像素一致（守卫式降级，零回归）。
+  const sk=skinFrames(progress.skin);
+  const FR=(k,spr)=>(sk&&sk[k])?sk[k]:SPR[spr];
+  if(anim==='idle')img=(tick%40<38)?FR('idle1','heroIdle1'):FR('idle2','heroIdle2');
+  else if(anim==='run'){ // v2：6 帧取帧适配（animT*12%帧数）；帧数按实际数组长度自适应（皮肤同样适用）
+    const run=(sk&&sk.run&&sk.run.length)?sk.run:SPR.heroRun;
+    img=run[(p.animT*12|0)%run.length];
+  }
+  else if(anim==='jump')img=FR('jump','heroJump');
+  else img=FR('fall','heroFall');
+  if(p.landT>0){const s=FR('squash','heroSquash');if(s)img=s;} // 落地压扁帧（P2 就位后生效）
   // v5 §B1：冲刺三段——蓄力期（流逝 el=0.28-dashT<0.05）用后仰帧 heroDashWind（特效队供，
   // 无则 heroDash）；爆发/滑行沿用 heroDash。v4 引擎 dashT 总时长 0.18 → el 恒≥0.10，走 heroDash 不变。
   if(p.dashT>0){
-    if(0.28-p.dashT<0.05&&SPR.heroDashWind){img=SPR.heroDashWind;fam='atk';}
-    else if(SPR.heroDash){img=SPR.heroDash;fam='atk';}
+    const w=FR('dashWind','heroDashWind'),d=FR('dash','heroDash');
+    if(0.28-p.dashT<0.05&&w){img=w;fam='atk';}
+    else if(d){img=d;fam='atk';}
   }
-  if(p.djT>0)img=SPR.heroJump; // v5 §B2：二段跳空翻用跳跃帧（360° 旋转由 _heroXform 实现）
-  if((p.atkT>0||p.atkWind>0)&&SPR.heroAttack){img=SPR.heroAttack;fam='atk';} // 挥击帧（v5：含起手 atkWind 期）
+  if(p.djT>0)img=FR('jump','heroJump'); // v5 §B2：二段跳空翻用跳跃帧（360° 旋转由 _heroXform 实现）
+  const atkImg=FR('attack','heroAttack');
+  if((p.atkT>0||p.atkWind>0)&&atkImg){img=atkImg;fam='atk';} // 挥击帧（v5：含起手 atkWind 期）
   if(p.castT>0){ // v3 §C4：技能施法金色姿态（缺素材回退 heroAttack，同 v2 模式）
+    // v7.7：heroAttackGold 是技能特效态，不随皮肤变（皮肤帧不参与本分支）
     if(SPR.heroAttackGold)img=SPR.heroAttackGold;
-    else if(SPR.heroAttack)img=SPR.heroAttack;
+    else if(atkImg)img=atkImg;
     fam='atk';
   }
   return heroLook(img,fam); // v6 §F：外观合成（无装备直通+朝向翻转；SPR.look 未合入恒直通零回归）
@@ -1602,7 +1761,8 @@ function renderPlayer(tick){
   const p=game.player;
   if(!p)return;
   if(p.dead){ // 死亡表现：旋转上抛渐隐（替代 v1 的 0.9s 完全隐形）
-    const df=heroLook(SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
+    const sk=skinFrames(progress.skin); // v7.7：死亡帧同样随皮肤（缺键/未合入 → SPR.heroFall）
+    const df=heroLook((sk&&sk.fall)?sk.fall:SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
     ctx.save();
     ctx.translate(px(p.x-3)+df.width/2,px(p.y-2)+df.height-2);
     ctx.rotate(p.deadT*9);
@@ -2106,8 +2266,9 @@ function renderBag(tick){
   const p=game.player,eq=game.equip||{atk:0,hp:0,spd:0,cd:0};
   ctx.fillStyle='rgba(4,4,14,0.6)';ctx.fillRect(0,0,VIEW_W,VIEW_H); // §7.1：背景压暗 0.6
   _panel(24,8,336,208);
-  // 左·角色区：外观预览 heroLook(heroIdle1) ×3（48×48）@ (44,24)（SPR.look 未合入=现主角帧直通）
-  const pv=heroLook(SPR.heroIdle1,'idle');
+  // 左·角色区：外观预览 ×3（48×48）@ (44,24)（SPR.look 未合入=现主角帧直通）
+  // v7.7：预览帧跟随当前皮肤（守卫：getHeroSkin 未合入 → SPR.heroIdle1）
+  const pv=heroLook(skinIdle1(progress.skin),'idle');
   if(pv)ctx.drawImage(pv,44,24,48,48);
   // 属性行（读 game.equip；攻击=基攻+装备加成，加成绿字；§7.2/工单 §C）
   const atkBase=(typeof BAL!=='undefined'&&BAL&&BAL.player&&BAL.player.atkBase)||1;
@@ -2203,9 +2364,57 @@ function renderBag(tick){
   drawCNText('鼠标：单击选中 · 双击装备 · 点装备槽卸下 · 点按钮执行',VIEW_W/2,199,9,'#a8b4d8','center');
 }
 
+// ---------- v7.7 衣橱面板（title/select 覆盖层；_panel 切角语言，布局 42,24,300,172） ----------
+// 6 列 × 3 行、格 40×36、pitch 46×38（几何常量 WD_* 与 computeHover 同源，见 _skinCellXY）：
+// 格内缩略 16×20 @ (格x+12, 格y+3) / 名字 7px y+25 / 已装备=金描边+四角亮块 / 光标=白描边 2px。
+function _skinLock(cx,cy,col){ // 内部：锁形（照选关屏章锁画法：锁钩 arc + 锁体 fillRect，居中于 cx,cy）
+  ctx.strokeStyle=col;ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(cx,cy-2,3,Math.PI,0);ctx.stroke();
+  ctx.fillStyle=col;ctx.fillRect(cx-4,cy+1,8,7);
+}
+function renderWardrobe(tick){
+  const pnl=WD_PANEL;
+  ctx.fillStyle='rgba(4,4,14,0.72)';ctx.fillRect(0,0,VIEW_W,VIEW_H);
+  _panel(pnl[0],pnl[1],pnl[2],pnl[3],{titleBar:1});
+  drawCNText('衣橱 · 已解锁 '+skinOwned()+'/'+SKIN_MAX,VIEW_W/2,pnl[1]+6,13,'#f8d048','center');
+  // 关闭钮（鼠标；键盘 Esc/G）
+  _panel(322,28,12,12,{cut:2,alpha:0.9});
+  drawPixelText('X',325,31,1,'#f0f4ff');
+  if(hover==='skinclose'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;ctx.strokeRect(322.5,28.5,11,11);}
+  for(let i=0;i<SKIN_MAX;i++){
+    const id=SKIN_LIST[i].id,own=progress.skins.indexOf(id)>=0,cur=progress.skin===id;
+    const xy=_skinCellXY(i),x=xy[0],y=xy[1];
+    _panel(x,y,WD_CELL[0],WD_CELL[1],{cut:3,alpha:own?0.85:0.5});
+    if(own){
+      const th=skinIdle1(id);                 // v7.7：缩略图用该皮肤 idle1（未合入/缺键 → SPR.heroIdle1）
+      if(th)ctx.drawImage(th,x+12,y+3,16,20);
+      drawCNText(SKIN_LIST[i].name||id,x+20,y+25,7,cur?'#f8d048':'#dfe4f4','center');
+    }else{ // 未解锁：格面压暗 + 中央锁形 + 名字 ???
+      ctx.fillStyle='rgba(4,8,20,0.55)';ctx.fillRect(x+2,y+2,WD_CELL[0]-4,WD_CELL[1]-4);
+      _skinLock(x+20,y+15,'#5a6488');
+      drawCNText('???',x+20,y+25,7,'#5a6488','center');
+    }
+    if(cur){ // 已装备：整格暖金薄染 + 四角亮块（亮块落在格外 2px 的缝里——光标白框压不到它，
+      // 保证「光标停在这一格」时玩家依然看得出「这一格就是当前装备」）
+      ctx.fillStyle='rgba(248,208,72,0.13)';ctx.fillRect(x+2,y+2,WD_CELL[0]-4,WD_CELL[1]-4);
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,WD_CELL[0]-2,WD_CELL[1]-2);
+      ctx.fillStyle='#fff8c8';
+      ctx.fillRect(x-2,y-2,3,3);ctx.fillRect(x+WD_CELL[0]-1,y-2,3,3);
+      ctx.fillRect(x-2,y+WD_CELL[1]-1,3,3);ctx.fillRect(x+WD_CELL[0]-1,y+WD_CELL[1]-1,3,3);
+    }
+    if(wardrobeSel===i){ // 光标：白描边 2px（同选关屏 sel）
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,WD_CELL[0]-2,WD_CELL[1]-2);
+    }else if(hover==='skin:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
+      ctx.strokeRect(x+0.5,y+0.5,WD_CELL[0]-1,WD_CELL[1]-1);}
+  }
+  drawCNText('方向 选择 · 回车 装备 · G/Esc 关闭',VIEW_W/2,pnl[1]+pnl[3]-20,9,'#a8b4d8','center');
+  renderBagFloats(); // v7.7：装备浮字（已装备 · 草绿）复用背包浮字管线，锚点落在面板底部
+}
+
 // v6 波2 §B：背包浮字渲染（屏幕中层居中堆叠；≤4 条 2s 消隐尾 0.5s 渐隐——本地渲染不经 engine 池，H4）
 function renderBagFloats(){
-  if(uiState!=='play'||!_bagFloats.length)return;
+  // v7.7：衣橱面板（title/select）也复用这套浮字，故放开 uiState==='play' 的单一门控
+  if((uiState!=='play'&&!wardrobeOpen)||!_bagFloats.length)return;
   for(let i=0;i<_bagFloats.length;i++){const f=_bagFloats[i];
     ctx.globalAlpha=f.t>1.5?clamp((2-f.t)/0.5,0,1):1;
     // v7.5：带锚点的浮字（谜题层提示扣费）落在锚点处，缺省仍为背包层居中堆叠
@@ -2267,6 +2476,13 @@ function renderClear(tick){
       const x=VIEW_W/2-34+i*34;
       drawCNText(on?'★':'☆',x,92,22,on?'#f8d048':'#5a5a72','center');
     }
+    // v7.7：通关掉落反馈——本关首次通关=金色「获得新衣 · 草绿」+ NEW 角标（音效在结算分支里播）；
+    // 已解锁过=灰色衣橱进度（不重复掉、不误导玩家以为又掉了一件）。
+    if(clearSkinGain){
+      const nm=skinName(clearSkinGain);
+      drawCNText('获得新衣 · '+nm,VIEW_W/2,116,11,'#f8d048','center');
+      drawPixelText('NEW',VIEW_W/2+_textW('获得新衣 · '+nm,11)/2+6,119,1,'#fff8c8');
+    }else drawCNText('衣橱 · 已解锁 '+skinOwned()+'/'+SKIN_MAX,VIEW_W/2,116,11,'#a8b4d8','center');
     if(clearShown>1){
       const blink=tick%50<32;
       if(blink)drawCNText(game.levelIdx<ALL_LEVELS.length-1?'回车 · 下一关　Esc · 选关':'回车 · 通关结算',
@@ -2402,9 +2618,39 @@ function renderTitleCover(tick){
   ctx.globalAlpha=1;
   if(hover==='titleStart'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮
     _panelPath(VIEW_W/2-52,146,104,22,3);ctx.stroke();}
+  // 9.5 v7.7 §1：全关开放开关（y=110..128，在云海 A 层 y=132 之上、开始钮 y=146 之上，零重叠）。
+  // 开=金色描边+金呼吸+轨道右置+「全关开放」；关=灰描边+轨道左置+「按序解锁」；右侧 F 键位徽标。
+  // x 从 140 起：避开左下主角剪影（96,118 24×28 → 右缘 120），不压 Boss 巨影（250,22 区域）。
+  {
+    const ux=140,uy=110,uw=104,uh=18,on=progress.unlockAll===true;
+    _panel(ux,uy,uw,uh,{cut:3,alpha:on?0.92:0.55});
+    if(on){
+      ctx.globalAlpha=0.35+0.3*Math.sin(tick*0.08);
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=1;_panelPath(ux,uy,uw,uh,3);ctx.stroke();
+      ctx.globalAlpha=1;
+    }else{
+      ctx.strokeStyle='#5a6488';ctx.lineWidth=1;_panelPath(ux,uy,uw,uh,3);ctx.stroke(); // 灰描边压住金线
+    }
+    const tx=ux+7,ty=uy+5;
+    ctx.fillStyle=on?'#f8d048':'#3a4468';ctx.fillRect(tx,ty,16,8);
+    ctx.fillStyle=on?'#fff8c8':'#8a94b8';ctx.fillRect(on?tx+9:tx+1,ty+1,6,6);
+    drawCNText(on?'全关开放':'按序解锁',ux+28,uy+4,9,on?'#f8d048':'#8a94b8');
+    _panel(ux+84,uy+4,13,10,{cut:2,alpha:0.5});
+    drawPixelText('F',ux+88,uy+7,1,on?'#f8d048':'#a8b4d8');
+    if(hover==='titleUnlock'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;_panelPath(ux,uy,uw,uh,3);ctx.stroke();}
+  }
+  // 9.6 v7.7：衣橱入口（与开关同一行右侧，G 键位徽标；原「成长」按钮原位改造）
+  {
+    const mx0=250,my0=110,mw=72,mh=18;
+    _panel(mx0,my0,mw,mh,{cut:3,alpha:0.8});
+    drawCNText('衣橱',mx0+13,my0+4,9,'#f0f4ff');
+    _panel(mx0+39,my0+4,13,10,{cut:2,alpha:0.5});
+    drawPixelText('G',mx0+43,my0+7,1,'#f8d048');
+    if(hover==='titleWardrobe'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;_panelPath(mx0,my0,mw,mh,3);ctx.stroke();}
+  }
   // 10 底部操作条：切角面板内现有按键提示行
   _panel(32,198,320,18,{alpha:0.5,cut:2});
-  drawPixelText('ARROWS/WASD MOVE  SPACE JUMP  M SOUND',VIEW_W/2,204,1,'#f0f4ff','center');
+  drawPixelText('ARROWS/WASD MOVE  SPACE JUMP  F UNLOCK  G WARDROBE  M SOUND',VIEW_W/2,204,1,'#f0f4ff','center');
   ctx.restore();
 }
 
@@ -2446,9 +2692,20 @@ function renderMenu(th,tick){
   // 7 列末卡右缘 370；卡内 关名 7px y+5 / 星 12px y+22 / 序号 y+34；Boss 卡红描边+金字+BOSS 角标；
   // 新关（L11+）名右上 2×2 金点；章锁定=章头灰 #3a4468+全部卡 ???+章名后挂锁形 6×8）
   drawCNText('选择关卡',VIEW_W/2,12,15,'#f0f4ff','center');
+  // v7.7：选关屏常驻「衣橱入口」（G 键 / 鼠标点按钮等价）；全关开放时左上角加金标。
+  // 成长/金币条已随局外成长撤销一并删除（不再有持久货币可展示）。
+  {
+    _panel(316,20,62,13,{cut:2,alpha:0.75});
+    drawCNText('衣橱',322,22,9,'#f0f4ff');
+    _panel(346,22,11,9,{cut:2,alpha:0.5});
+    drawPixelText('G',349,24,1,'#f8d048');
+    if(hover==='menuWardrobe'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
+      _panelPath(316,20,62,13,2);ctx.stroke();}
+    if(progress.unlockAll===true)drawCNText('全关开放',6,2,9,'#f8d048'); // 顶栏状态标（y=2，不压章头 y=24）
+  }
   for(const ch of _chapters()){
     const hy=CH_HEAD_Y[ch.i];
-    const chLocked=progress.unlocked<ch.first+1; // 章锁定=章首关未解锁
+    const chLocked=chapterLocked(ch); // v7.7：章锁定（全关开放时恒 false，不改 unlocked 本身）
     drawCNText(CH_NAME[ch.i],6,hy,12,chLocked?'#3a4468':'#f0f4ff');
     if(chLocked){ // 章名后挂锁形 6×8 程序化（锁钩+锁体）
       const lx=6+Math.ceil(_textW(CH_NAME[ch.i],12))+6,ly=hy+1;
@@ -2458,7 +2715,7 @@ function renderMenu(th,tick){
     }
     for(let j=0;j<ch.len;j++){
       const i=ch.first+j,xy=_cardXY(ch,j),x=xy[0],y=xy[1];
-      const locked=chLocked||i+1>progress.unlocked,sel=menuSel===i;
+      const locked=levelLocked(i)||chLocked,sel=menuSel===i; // v7.7：全关开放时所有卡一律按已解锁渲染
       const boss=!!ALL_LEVELS[i].boss;
       _panel(x,y,46,44,{alpha:locked?0.7:0.85,cut:3});
       if(boss){ctx.strokeStyle='#f86048';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,45,43);} // Boss 卡红描边
@@ -2476,7 +2733,7 @@ function renderMenu(th,tick){
       if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+3,2,2);}        // 新关金点（L11~L16）
     }
   }
-  drawCNText('←→↑↓ 选择　回车 进入　Esc 返回',VIEW_W/2,204,11,'#a8b4d8','center');
+  drawCNText('←→↑↓ 选择　回车 进入　G 衣橱　Esc 返回',VIEW_W/2,204,11,'#a8b4d8','center'); // v7.7：入口改为衣橱
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
   drawPixelText('STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,214,1,'#f8d048','center'); // v7 §9.1：上限=ALL_LEVELS.length*3
 }
@@ -2585,6 +2842,26 @@ function renderPuzzleHint(tick){ // puzzleNear 时头顶浮动提示（已解→
   const p=game.player;if(!p||p.dead)return;
   drawCNText(isPuzzleSolved(pn)?'↑ 查看':'↑ 解谜',p.x+p.w/2,p.y-13+Math.sin(tick*4)*1.5,9,'#f8d048','center');
 }
+function renderPuzzleRuleCard(){ // v7.6：首次进入的一次性规则卡（覆盖层之上：压暗底 + _panel 金框 + 任意键开始）
+  const pz=PUZZLES[puzzle.idx];if(!pz)return;
+  let lines;
+  if(pz.type==='nono'){
+    lines=['数字是该行/列连续黑格的长度','一行若有多个数字，按顺序对应','段与段之间至少空一格',
+      'J 填黑 · K 打叉标记空格','行列线索全部吻合即解开'];
+  }else{ // 数独分支才读 sol（sudokuBoxDims 依赖 pz.sol，数织题面没有该字段）
+    const n=pz.size,box=sudokuBoxDims(pz);
+    lines=['每行 1-'+n+' 每个数字各一次','每列同上，不能重复','每宫（'+box[0]+'×'+box[1]+' 粗线框）同样',
+      '数字键填入 · 0 或退格清除','行列宫全部合法即解开'];
+  }
+  const fx=16,fy=10,fw=VIEW_W-32,fh=VIEW_H-24;
+  ctx.fillStyle='rgba(4,4,14,0.62)';ctx.fillRect(fx,fy,fw,fh); // 压暗棋盘，视觉焦点落在卡片
+  const cw=252,ch=132,cx=(VIEW_W-cw)/2,cy=fy+Math.round(fh/2-ch/2); // 66,44 → 卡占 66..318 × 44..176
+  _panel(cx,cy,cw,ch,{cut:4,alpha:0.94});
+  drawCNText(pz.type==='nono'?'怎么玩 · 数织':'怎么玩 · 数独',VIEW_W/2,cy+9,12,'#f8d048','center');
+  ctx.fillStyle='rgba(240,200,96,0.45)';ctx.fillRect(cx+14,cy+26,cw-28,1); // 标题下金细线
+  for(let i=0;i<lines.length;i++)drawCNText(lines[i],cx+16,cy+38+i*14,10,'#dfe4f4','left');
+  drawCNText('任意键开始（8 秒后自动开始）',VIEW_W/2,cy+ch-19,9,'#8ad8a0','center');
+}
 function renderPuzzleOverlay(tick){ // 覆盖层：半透明黑底+木框+题目+光标+底部操作提示
   if(typeof PUZZLES==='undefined')return;
   const pz=PUZZLES[puzzle.idx];if(!pz)return;
@@ -2617,9 +2894,27 @@ function renderPuzzleOverlay(tick){ // 覆盖层：半透明黑底+木框+题目
   const hint=puzzle.view?'Esc 关闭':puzzle.type==='nono'
     ?'方向 移动 · J 填格 · K 叉格 · H 提示 -1 金币 · R 清空 · Esc 退出'
     :'方向 移动 · 数字键 填入 · 0/退格 清除 · H 提示 -1 金币 · R 重来 · Esc 退出';
-  drawCNText(hint,VIEW_W/2,fy+fh-16,9,'#b8b8c8','center');
+  // v7.6：规则卡显示期间不画底部键位条（此时棋盘输入被屏蔽，键位提示会误导；卡片自带「任意键开始」）
+  if(!puzzle.ruleOn)drawCNText(hint,VIEW_W/2,fy+fh-16,9,'#b8b8c8','center');
   // v7.5：左上角显示提示次数与当前金币余额（扣费后即时可见；0 金币时提示仍然可用）
   if(!puzzle.view&&puzzle.hintN>0)drawCNText('提示 ×'+puzzle.hintN+' · 金币 '+game.coins,fx+10,fy+11,9,'#8ad8a0','left');
+  if(puzzle.ruleOn)renderPuzzleRuleCard(); // v7.6：一次性规则卡压在最上层（含横幅/提示条之上）
+}
+// v7.6：右侧常驻精简规则——盘面右侧的空白竖条（数独 9×9 约 86px、数织 9×9 约 88px）放三行速查，
+// 与「首次规则卡」互补：卡讲完整规则（一次性），右栏常驻（每次进入都在，随时能看）。
+function _puzzleRuleLines(pz){ // 内部：按题面动态生成三行（数字 N / 宫尺寸随 puzzle.size 变）
+  if(pz.type==='nono')return['线索 = 该行列连续','数字 = 黑格段长','段间至少空一格'];
+  const n=pz.size;
+  return['每行 1-'+n+' 各一次','每列 1-'+n+' 各一次','每宫 1-'+n+' 各一次'];
+}
+function _drawPuzzleRules(lines,boardRight,top,bot){ // 内部：右对齐到 fx+fw-14（=354），垂直居中于盘面区间
+  const RX=VIEW_W-30;                       // fx(16)+fw(352)-14 = 354
+  const avail=RX-boardRight-4;              // 与盘面右缘留 4px 呼吸
+  if(avail<40)return;                       // 兜底：盘面意外过宽（极端题面）宁可不画，绝不压盘面
+  let fs=9;                                 // 9px 实测放得下（最宽一行 75.2px ≤ 最小可用 83px，数织 10×10）；放不下自动降 8px
+  if(lines.some(t=>_textW(t,fs)>avail))fs=8;
+  const lh=fs+4,y0=Math.round((top+bot)/2-(lines.length*lh-fs)/2);
+  for(let i=0;i<lines.length;i++)drawCNText(lines[i],RX,y0+i*lh,fs,'#b8b8c8','right');
 }
 function renderNonoBoard(tick,pz){ // 数织：左侧/顶部线索 + 网格 + 光标 + 错格闪红
   const s=pz.size;
@@ -2664,6 +2959,8 @@ function renderNonoBoard(tick,pz){ // 数织：左侧/顶部线索 + 网格 + �
     ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
     ctx.strokeRect(gx+puzzle.cur.x*cell+1,gy+puzzle.cur.y*cell+1,cell-2,cell-2);
   }
+  // v7.6：右侧空白竖条常驻精简规则（左侧行列线索区绝对不占；垂直居中于网格区间）
+  if(!puzzle.ruleOn)_drawPuzzleRules(_puzzleRuleLines(pz),gx+gw,gy,gy+gw);
 }
 function renderSudokuBoard(tick,pz){ // 数独：粗细分隔线+给定格灰底+冲突红字+光标
   const s=pz.size,[bh,bw]=sudokuBoxDims(pz);
@@ -2698,6 +2995,8 @@ function renderSudokuBoard(tick,pz){ // 数独：粗细分隔线+给定格灰底
     ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
     ctx.strokeRect(gx+puzzle.cur.x*cell+1,gy+puzzle.cur.y*cell+1,cell-2,cell-2);
   }
+  // v7.6：右侧空白竖条常驻精简规则（盘面右缘 264 起、宽 86px；垂直居中于盘面区间）
+  if(!puzzle.ruleOn)_drawPuzzleRules(_puzzleRuleLines(pz),gx+gw,gy,gy+gw);
 }
 
 // ---------- 状态机与主循环 ----------
@@ -2751,37 +3050,49 @@ function step(dt){
   }
 
   if(uiState==='title'){
-    // v6 §A.4：点 title 开始钮=hit('confirm') 等价分支（键盘等价=回车，H2）
-    if(hit('confirm')||(mouse.click&&hover==='titleStart')){SFX.select();uiState='select';fade=1;fadeDir=-1;}
+    if(wardrobeOpen){
+      stepWardrobeInput(); // v7.7：衣橱面板独占输入（不落到下面的开始钮分支）
+    }else{
+      // v7.7 §1：F / 点开关 = 切换全关开放（开关型，再按关闭；持久化在 toggleUnlockAll 内）
+      if(hit('unlockAll')||(mouse.click&&hover==='titleUnlock'))toggleUnlockAll();
+      if(hit('wardrobe')||(mouse.click&&hover==='titleWardrobe'))openWardrobe(); // v7.7：G / 点衣橱钮
+      // v6 §A.4：点 title 开始钮=hit('confirm') 等价分支（键盘等价=回车，H2）
+      if(hit('confirm')||(mouse.click&&hover==='titleStart')){SFX.select();uiState='select';fade=1;fadeDir=-1;}
+    }
   }else if(uiState==='select'){
-    // v7 §9.2：章节化导航——←→ ±1（clamp 0..ALL_LEVELS.length-1）；↑↓ 跨章保持列号：
-    // col=menuSel-当前章首 idx，跳至上/下一章 章首+min(col,章长-1)；末章↓/首章↑钳位不动
-    if(hit('right')){menuSel=clamp(menuSel+1,0,ALL_LEVELS.length-1);SFX.select();}
-    if(hit('left')){menuSel=clamp(menuSel-1,0,ALL_LEVELS.length-1);SFX.select();}
-    if(hit('down')||hit('up')){
-      const chs=_chapters();
-      let ci=0;while(ci<chs.length-1&&menuSel>=chs[ci].first+chs[ci].len)ci++;
-      const nt=hit('down')?ci+1:ci-1;
-      if(nt>=0&&nt<chs.length){
-        const col=menuSel-chs[ci].first;
-        menuSel=chs[nt].first+Math.min(col,chs[nt].len-1);
+    if(wardrobeOpen){
+      stepWardrobeInput(); // v7.7：同上（选关导航/进入/返回全部让位给面板）
+    }else{
+      // v7 §9.2：章节化导航——←→ ±1（clamp 0..ALL_LEVELS.length-1）；↑↓ 跨章保持列号：
+      // col=menuSel-当前章首 idx，跳至上/下一章 章首+min(col,章长-1)；末章↓/首章↑钳位不动
+      if(hit('right')){menuSel=clamp(menuSel+1,0,ALL_LEVELS.length-1);SFX.select();}
+      if(hit('left')){menuSel=clamp(menuSel-1,0,ALL_LEVELS.length-1);SFX.select();}
+      if(hit('down')||hit('up')){
+        const chs=_chapters();
+        let ci=0;while(ci<chs.length-1&&menuSel>=chs[ci].first+chs[ci].len)ci++;
+        const nt=hit('down')?ci+1:ci-1;
+        if(nt>=0&&nt<chs.length){
+          const col=menuSel-chs[ci].first;
+          menuSel=chs[nt].first+Math.min(col,chs[nt].len-1);
+        }
+        SFX.select();
       }
-      SFX.select();
-    }
-    // v6 §A.4：选关卡鼠标单击=选中（menuSel=i）、双击=进入——确认分支复用 hit('confirm') 同代码路径
-    if(mouse.click&&hover&&hover.indexOf('select:')===0){
-      const i=+hover.slice(7);
-      if(menuSel===i&&game.tick-selClickTick<30){ // 30 tick=0.5s 内同卡再点=双击
-        if(menuSel+1<=progress.unlocked){SFX.select();startLevel(menuSel);}
+      if(hit('wardrobe')||(mouse.click&&hover==='menuWardrobe'))openWardrobe(); // v7.7：选关屏衣橱入口
+      // v6 §A.4：选关卡鼠标单击=选中（menuSel=i）、双击=进入——确认分支复用 hit('confirm') 同代码路径
+      if(mouse.click&&hover&&hover.indexOf('select:')===0){
+        const i=+hover.slice(7);
+        if(menuSel===i&&game.tick-selClickTick<30){ // 30 tick=0.5s 内同卡再点=双击
+          if(canEnterLevel(menuSel)){SFX.select();startLevel(menuSel);} // v7.7：全关开放时直接放行
+          else SFX.shot();
+        }else{menuSel=i;SFX.select();}
+        selClickTick=game.tick;
+      }
+      if(hit('confirm')){
+        if(canEnterLevel(menuSel)){SFX.select();startLevel(menuSel);}   // v7.7：同上
         else SFX.shot();
-      }else{menuSel=i;SFX.select();}
-      selClickTick=game.tick;
+      }
+      if(hit('back')){uiState='title';fade=1;fadeDir=-1;}
     }
-    if(hit('confirm')){
-      if(menuSel+1<=progress.unlocked){SFX.select();startLevel(menuSel);}
-      else SFX.shot();
-    }
-    if(hit('back')){uiState='title';fade=1;fadeDir=-1;}
   }else if(uiState==='play'){
     if(puzzle.open)stepPuzzleInput(dt); // v4：覆盖层消费输入，世界冻结（下方跳过 updateWorld；
                                         // engine 侧另有 puzzleActive 早退双保险，同 paused 语义）
@@ -2843,6 +3154,11 @@ function step(dt){
   if(game.state==='clear'&&lastState!=='clear'){
     uiState='clear';game.clearT=0;clearShown=0;
     clearStars=1+(game.coins>=game.level.totalCoin?1:0)+(game.time<=game.level.par?1:0);
+    // v7.7：通关只掉「本关对应色」的皮肤——首次通关才有反馈（已解锁/art 未合入 → null，不弹提示）。
+    // 只在通关分支执行：死亡/中途退出永远到不了这里；全关开放直打 L16 也只按 idx=15 映射掉一件。
+    // 反馈=结算屏那一行金色「获得新衣 · 草绿」+ NEW 角标 + SFX.select（不额外叠浮字，避免同文案重复两遍）。
+    clearSkinGain=awardSkin(game.levelIdx);
+    if(clearSkinGain){saveProgress(progress);SFX.select();}
     const k=game.levelIdx+'';
     progress.stars[k]=Math.max(progress.stars[k]||0,clearStars);
     progress.unlocked=Math.max(progress.unlocked,Math.min(ALL_LEVELS.length,game.levelIdx+2)); // v7 §2.3：上限=ALL_LEVELS.length（线性后继=章末 Boss 通关解锁下一章）
