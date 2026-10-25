@@ -122,6 +122,10 @@
 //   硬约束：H2 存档只增；H3 全部新符号守卫式（game.boss.kind||0、L.chests/lanterns||[]、
 //   tiles.hidden/waterL/waterR、SPR.boss2/3、SPR.lancer/jelly/ghost/boomer/chest/lantern/eliteCrown
 //   缺省走程序化兜底）；H5 键盘/鼠标等价延续。
+// v7.5 增量（提示「有代价、绝不阻断」）：puzzleHint 每揭示一格扣 1 金币——仅 game.coins>0 时扣，
+//   金币 <=0 照给提示、不欠账、不阻断（无限次/永不卡死红线不变）；扣费反馈复用金币拾取同一套机制
+//   （_bagFloat 浮字 + game.sfxQueue 'coin' → SFX.coin），谜题层内可见；底部操作条与左上
+//   「提示 ×N」行标出代价与余额；puzzle.hintN 保留。
 // ============================================================
 'use strict';
 (function(){
@@ -375,9 +379,9 @@ let bagOpen=false;                               // 背包覆盖层开关（game
 let bagFocus='bag',bagSelEquip=0,bagSelBag=0,bagSelShard=0; // 焦点三区 equip(3)/bag(12)/shard(动态)
 let bagClickTick=-999,bagClickIdx=-1;            // 背包格双击计时（同选关卡 selClickTick 模式：单击选中、双击穿）
 const _bagFloats=[];                             // §B 背包浮字（本地渲染 ≤4 条 2s 消隐——不经 engine 池，H4）
-function _bagFloat(text,color,big){
+function _bagFloat(text,color,big,ax,ay){ // v7.5：ax/ay 可选锚点（缺省=背包层居中 84+i*13，行为不变）
   if(_bagFloats.length>=4)_bagFloats.shift();
-  _bagFloats.push({text:text,color:color,t:0,big:big?1:0});
+  _bagFloats.push({text:text,color:color,t:0,big:big?1:0,x:ax,y:ay});
 }
 function openBag(){ // 开（B/背包钮）：同 openPuzzle 范式——开层瞬间清全部输入边沿防泄漏
   bagOpen=true;game.bagActive=true;
@@ -631,6 +635,7 @@ function checkSudokuDone(){ // 完成自动校验：终盘合法→胜利，否�
   else if(full&&wrong>0)puzzle.err=1;
 }
 function puzzleHint(){ // v7.4：H 键提示——按「光标格优先」修正一格正解（无限次，保证不会做也能过）
+  // v7.5：每次 -1 金币（有金币才扣；金币 <=0 仍照给、不欠账——无限次/永不阻断的语义不变）
   if(puzzle.view||puzzle.done)return;
   const pz=PUZZLES[puzzle.idx];if(!puzzleOk(pz))return;
   const s=pz.size;
@@ -646,6 +651,11 @@ function puzzleHint(){ // v7.4：H 键提示——按「光标格优先」修正
   }
   if(pz.type==='nono')puzzle.grid[r][c]=((pz.pic[r][c]||'.')==='#')?1:0;
   else puzzle.grid[r][c]=pz.sol[r][c];
+  // v7.5 扣费：确认真要揭示一格之后才结算（上面各 return 分支不扣）。有金币才扣，扣到 0 为止，
+  // 绝不为负；0 金币时照样给提示（不阻断、不欠账），只把浮字换成「免费」提示。
+  if(game.coins>0){game.coins-=1;_bagFloat('-1 金币','#f8d048',0,70,46);} // 浮字复用金币拾取色（金 #f8d048）
+  else _bagFloat('免费提示','#8ad8a0',0,70,46); // 0 金币照给：不欠账，只提示这次没扣
+  game.sfxQueue.push('coin'); // 与金币拾取同一条音效通道（step() 统一出队 → SFX.coin）
   puzzle.hintN++;puzzle.err=0;
   if(pz.type==='nono')checkNonoDone();else checkSudokuDone();
 }
@@ -2198,7 +2208,8 @@ function renderBagFloats(){
   if(uiState!=='play'||!_bagFloats.length)return;
   for(let i=0;i<_bagFloats.length;i++){const f=_bagFloats[i];
     ctx.globalAlpha=f.t>1.5?clamp((2-f.t)/0.5,0,1):1;
-    drawCNText(f.text,VIEW_W/2,84+i*13,f.big?10:9,f.color,'center');
+    // v7.5：带锚点的浮字（谜题层提示扣费）落在锚点处，缺省仍为背包层居中堆叠
+    drawCNText(f.text,f.x!=null?f.x:VIEW_W/2,(f.y!=null?f.y:84)+i*13,f.big?10:9,f.color,'center');
   }
   ctx.globalAlpha=1;
 }
@@ -2604,10 +2615,11 @@ function renderPuzzleOverlay(tick){ // 覆盖层：半透明黑底+木框+题目
     drawCNText('神龛点亮！宝石 +1 · 金币 +5',VIEW_W/2,fy+fh/2-9,12,'#f8d048','center');
   }
   const hint=puzzle.view?'Esc 关闭':puzzle.type==='nono'
-    ?'方向 移动 · J 填格 · K 叉格 · H 提示 · R 清空 · Esc 退出'
-    :'方向 移动 · 数字键 填入 · 0/退格 清除 · H 提示 · R 重来 · Esc 退出';
+    ?'方向 移动 · J 填格 · K 叉格 · H 提示 -1 金币 · R 清空 · Esc 退出'
+    :'方向 移动 · 数字键 填入 · 0/退格 清除 · H 提示 -1 金币 · R 重来 · Esc 退出';
   drawCNText(hint,VIEW_W/2,fy+fh-16,9,'#b8b8c8','center');
-  if(!puzzle.view&&puzzle.hintN>0)drawCNText('提示 ×'+puzzle.hintN,fx+10,fy+11,9,'#8ad8a0','left');
+  // v7.5：左上角显示提示次数与当前金币余额（扣费后即时可见；0 金币时提示仍然可用）
+  if(!puzzle.view&&puzzle.hintN>0)drawCNText('提示 ×'+puzzle.hintN+' · 金币 '+game.coins,fx+10,fy+11,9,'#8ad8a0','left');
 }
 function renderNonoBoard(tick,pz){ // 数织：左侧/顶部线索 + 网格 + 光标 + 错格闪红
   const s=pz.size;

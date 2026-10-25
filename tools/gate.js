@@ -1,7 +1,8 @@
-// 确定性门禁：node gate.js <art|levels|engine|puzzle>
+// 确定性门禁：node gate.js <art|levels|engine|puzzle|reach>
 // art: 语法编译 + 导出符号核对；levels: 执行 + validateLevels 断言；
 // engine: 桩环境执行 levels+章节+engine，全关构造 + 空转不崩 + 逐 Boss 关冒烟（kind/maxHp，v3/v7）+
 //         谜题冒烟（PUZZLES 数据/数独唯一解/全量关神龛链路，全部条件守卫）。
+// reach: 可达性——真物理搜索「出生点→神龛/终点」的按键序列 + 全新关卡回放验证（v7.5）。
 // v7 §1.5（框架队）：两模式拼接已存在的 chapter2.js/chapter3.js 并 aggregateLevels()；
 //   契约块（levels.js `const CHAPTERS`）未合入时跳过拼接、自动回落 v6 旧口径（10 关），
 //   engine 模式注入 `var ALL_LEVELS=LEVELS` 桩保证引擎读侧可执行。
@@ -118,6 +119,19 @@ try {
     for (const p of r.pairing) console.log('  [FAIL] ' + p);
     if (!r.ok) { console.error('puzzle 门禁未通过: ' + r.bad + ' 项'); process.exit(1); }
     console.log('puzzle OK: ' + r.items.length + ' 题唯一解 + ' + sb.ALL_LEVELS.length + ' 关神龛配对齐全');
+  } else if (mod === 'reach') {
+    // v7.5：可达性门禁——用真物理搜索「出生点 → 神龛 / 终点」的按键序列并回放验证。
+    // 与 puzzle 模式互补：puzzle 证明「谜题数据可解」，reach 证明「玩家走得到神龛」。
+    // 两者缺一都可能让整关不可通关（v7.3 谜题门要求本关神龛全解才放行终点）。
+    // 审计实现收敛在 tools/reach.js 的 auditReach（CLI 与 gate 共用），禁止在 gate 内另写一份。
+    const { auditReach } = require('./reach.js');
+    const r = auditReach({ onRow: row => console.log('  ' + (row.ok ? '[PASS]' : (row.warn ? '[WARN]' : '[FAIL]'))
+      + ' L' + row.lv + ' ' + row.name + ' ' + row.t + '  ' + row.msg) });
+    if (r.fail || r.warn) {
+      console.error('reach 门禁未通过：FAIL ' + r.fail + ' / WARN ' + r.warn);
+      process.exit(1);
+    }
+    console.log('reach OK: ' + r.pass + '/' + r.total + ' 个目标（神龛+终点）均由真物理路径命中并回放验证');
   } else if (mod === 'engine') {
     const levelsSrc = read('levels.js');
     const engineSrc = read('engine.js');

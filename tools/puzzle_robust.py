@@ -108,11 +108,13 @@ with sync_playwright() as p:
             continue
         n = cells_to_fix(pg)
         coins0 = pg.evaluate('() => game.coins')
+        cost = min(n, coins0)   # v7.5：每格提示 -1 金币；金币不足时免费（不欠账）→ 实扣 = min(格数, 持有)
         key(pg, 'KeyH', n + 4, wait=22)   # H 提示逐格：能力兜底路径（不会做也能一格一格点过去）
         st = pg.evaluate("""() => ({sv:!!game.solvedPuzzles[game.level.shrines[0].idx],
             coins:game.coins, active:game.puzzleActive})""")
         ok('P%d H 提示 %d 格解完' % (k, n), st['sv'] is True, st)
-        ok('P%d 金币 +5' % k, st['coins'] == coins0 + 5, '%d -> %d' % (coins0, st['coins']))
+        ok('P%d 金币净 +5-%d（提示费）' % (k, cost), st['coins'] == coins0 - cost + 5,
+           '%d -> %d（期望 %d）' % (coins0, st['coins'], coins0 - cost + 5))
         pg.wait_for_timeout(2300)
         ok('P%d 2s 自动关层' % k, pg.evaluate('() => !game.puzzleActive'))
         ok('P%d 存档落盘' % k, pg.evaluate('(k) => !!(JSON.parse(localStorage.getItem("pq_progress")||"{}").puzzles||{})[k]', k))
@@ -222,6 +224,21 @@ with sync_playwright() as p:
     pg.wait_for_timeout(220)
     ok('F 暂停态不响应开龛', (not paused) or pg.evaluate('() => !game.puzzleActive'), 'paused=%s' % paused)
     pg.screenshot(path=str(OUT / 'pzrob_f_end.png'))
+
+    # ---------- G. 提示扣费（v7.5） ----------
+    print('== G. 提示扣费：有金币 -1 / 0 金币仍给且不欠账 ==')
+    goto(pg, 2)
+    near, active = open_shrine(pg)
+    ok('G 数独 4×4 可开', active is True)
+    pg.evaluate('() => { game.coins = 3; }')
+    key(pg, 'KeyH', 2, wait=40)
+    ok('G 两次提示 3 → 1 金币', pg.evaluate('() => game.coins') == 1, pg.evaluate('() => game.coins'))
+    pg.evaluate('() => { game.coins = 0; }')
+    n = cells_to_fix(pg)
+    key(pg, 'KeyH', n + 3, wait=22)   # 0 金币下继续逐格提示
+    ok('G 0 金币仍能靠提示解完（不阻断）', pg.evaluate('() => game.solvedPuzzles[2] === true'))
+    ok('G 0 金币提示不欠账（余额只加奖励）', pg.evaluate('() => game.coins') == 5,
+       pg.evaluate('() => game.coins'))
 
     b.close()
 

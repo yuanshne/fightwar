@@ -505,9 +505,14 @@ class Level {
     return this.tiles[ty][tx];
   }
 
-  solid(tx, ty, switchState) { // '#'/'I'/'B'/'G' 恒实；a/b 随全局开关；D 未开门时实；C 崩塌态<2 时实
+  solid(tx, ty, switchState) { // '#'/'I'/'B'/'G'/'('/')' 恒实；a/b 随全局开关；D 未开门时实；C 崩塌态<2 时实
     const ch = this.tileAt(tx, ty);
     if (ch === '#' || ch === 'I' || ch === 'B' || ch === 'G') return true; // 'B' 木箱：实心，碎后网格改'.'自然失效；'G' 隐藏砖（v7 §4.2）：恒实，仅攻击可碎且永久消失
+    // v7.5：传送带 '(' / ')' 补进实心集合。此前 solid() 不认它们，而 levels.js 的 STAND 集合认——
+    // 两处口径不一致，L4 把传送带铺在地面行（levels.js:190 `g.row(31,36,H-1,'(')`）于是成了
+    // 8 格无底洞：画面上是地板、踩上去直接掉出地图。补齐后传送带既能站立，脚下一行扫描
+    // （updateWorld 的 convL/convR）也才真正生效——「逆行传送带」这个机制此前从未工作过。
+    if (ch === '(' || ch === ')') return true;
     if (ch === 'a') return switchState === 0;
     if (ch === 'b') return switchState === 1;
     if (ch === 'D') return this.doors.has(tx + ',' + ty);
