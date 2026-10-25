@@ -199,15 +199,17 @@ const BAL = {
     o: { cd: 20,  dmg: 5, t: [0.55,0.90,1.20] },
     l: { cd: 6,   vOut: 320, range: 160, vBack: 340, dmg: 2, life: 2.6 } },
   enemy: {
-    slime:  { hp: 2, spd: 28, fall: 300, skill: { rngX: 56, up: 40, dn: 48, wind: 0.5, vx: 90, vy: 260, cd: 3.2 } },
-    bat:    { hp: 1, spd: 40, rng: 44, skill: { rng: 90, wind: 0.5, vDive: 240, diveMax: 0.55, vBack: 120, cd: 4.0 } },
-    knight: { hp: 3, spd: 20, skill: { rngX: 110, rngY: 24, wind: 0.6, vx: 190, dur: 0.5, vuln: 0.7, cd: 5.0 } },
-    mage:   { hp: 2, skill: { rng: 140, cast: 0.8, recover: 0.5, boltV: 95, home: 1.6, turn: 2.2, boltLife: 3.2, cd: 3.5 } },
+    // v7.2 血量加厚（玩家"小怪血变厚一点"）：slime 2→3 / bat 1→2 / mage 2→3 / jelly 1→2 /
+    // boomer 1→2 / lancer 2→3 / ghost 2→3；knight 3→4（精英 x/z 倍率不变，经 BAL.elite.hpMul 放大）
+    slime:  { hp: 3, spd: 28, fall: 300, skill: { rngX: 56, up: 40, dn: 48, wind: 0.5, vx: 90, vy: 260, cd: 3.2 } },
+    bat:    { hp: 2, spd: 40, rng: 44, skill: { rng: 90, wind: 0.5, vDive: 240, diveMax: 0.55, vBack: 120, cd: 4.0 } },
+    knight: { hp: 4, spd: 20, skill: { rngX: 110, rngY: 24, wind: 0.6, vx: 190, dur: 0.5, vuln: 0.7, cd: 5.0 } },
+    mage:   { hp: 3, skill: { rng: 140, cast: 0.8, recover: 0.5, boltV: 95, home: 1.6, turn: 2.2, boltLife: 3.2, cd: 3.5 } },
     // v7 §8 追加四键（新敌；ghost/boomer 技能机不用冷却故无 cd 键——§5.6 表「CD —」）
-    lancer: { hp: 2, spd: 34, fall: 300, skill: { rngX: 72, rngY: 24, wind: 0.55, vx: 240, dur: 0.28, recover: 0.5, cd: 4.5 } },
-    jelly:  { hp: 1, skill: { rng: 40, wind: 0.6, dur: 0.4, ring: 18, cd: 5.0 } },
-    ghost:  { hp: 2, skill: { wake: 150, lose: 260, spd: 26, home: 40 } },
-    boomer: { hp: 1, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 30 } } },
+    lancer: { hp: 3, spd: 34, fall: 300, skill: { rngX: 72, rngY: 24, wind: 0.55, vx: 240, dur: 0.28, recover: 0.5, cd: 4.5 } },
+    jelly:  { hp: 2, skill: { rng: 40, wind: 0.6, dur: 0.4, ring: 18, cd: 5.0 } },
+    ghost:  { hp: 3, skill: { wake: 150, lose: 260, spd: 26, home: 40 } },
+    boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 30 } } },
   boss:  { hp: 60, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
            windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55 }, p2WindMul: 0.85,
            idleT: [0.6, 0.45], walk: [20, 25],
