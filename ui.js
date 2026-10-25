@@ -1867,14 +1867,13 @@ function renderHUD(){
       drawPixelText(''+Math.ceil(cd),x+8,y+6,1,'#a8b4d8','center');}
     else{ctx.globalAlpha=0.35+0.3*Math.sin(game.tick*0.15); // 就绪呼吸光（金描边）
       ctx.strokeStyle='#f8d048';ctx.strokeRect(x+0.5,y+0.5,15,15);ctx.globalAlpha=1;}
-    if(i===2)for(let k=0;k<8;k++){ // v6 §C2：O 充能 8 点内嵌 O 槽底行（2×2 连排 16px 满宽；
-      ctx.fillStyle=k<Math.min(game.combo,8)?'#f8d048':'#3a3a4a';   // 原独立点条 (231,202) 已删除）
-      ctx.fillRect(x+k*2,y+13,2,2);
+    if(i===2)for(let k=0;k<10;k++){ // v7.1：O 能量条 10 格×10%（ultCharge 满 100 格亮满）
+      ctx.fillStyle=(game.ultCharge||0)>=100||k<Math.floor((game.ultCharge||0)/10)?'#f8d048':'#3a3a4a';
+      ctx.fillRect(x+k*1.5,y+13,2,2);
     }
   }
-  // v6 §D1：O 槽金色呼吸（替换 v5 白描边）——combo≥8 且就绪：双层描边 #f8d048/#fff8c8，
-  // alpha=0.4+0.4*sin(tick*0.2) 同相，rect 外扩 1px
-  if(game.combo>=8&&sk.o<=0){
+  // v7.1：O 槽金色呼吸——ultCharge≥100 且就绪（原 combo≥8 条件废除）
+  if((game.ultCharge||0)>=100&&sk.o<=0){
     const bx=162+2*22,by=198,a=clamp(0.4+0.4*Math.sin(game.tick*0.2),0,1);
     ctx.globalAlpha=a;ctx.strokeStyle='#f8d048';ctx.lineWidth=1;
     ctx.strokeRect(bx-0.5,by-0.5,17,17);
@@ -1927,7 +1926,7 @@ function renderHUD(){
   if(oHintT>0&&uiState==='play'){ // v6 §D2：O 大提示横幅（每关一次；尾 0.5s 渐隐）
     ctx.globalAlpha=clamp(oHintT/0.5,0,1);
     _panel(VIEW_W/2-120,VIEW_H-64,240,18,{cut:3});
-    drawCNText('连击已满！按 O 释放流星连斩',VIEW_W/2,VIEW_H-61,12,'#f8d048','center');
+    drawCNText('能量已满！按 O 释放流星连斩',VIEW_W/2,VIEW_H-61,12,'#f8d048','center');
     ctx.globalAlpha=1;
   }
   if(skillHintT>0&&uiState==='play'&&game.levelIdx===0){ // v6 §E1：L1 技能提示条（hint 条下方；尾 1s 渐隐）
@@ -1950,10 +1949,10 @@ function drawSkillCard(i,slotX){
   const SKILLS=[ // [名, 键, 一句话说明, 充能条件(null=无，冷却即用)]
     ['星陨术','U','召唤三颗流星轰击锁定的敌人',null],
     ['星光护盾','I','3 秒内吸收 2 次伤害',null],
-    ['流星连斩','O','时停十字斩：屏内敌人全灭并清弹幕','连击满 8 解锁'],
+    ['流星连斩','O','时停十字斩：屏内敌人全灭并清弹幕','命中积累能量，满 100 释放'],
     ['星刃回旋','L','掷出回旋星刃，去回两程割草',null]];
   const info=SKILLS[i],sk2=game.skills||{u:0,i:0,o:0,l:0},cd=[sk2.u,sk2.i,sk2.o,sk2.l][i]||0;
-  const condOk=info[3]?game.combo>=8:true;
+  const condOk=info[3]?(game.ultCharge||0)>=100:true;
   const cx=clamp(slotX-67,4,VIEW_W-154);
   _panel(cx,146,150,46,{cut:3});
   drawCNText(info[0],cx+6,150,10,'#f8d048');
@@ -2629,8 +2628,8 @@ function step(dt){
   if(uiState==='play')simHiddenHint(); // v7 §9.8：隐藏房微提示（未碎 G 近距尘落，节流扫描）
   if(game.combo!==lastCombo){if(game.combo>lastCombo)comboPop=0.3;lastCombo=game.combo;}
   comboPop-=dt;
-  // v6 §D2：O 大提示上升沿（每关一次 oHintDone 锁存；CD 中不误导；paused/开层不触发）
-  if(uiState==='play'&&!game.paused&&!puzzle.open&&!bagOpen&&game.combo>=8&&!oHintDone&&game.skills&&game.skills.o<=0){
+  // v7.1：O 大提示上升沿——改能量制（ultCharge 满 100 触发；原 combo>=8 废除）
+  if(uiState==='play'&&!game.paused&&!puzzle.open&&!bagOpen&&(game.ultCharge||0)>=100&&!oHintDone&&game.skills&&game.skills.o<=0){
     oHintDone=true;oHintT=2.5;
   }
 

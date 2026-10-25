@@ -190,6 +190,9 @@ const BAL = {
   atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
   dash:  { cd: 0.8, dur: 0.28, v: 260, gravMul: 0.5 },
   combo: { win: 2, ultNeed: 8 },
+  // v7.1 O 重做：连击门槛与实战节奏脱节（怪少窗短叠不满 8）→ 改能量充能制：
+  // 任何命中充 ultCharge.hit（碎砖减半），满 ultNeed 释放；死亡/断连击不清充能
+  ult: { chargeHit: 10, chargeBrick: 5, ultNeed: 100 },
   skills:{
     u: { cd: 8,   meteors: 3, fallV: 300, delay: [0.50,0.75,1.00], dmg: 2, bossDmg: 2, aoe: 24 },
     i: { cd: 12,  dur: 3.0, absorb: 2 },
@@ -525,6 +528,7 @@ const game = {
            skillUHit: 0, skillIHit: 0, skillOHit: 0, down: 0, skillLHit: 0 },
   paused: false, tick: 0,
   combo: 0, comboT: 0,   // v2 P1：连击计数 / 窗口剩余（断档清零）
+  ultCharge: 0,          // v7.1：O 能量充能 0..100（命中/碎砖累积，满 100 可放；死亡不掉）
   hitStop: 0,            // v2 P1：攻击命中的全局冻结计时（>0 时世界暂停推进）
   // v3：Boss 战与技能系统（沿 v2 先例扩展字段，不新增顶层全局符号）
   boss: null,            // Boss 实体（loadLevel 按 L.bossSpawn 创建，L1-L6 恒 null）
@@ -1081,10 +1085,9 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
     if (S.i <= 0 && !p.dead) { S.i = BAL.skills.i.cd * game.cdMul; p.shieldT = BAL.skills.i.dur; p.shieldHp = BAL.skills.i.absorb; game.sfxQueue.push('shield');
       _engAddParts(p.x + 5, p.y + 7, 12, '#f8d048', 70, 0); } }
   if (inp.skillOHit) { inp.skillOHit = 0;
-    // v5 §3.1：O 流星连斩改为 1.2s 演出状态机（时停→十字斩→结算→冲击环→白闪→余韵）；
-    // 旧的一次性结算（hitStop/flashT/shake/清弹幕）全部移交 updateWorld 顶部 ult 块。
-    if (S.o <= 0 && game.combo >= BAL.combo.ultNeed && !p.dead) {
-      S.o = BAL.skills.o.cd * game.cdMul; game.combo = 0; game.comboT = 0;    // 门控不变：连击≥8 充能、CD 20s、消耗全部连击
+    // v5 §3.1：O 流星连斩 1.2s 演出状态机；v7.1 门控改能量制：ultCharge≥100 释放（原 combo≥8 废除）
+    if (S.o <= 0 && game.ultCharge >= BAL.ult.ultNeed && !p.dead) {
+      S.o = BAL.skills.o.cd * game.cdMul; game.ultCharge = 0;             // 消耗全部充能
       game.ult = { on: true, t: 0, fired: false, flashed: false };
       game.sfxQueue.push('ult');
     } }
@@ -1124,6 +1127,8 @@ let _engComboFloatT = 0; // 内部（v5 §D）：连击浮字节流时间戳（�
 function _engAddCombo() { // 内部：连击计数（v5 §2#7：命中敌人（无论死活）/碎砖 +1；2s 窗口累计，断档清零在 updateWorld ⑬）
   game.combo++;
   game.comboT = _engComboWin;
+  // v7.1：O 充能随命中累积（满 ultNeed 后继续命中不再累积，等玩家释放）
+  if (game.ultCharge < BAL.ult.ultNeed) game.ultCharge = Math.min(BAL.ult.ultNeed, game.ultCharge + BAL.ult.chargeHit);
   if (game.combo >= 2) game.sfxQueue.push('combo'); // n≥2 才有连击音
   if (game.combo >= 2 && game.time >= _engComboFloatT) { // 连击浮字：玩家头顶金色，0.5s 节流
     _engComboFloatT = game.time + 0.5;
