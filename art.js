@@ -673,6 +673,182 @@ const _BAT3 = [ // 蝙蝠帧3·翅下压（翅膀压到最低点，三帧构成�
   'kpk..kk..kpk',
   '.kk......kk.'];
 
+/* —— v8.0 三种新小怪（铁甲虫 / 酸液花 / 跳跳蛛）——
+ * 小怪种类扩充。三者全部手写字符网格（禁止外部图片），基准帧一律面向左——与 knight/lancer/mage
+ * 同约定，ui.js 在 e.face>0 时水平翻转（spitter 是站桩植物，ui.js 不翻转，故自身左右不对称即可）。
+ * 网格行列数 = 精灵尺寸，必须与 engine.js 的命中框逐像素对齐：beetle 14×12 / spitter 14×16 /
+ * hopper 12×12，宽高错一格就会在 ui.js 的 'foot' 锚点处整体偏移。
+ * 描边一律用带色相的深色（禁纯黑 #000），光源统一左上：顶部/左侧高光、右下暗部。 */
+
+const _P_BEETLE = { // 内部：铁甲虫（描边=深棕；甲壳四阶高对比 = 硬质感，与绿色软团史莱姆形成材质反差）
+  k: '#2a1a18', // 描边·深棕黑（非纯黑，深色背景上仍带暖调）
+  b: '#8a3a2a', // 甲壳主体·深红棕
+  B: '#5a2418', // 甲壳暗部（明度 −35%）
+  W: '#c86a4a', // 甲壳高光（明度 +45%，左上受光）
+  m: '#d8b088', // 小颚·骨米色（与暗甲壳对比，突出口器）
+  w: '#ffffff', // 眼白（纯白，全主题可读）
+  e: '#20100e'  // 瞳孔（带暖调的深色，非纯黑）
+};
+const _BEETLE1 = [ // v8.0 帧0·巡逻步态：6 条短腿向两侧张开；甲壳 x7/x10 两道 B 竖纹分节 + 左上斜向高光
+  '....kkkkkk....',
+  '..kkbWWbbbkk..',
+  '.kbWWWbbbbbbk.',
+  'kbBwwbbBbbBbbk',
+  'kbBewbbBbbBbbk',
+  'mmBBbbbbBbbBbk',
+  'mBBBbbbbBbbBbk',
+  '.kBBBBBBBBBBk.',
+  '..kkBBBBBBkk..',
+  '.k.kkkkkkkk.k.',
+  'b.b.b....b.b.b',
+  '..b.b....b.b..'];
+const _BEETLE2 = [ // v8.0 帧1·蓄力/冲撞预备：整体下沉 1px 压低重心、6 腿收拢贴住腹缘（ui.js 在 wind 态取此帧 + 1px 抖动做预警）
+  '..............',
+  '....kkkkkk....',
+  '..kkbWWbbbkk..',
+  '.kbWWWbbbbbbk.',
+  'kbBwwbbBbbBbbk',
+  'kbBewbbBbbBbbk',
+  'mmBBbbbbBbbBbk',
+  'mBBBbbbbBbbBbk',
+  '.kBBBBBBBBBBk.',
+  '..kkBBBBBBkk..',
+  'bb.kkkkkkkk.bb',
+  '..b.b....b.b..'];
+const _P_BEETLE_DEAD = Object.assign({}, _P_BEETLE, { // v8.0 死亡派生：整体压暗一档（翻肚=看到腹面，不能再用亮甲色）
+  b: '#5e2820', B: '#40180f', W: '#8a4632', m: '#9a7a58', w: '#9a9288', e: '#2a1614'
+});
+const _BEETLE_DEAD = [ // v8.0 死亡帧·翻肚：腿朝天（用压暗的 W 画，否则 1px 深腿会在深底上糊掉）；腹面 B 分节 + 壳缘受光 + 颚骨露出
+  '.W.W..W.W.....',
+  '..W.W..W.W....',
+  '...W..W..W....',
+  '..kkkkkkkkkk..',
+  '.kbWWWbbbbbbk.',
+  'kbbBbbbbbBbbbk',
+  'mbBBbbbBbbbBbk',
+  'kbBBBBBBBBBBbk',
+  'kBBBBBBBBBBBBk',
+  '.kBBBBBBBBBBk.',
+  '..kkBBBBBBkk..',
+  '....kkkkkk....'];
+
+const _P_SPITTER = { // 内部：酸液花（描边=深墨绿；花苞黄绿四阶 + 茎叶深绿三阶；植物无眼，用花口 e 表达状态）
+  k: '#1e2a12', // 描边·深墨绿
+  b: '#5a8a2a', // 茎叶主体
+  B: '#3a5c18', // 茎叶暗部（明度 −35%）
+  W: '#8ab84a', // 茎叶高光（明度 +45%）
+  y: '#c8d838', // 花苞主体·黄绿
+  Y: '#8a9a20', // 花苞暗部
+  p: '#f0f8a0', // 花瓣高光（近白黄，左上受光）
+  e: '#26300e'  // 花口/花心内腔（吐弹前摇时张开可见）
+};
+const _SPITTER1 = [ // v8.0 帧0·花苞闭合：花瓣紧包成水滴形（顶尖开槽=两片花瓣，中缝一道 Y 暗示第三片），底部两片叶当脚
+  '...kkk.kkk....',
+  '..kkpyyykk....',
+  '.kpyyyyyyyk...',
+  'kpyyYyyyyyk...',
+  'kpyyyyYyyyyyk.',
+  'kpyyyyyyyyYyk.',
+  '.kpyyyyyyyyk..',
+  '..kkYyyyYkk...',
+  '....kbbk......',
+  '....kbWk......',
+  '....kbbk......',
+  '..kkkbbkkk....',
+  '.kbbbbbbbbk...',
+  'kbWWbbbbWWbk..',
+  'kbBBbkbbBBbk..',
+  '.kkkk.kk.kkk..'];
+const _SPITTER2 = [ // v8.0 帧1·花苞微张（吐弹前摇）：花瓣外扩、顶端露出倒三角花口 e；茎叶不动（植物蓄力只动上半身）
+  '...kkkkkk.....',
+  '.kkpyyyykk....',
+  'kppyyyyyyyk...',
+  'kpyyyeyyyyk...',
+  'kpyyeeeyyyyk..',
+  'kpyyyyyyyyYk..',
+  '.kpyyyyyyYk...',
+  '..kkYyyYkk....',
+  '....kbbk......',
+  '....kbWk......',
+  '....kbbk......',
+  '..kkkbbkkk....',
+  '.kbbbbbbbbk...',
+  'kbWWbbbbWWbk..',
+  'kbBBbkbbBBbk..',
+  '.kkkk.kk.kkk..'];
+const _P_SPITTER_DEAD = Object.assign({}, _P_SPITTER, { // v8.0 死亡派生：黄绿→枯黄（色相向橙黄偏 40°），明度整体压暗
+  b: '#7a6a20', B: '#4e4412', W: '#a89a48', y: '#9a8a28', Y: '#6a5e18', p: '#b8ac68', e: '#2a2410'
+});
+const _SPITTER_DEAD = [ // v8.0 死亡帧·花苞垂落 + 茎折断：茎向左折成 Z 形（断面在 y11），花苞低头、花瓣收成枯条
+  '..............',
+  '.....kkkk.....',
+  '...kkpyykk....',
+  '..kpyyyyyk....',
+  '.kpyyyYyyyk...',
+  '.kpyyyyyyyk...',
+  '..kYYYYYYk....',
+  '...kkbbkk.....',
+  '....kbbk......',
+  '...kbbk.......',
+  '..kbbk........',
+  '.kkbbkk.......',
+  'kbWWbbbbbk....',
+  'kbBBbkbbbk....',
+  '.kkk.kbbk.....',
+  '.....kkkk.....'];
+
+const _P_HOPPER = { // 内部：跳跳蛛（描边=深棕；亮橙黄体 + 深斑，全身最高饱和的一只，远处就能认出）
+  k: '#3a2410', // 描边·深棕
+  b: '#e8a020', // 身体主体·亮橙黄
+  B: '#a86a08', // 暗部（明度 −35%）
+  W: '#ffd870', // 高光（明度 +45%，左上受光）
+  d: '#6a4a08', // 背部深色斑点（蛛类识别特征）
+  w: '#ffffff', // 眼白（两只大眼，蛛形）
+  e: '#241608'  // 瞳孔（朝左=基准朝向）
+};
+const _HOPPER1 = [ // v8.0 帧0·站立/滞空：4 条细长腿伸开落地，圆身体 + 背斑 + 左向双大眼
+  '............',
+  '...kkkkkk...',
+  '..kbbbbbbk..',
+  '.kbWWbbbbbk.',
+  'kbwwbbwwbbbk',
+  'kbewbewbbbbk',
+  'kbbdbbbdbbbk',
+  'kbbbbbbbdbbk',
+  '.kBBBBBBBBk.',
+  '..kkBBBBkk..',
+  '.B.B....B.B.',
+  '..B......B..'];
+const _HOPPER2 = [ // v8.0 帧1·下蹲蓄力：身体压扁 1px（顶行留空）、4 腿蜷到体侧（膝盖朝上）；ui.js 在 crouch 态取此帧 + 脚底锚定压扁 0.8
+  '............',
+  '............',
+  '...kkkkkk...',
+  '..kbbbbbbk..',
+  '.kbWWbbbbbk.',
+  'kbwwbbwwbbbk',
+  'kbewbewbbbbk',
+  'kbbdbbbdbbbk',
+  '.kBBBBBBBBk.',
+  'BB.kkkkkk.BB',
+  'B.B......B.B',
+  '..B......B..'];
+const _P_HOPPER_DEAD = Object.assign({}, _P_HOPPER, { // v8.0 死亡派生：亮橙黄压成土黄（明度 −40%），眼白转灰
+  b: '#8a5c10', B: '#5a3a06', W: '#a87a20', d: '#3a2804', w: '#8a8478', e: '#2a1a08'
+});
+const _HOPPER_DEAD = [ // v8.0 死亡帧·八脚朝天 + 身体裂开：腿朝上用压暗 W 画（可见），腹面 k 裂口偏左把身体劈开（顺带造出朝向感）
+  '.W.W...W.W..',
+  '..W.W.W.W...',
+  '..kkkkkkkk..',
+  '.kbbbbbbbbk.',
+  'kbBbbbbbbBbk',
+  'kbbdbbbbdbbk',
+  'kbBBBbbBBBbk',
+  'kbbbkkbbbbbk',
+  'kbbbbbbbbbbk',
+  '.kbbbbbbbbk.',
+  '..kkBBBBkk..',
+  '...kkkkkk...'];
+
 /* —— 物品：金币（金四阶+扫光帧）/ 宝石（切面折射）/ 钥匙 / 弹簧（金属圈高光）——
  * 全部彩色描边：金系描边=暗金棕，宝石描边=深青，弹簧描边=钢青，禁纯黑。 */
 const _P_ITEM = { // 内部：物品/机关调色板
@@ -2349,6 +2525,14 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.slime = [_makeSprite(_SLIME1, _P_SLIME), _makeSprite(_SLIME2, _P_SLIME)];
   SPR.slimeDead = _makeSprite(_SLIME_DEAD, _P_SLIME);
   SPR.bat = [_makeSprite(_BAT1, _P_BAT), _makeSprite(_BAT2, _P_BAT), _makeSprite(_BAT3, _P_BAT)];
+  // v8.0 三种新小怪：各 2 帧 + 1 死亡帧（共 9 张 14×12/14×16/12×12 小图，纯 fillRect 增量 < 5ms；
+  // 基准帧面向左，ui.js 按 e.face>0 翻转；spitter 站桩不翻转，靠自身左右不对称表达朝向）
+  SPR.beetle = [_makeSprite(_BEETLE1, _P_BEETLE), _makeSprite(_BEETLE2, _P_BEETLE)];
+  SPR.beetleDead = _makeSprite(_BEETLE_DEAD, _P_BEETLE_DEAD);
+  SPR.spitter = [_makeSprite(_SPITTER1, _P_SPITTER), _makeSprite(_SPITTER2, _P_SPITTER)];
+  SPR.spitterDead = _makeSprite(_SPITTER_DEAD, _P_SPITTER_DEAD);
+  SPR.hopper = [_makeSprite(_HOPPER1, _P_HOPPER), _makeSprite(_HOPPER2, _P_HOPPER)];
+  SPR.hopperDead = _makeSprite(_HOPPER_DEAD, _P_HOPPER_DEAD);
   // —— 物品（金币四帧旋转；v5 发光件 _glow 内描边，rim 色照抄设计书 §5.4）——
   SPR.coin = [_COIN1, _COIN2, _COIN3, _COIN2].map(function (grid, i) { // 四帧旋转
     return _glow(i === 3 ? flipSprite(_makeSprite(_COIN2, _P_ITEM)) : _makeSprite(grid, _P_ITEM), '#fff2a0');

@@ -59,6 +59,11 @@ Boss 战模式）。零依赖、零素材文件——所有像素画、瓦片、
 | U / I / O | 星陨术 / 星光护盾 / 流星连斩（充能大招） |
 | 方向+数字 | 谜题内导航与填数　·　P/R/Esc 暂停/重开/菜单　·　M 声音 |
 
+**全界面键位等价（v8.0）**：标题 / 选关 / 背包 / 衣橱 / 谜题 / 结算的导航一律 `方向键 ≡ WASD`，
+确认一律 `Enter ≡ 空格`。任何界面都不需要记住两套键位。
+
+第一关的操作提示**常驻在天空背景上**（半透明 + 深色投影，不遮挡地面与敌人），不会 3 秒后消失。
+
 ## 运行
 
 **在线试玩**：<https://yuanshne.github.io/fightwar/>（GitHub Pages，main 分支根目录直出）
@@ -81,6 +86,8 @@ tools/gate.js   确定性门禁：art=语法+导出 / levels=执行+断言 / eng
 tools/puzzle_audit.js  谜题审计模块（数织/数独唯一解计数 + 神龛↔PUZZLES 配对），gate 与 CLI 共用
 tools/reach.js  可达性求解器：驱动真物理搜索「出生点→神龛/终点」的按键序列，再回放验证
 tools/_reach_map.js / _reach_trace.js  排查用：打印关卡局部 ASCII / 单个动作的逐帧轨迹
+tools/_v80_*.js  v8.0 专项验证：_ui(提示与键位) / _stuck(小怪卡住) / _conv(传送带) /
+                _enemy(新敌 AI) / _enemy_art(新敌精灵) / _h(关卡加高坐标冻结) / _spawn(新敌摆放)
 tools/*.py      Playwright 回归：逐关截图/输入延迟(60与144Hz模拟)/机关定点测试/谜题通关/鲁棒性
 docs/           设计方案、grilling 记录、模块契约、v2/v2.5/v3 任务书
 ```

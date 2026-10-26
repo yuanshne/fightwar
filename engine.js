@@ -119,6 +119,25 @@
        纯基础值 + 装备加成；BAL.dash.cd=0.5 属手感改动，保留。
      实测（tools/_v77_feel.js）：满跳 33.6px 不变、短按 16.87→14.99px、跑速位移 115.83px 不变、
      冲刺距离 59.53px 不变、冲刺冷却 48→31 帧；reach 26/26 保持。
+   v8.0 增量（四条手感/机关/相机/新敌工单，引擎侧）：
+     - 传送带（任务1）：推力从「vx 加速度 520 / 上限 170」改为**独立带速 p.convV**
+       （加速度 1200 / 上限 280，叠加在自身跑速之上）。旧写法把 vx 顶到 170，但下一帧的
+       effRun=120 钳制又把它砍回去，实际只多 20px/s —— 这就是「传送带太慢没用」的根因。
+       新模型：站住 = 280、顺向跑 = 120+280 = 400、逆向跑 = -120+280 = 160（被缓慢推回）。
+       地面敌人同样吃带速（e.convV，加速度/上限取玩家一半 600/140，避免小怪被甩飞）；
+     - 小怪卡住（任务2）：掉头判定补 e.turnCd 0.25s 冷却 + 撞墙钳位 x 到墙面 + 传送带把敌人
+       推出边缘时不再掉头（否则每帧翻向 → 4.7px 见方的夹缝里 10 秒掉头 60 次，看着就是一动不动）；
+     - 小怪脱困（任务3，v8.0 二轮）：任务2 只治「卡死」（spanX<8px），36~68px 的小坑里往返巡逻
+       仍然一只都没抓到（路径长 279 一直在走、跨度只有 2~4 格）。新增 1.6s 活动窗口统计
+       spanMin/spanMax，跨度 <40px（2.5 格）判「被困」→ 主动跳（slime/hopper 复用 leap/air）→
+       换向冲刺（e.freeT 0.35s / 2.4 倍巡逻速）→ 原地掉头；交战半径内、技能状态机非 idle、
+       冲刺中三条豁免。落点用水平射程精确解算（vx·2vy/g），只接受能站且≥2 格宽的落点，
+       绝不把敌人弹进墙/弹下无底坑（tools/_v80_stuck.js 实测：卡住 0 / 抖动 2 与改前持平，
+       跨度<40px 3→2 只，L3#5 那只从 36px 扩到 127px）；
+     - 相机（任务3）：纵向死区 ±20px + 前瞻（vy>120 下移 16 / vy<-120 上移 12）+ 分轴 lerp
+       （横 0.12 / 纵 0.08）；关卡不足一屏时 cam.y 允许负值把内容垂直居中；
+     - 新敌（任务4）：'i' 铁甲虫 / 'k' 酸液花 / 'n' 跳跳蛛——统一走 _ENG_ENEMY_DEF + _engMkEnemy，
+       状态机在 _engEnemySkill（wind→charge / cast→酸弹 / crouch→air），地面物理复用既有分支。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -130,6 +149,18 @@
 /* ==================== 内部工具（内部） ==================== */
 const _engTile = 16;              // 内部：瓦片像素边长
 const _engVW = 384, _engVH = 224; // 内部：内部分辨率（相机钳制用）
+/* v8.0 任务1：传送带（玩家）。加速度 1200 / 上限 280（工单建议带 1100~1300 / 260~300）——
+   0.23s 就到顶，站住 1 秒被推 248px（15 格），肉眼绝不可能忽略；上限 280 < 16px/帧=4.67px，
+   单帧位移仍远小于一格瓦片，贴墙处不会穿墙（tools/_v80_belt.js 实测钳位在墙面外）。
+   旧值 520/170 的实际带速只有 170-120=50px/s（顺向）和 -170（逆向），玩家「感觉不到」。
+   敌人取一半（600/140）：既看得出被带子推，又不会被甩出画面（小怪 10~14px 宽，140px/s 已是 10 身位/秒）。 */
+const _engConvAcc = 1200, _engConvCap = 280;
+const _engConvAccE = 600, _engConvCapE = 140;
+/* v8.0 任务3：相机纵向死区 / 前瞻 / lerp（横向 0.12 一字不动）。 */
+const _engCamDz = 20;        // 纵向死区 ±20px：玩家在屏幕中央这条带里移动时相机完全不动（跳跃不抽搐）
+const _engCamLookDown = 16;  // vy > 120（快速下落）：目标点下移 16px，提前看到落点
+const _engCamLookUp = 12;    // vy < -120（快速上升）：目标点上移 12px
+const _engCamLerpY = 0.08;   // 纵向 lerp 比横向 0.12 更慢更稳（竖直方向最忌抖）
 const _engEps = 0.01;             // 内部：AABB 右/下缘取整前的回退量（恰好压线不算重叠）
 const _engDecorFallback = {       // 内部：THEMES 桩（门禁环境）无 decor 字段时的兜底装饰表
   grass: ['bush', 'flower', 'mushroom'], cave: ['crystal', 'mushroom'],
@@ -242,7 +273,15 @@ const BAL = {
     lancer: { hp: 3, spd: 34, fall: 300, skill: { rngX: 72, rngY: 24, wind: 0.55, vx: 240, dur: 0.28, recover: 0.5, cd: 4.5 } },
     jelly:  { hp: 2, skill: { rng: 40, wind: 0.6, dur: 0.4, ring: 18, cd: 5.0 } },
     ghost:  { hp: 3, skill: { wake: 150, lose: 260, spd: 26, home: 40 } },
-    boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 16 } } },
+    boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 16 } },
+    // v8.0 任务4：三种新敌（键名/数值=工单逐字，既有键一个不动）
+    // beetle 速度 76（史莱姆 28 的 2.7 倍）——压迫感来自速度；冲撞 150 是玩家 maxRun 120 的 1.25 倍，
+    // 站着不动躲不掉、起跳即可躲（冲撞期间不可踩踏，只能侧打或跳）。
+    beetle:  { hp: 2, spd: 76, fall: 300, skill: { rngX: 88, wind: 0.35, vx: 150, cd: 3.6 } },
+    // spitter 站桩（spd 0）：150px 覆盖半个屏宽，0.4s 读条给足反应；酸弹 130 慢于玩家跑速，可走位躲。
+    spitter: { hp: 3, spd: 0,  fall: 300, skill: { rng: 150, cast: 0.4, boltV: 130, cd: 2.2 } },
+    // hopper 44（比史莱姆快但慢于玩家）：跳跃 300 ≈ 34px 高、滞空 0.45s，vx 90 只用于朝玩家压位。
+    hopper:  { hp: 2, spd: 44, fall: 300, skill: { rng: 110, crouch: 0.3, jumpV: 300, vx: 90, cd: 1.8 } } },
   boss:  { hp: 72, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
            windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55, dive: 0.55 }, p2WindMul: 0.85,
            idleT: [0.48, 0.36], walk: [20, 25],
@@ -349,7 +388,10 @@ const BAL = {
     poolFar: ['barrage', 'blink', 'halo', 'barrage'],
     p2Add: ['nova', 'dive'],
     contactDmg: 1, drop1: 'yao1', drop2: 'yao2' },
-  elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 14 }, ghost: { hp: 12 } }, // v7 §8：精英怪
+  elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 14 }, ghost: { hp: 12 }, // v7 §8：精英怪
+    // v8.0：三种新敌的精英血量（工厂 _engMkEnemy 会读 BAL.elite[type].hp，缺键会在 elite=true 时 TypeError）。
+    // 口径沿用既有两条：≈4 倍基础血（lancer 3→14、ghost 3→12）。
+    beetle: { hp: 8 }, spitter: { hp: 12 }, hopper: { hp: 8 } },
   flow:  { acc: 600, cap: 170 },  // v7 §8：水流 §4.1（cap 170>maxRun 120<逆流冲刺，数值推导见设计书）
   econ:  { coin: 1, gem: 5, puzzle: 5, brick: 1, heartChance: 0.30, heartHeal: 1, dropGrav: 1200, dropFall: 360, chestGem: 5 }, // v7 §8：chestGem
   gear:  {                                           // §Q（波2 生效）
@@ -509,6 +551,11 @@ class Level {
             this.enemies.push(eE); this.tiles[y][x] = '.'; break; }
           case 'x': // v7 §5.5：精英·枪虾王（放大枪虾 elite:true，hp=BAL.elite.lancer，必掉装备）
             this.enemies.push(_engMkEnemy('lancer', px, py, true)); this.tiles[y][x] = '.'; break;
+          // v8.0 任务4：三种新敌（统一走 _engMkEnemy 工厂；尺寸/锚点由 _ENG_ENEMY_DEF 决定，
+          // 三者均为地面型 → 重力/落地/掉头复用 slime 那条既有分支，不另写一套物理）
+          case 'i': this.enemies.push(_engMkEnemy('beetle', px, py, false)); this.tiles[y][x] = '.'; break;  // 铁甲虫
+          case 'k': this.enemies.push(_engMkEnemy('spitter', px, py, false)); this.tiles[y][x] = '.'; break; // 酸液花
+          case 'n': this.enemies.push(_engMkEnemy('hopper', px, py, false)); this.tiles[y][x] = '.'; break;  // 跳跳蛛
           case 'z': { // v7 §5.5：精英·幽灵王
             const eZ = _engMkEnemy('ghost', px, py, true); eZ.vx = 0;
             this.enemies.push(eZ); this.tiles[y][x] = '.'; break; }
@@ -729,7 +776,11 @@ const _ENG_ENEMY_DEF = { // 内部：新敌实体参数表（尺寸 px/hp/地面
   lancer: { w: 12, h: 14, hp: BAL.enemy.lancer.hp,        ground: true,  patrol: true },
   jelly:  { w: 12, h: 12, hp: BAL.enemy.jelly.hp,         ground: false, patrol: false },
   ghost:  { w: 12, h: 14, hp: BAL.enemy.ghost.hp,         ground: false, patrol: false },
-  boomer: { w: 10, h: 10, hp: BAL.enemy.boomer.hp,        ground: true,  patrol: false }
+  boomer: { w: 10, h: 10, hp: BAL.enemy.boomer.hp,        ground: true,  patrol: false },
+  // v8.0 任务4：三种新敌（尺寸/锚点=工单逐字：14×12 / 14×16 / 12×12，均为地面型、锚点 py-2）
+  beetle:  { w: 14, h: 12, hp: BAL.enemy.beetle.hp,       ground: true,  patrol: true },
+  spitter: { w: 14, h: 16, hp: BAL.enemy.spitter.hp,      ground: true,  patrol: false },
+  hopper:  { w: 12, h: 12, hp: BAL.enemy.hopper.hp,       ground: true,  patrol: true }
 };
 function _engMkEnemy(type, px, py, elite) { // 内部：v7 新敌统一工厂（elite=放大变体）
   const D = _ENG_ENEMY_DEF[type], s = elite ? BAL.elite.scale : 1;
@@ -740,6 +791,7 @@ function _engMkEnemy(type, px, py, elite) { // 内部：v7 新敌统一工厂（
     rng: 0, amp: undefined, frq: undefined,
     dead: 0, t: (px * 0.7 + py * 1.3) % 6.283, grounded: false, // t 相位公式与既有 spawn 一致
     hp: elite ? BAL.elite[type].hp : D.hp, kb: 0, flashT: 0, jitT: 0, dvx: 0, dvy: 0,
+    convV: 0, turnCd: 0, // v8.0：传送带带速（独立于巡逻 vx）/ 掉头冷却（防夹缝里每帧翻向）
     face: -1, guardDown: false, ai: _engMkAI(type, px, py) };
 }
 
@@ -759,6 +811,7 @@ function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 +
     // windT 冲刺风粒节流 / shieldHp 护盾吸收次数
     airJumps: 1, djT: 0, turnT: 0, stepT: 0, landVy: 0, springAir: false,
     atkAnim: 0, atkWind: 0, windT: 0, shieldHp: 0,
+    convV: 0,              // v8.0：传送带带速（与 p.vx 分开——带速要能叠加在跑速上，不能共用同一个钳制）
     atkSeq: 0 // v5 §C：每次挥击序号——hit-stop 冻结后判定框仍存活，同一摆不得对同一目标二次结算
   };
 }
@@ -773,7 +826,10 @@ function loadLevel(idx, keepStats) {
   game.respawnAt = { x: L.spawn.x, y: L.spawn.y, p: L.spawn.x - L.spawn.y };
   game.player = _engMkPlayer(L.spawn.x, L.spawn.y);
   game.cam.x = _engClamp(L.spawn.x + 5 - _engVW / 2, 0, Math.max(0, L.w * _engTile - _engVW));
-  game.cam.y = _engClamp(L.spawn.y + 7 - _engVH / 2, 0, Math.max(0, L.h * _engTile - _engVH));
+  // v8.0：关卡不足一屏时初始 cam.y 直接取负值（内容垂直居中），与 updateWorld ⑬ 的钳制口径一致
+  const _initMaxY = L.h * _engTile - _engVH;
+  game.cam.y = _initMaxY < 0 ? _initMaxY / 2
+    : _engClamp(L.spawn.y + 7 - _engVH / 2, 0, _initMaxY);
   // v3：Boss 创建 + 新实体/技能字段复位（工单 A「loadLevel 末尾」）
   // v7 §6.1：kind 推导——boss:true≡1（星核巨兽），boss:2=蛟龙，boss:3=判官
   const kind = L.meta.boss === true ? 1 : (L.meta.boss || 0);
@@ -808,6 +864,7 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   // v5 §A：二段跳/手感演出状态复位（复活=重置为 1，设计 §1.1；floats/fx 保留自然消散）
   p.airJumps = 1; p.djT = 0; p.turnT = 0; p.stepT = 0; p.springAir = false;
   p.atkAnim = 0; p.atkWind = 0; p.shieldHp = 0;
+  p.convV = 0; // v8.0：复活清带速（否则在传送带上死一次会带着 280px/s 的惯性弹出去）
   game.shakePend = null;
   // v2 P1：清输入锁存——死亡期间残留的边沿不得在复活后的缓冲窗口内自动触发
   game.input.jumpHit = 0; game.input.attackHit = 0; game.input.dashHit = 0;
@@ -840,6 +897,9 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
     // v6 §E：技能状态机复位（相位按复位后坐标重算，与出生同值确定性）+ 骑士破绽解除
     if (e.ai) e.ai = _engMkAI(e.type, e.x, e.y);
     e.guardDown = false;
+    e.convV = 0; e.turnCd = 0; // v8.0：复活清带速/掉头冷却（与位置复位同口径）
+    // v8.0 任务3：脱困窗口/冲刺/冷却也随复位清零（否则死亡前的窄幅统计会带到重生后的第一秒）
+    e.freeT = 0; e.spanT = 0; e.spanMin = e.x; e.spanMax = e.x; e.rescueCd = 0;
   }
   for (const c of L.crumbles.values()) { c.state = 0; c.t = 0; c.dy = 0; c.dvy = 0; }
 }
@@ -1458,6 +1518,86 @@ function _engFootTile(L, tx, ty) { // 内部（v7.6 缺陷1）：敌人的「可
   return L.solid(tx, ty, game.switchState) || L.tileAt(tx, ty) === '=';
 }
 
+function _engDropSafe(L, tx, ty, n) { // 内部（v8.0 任务2）：该列往下 n 格内是否有安全落脚面
+  // 用途：传送带把小怪送出边缘时，判断「掉下去」是不是安全（有地面才掉，深坑/尖刺/熔岩就不掉头）。
+  // 只读瓦片，不改任何状态——与 _engFootTile 一样是纯判定。
+  for (let i = 0; i <= n; i++) {
+    const ch = L.tileAt(tx, ty + i);
+    if (ch === '^' || ch === 'v' || ch === '~') return false;      // 落点即死物：不掉
+    if (L.solid(tx, ty + i, game.switchState) || ch === '=') return true;
+  }
+  return false;
+}
+
+function _engRescueJumpOK(L, e, dir, reach) { // 内部（v8.0 任务3）：脱困跳是否安全——头顶空 + 落点能站
+  // 为什么需要这一层：脱困跳是「敌人自己主动离开原位」的唯一出口，一旦跳进天花板/跳下无底坑，
+  // 就变成「怪穿墙」或「怪凭空消失」，比原地打转更糟。三个条件缺一不可：
+  //   ① 头顶 2 格必须是空的（工单硬要求：不能把敌人弹进墙里）；
+  //   ② 落点是**算出来的**，不是估的：水平射程 = vx × 2vy/grav（slime 90×520/1320≈35px，
+  //      hopper 90×600/1320≈41px），落点矩形覆盖的那几列必须同层都能站（平地），
+  //      不能一列踩地、一列踩在木箱顶上——实测 L2#6 就是这样落到 1 格宽木箱顶，
+  //      左右分别是台沿和关着的门，只剩 4px 活动量，比跳之前还死；
+  //   ③ 落点至少 2 格宽（左边或右边还能再站一格），保证落地后能继续巡逻而不是被夹住。
+  const x0 = Math.floor(e.x / _engTile), x1 = Math.floor((e.x + e.w - _engEps) / _engTile);
+  const hy = Math.floor((e.y - 1) / _engTile);
+  for (let tx = x0; tx <= x1; tx++)
+    for (let i = 0; i < 2; i++) if (L.solid(tx, hy - i, game.switchState)) return false;
+  const fy = Math.floor((e.y + e.h + 2) / _engTile);
+  const rows = Math.max(1, Math.ceil(e.h / _engTile)); // 落点上方要留够身高（12px → 1 格）
+  const stand = function (tx, r) {                     // 第 r 行是地面、且上面留得下身体
+    if (!_engFootTile(L, tx, r)) return false;
+    for (let k = 1; k <= rows; k++) if (L.solid(tx, r - k, game.switchState)) return false;
+    return true;
+  };
+  const lx = e.x + dir * reach;                        // 落点左缘
+  const c0 = Math.floor(lx / _engTile), c1 = Math.floor((lx + e.w - _engEps) / _engTile);
+  for (let dy = 0; dy >= -1; dy--) {                   // 同高 / 高 1 格（跳跃高度 25~34px 够跨 1 格）
+    const r = fy + dy;
+    let bodyFree = true, hasFoot = false;
+    for (let tx = c0; tx <= c1; tx++) {
+      if (_engFootTile(L, tx, r)) hasFoot = true;
+      for (let k = 1; k <= rows; k++) if (L.solid(tx, r - k, game.switchState)) { bodyFree = false; break; }
+      if (!bodyFree) break;
+    }
+    // 落点矩形：至少一列有地面（允许半只脚踩在台沿上——斜落台沿是合法脱困），
+    // 但身体占的每一格都不能是实心（否则就是落进木箱/墙里，见上面 L2#6 那条注释）。
+    if (!bodyFree || !hasFoot) continue;
+    // 落地后左右至少还能再站一格：否则等于把它从「小坑」搬进「更小的坑」
+    if (stand(c0 - 1, r) || stand(c1 + 1, r)) return true;
+  }
+  return false;
+}
+
+function _engRescueDashOK(L, e, dir) { // 内部（v8.0 任务3）：脱困冲刺是否安全——前方 2 格内必须真有能站的地方
+  // 冲刺只给水平推力，没有任何抬升能力：前方是同高地面/高 1 格台面 → 推过去是「换位置」。
+  // 三个否决：① 前方 1~2 格都站不住（左右都被墙夹死）→ 顶着墙冲只会被掉头判定弹回来，
+  // 每 1.6s 白翻一次向（诊断里表现为掉头次数翻倍），对脱困零帮助；
+  // ② 前方是空且下面 4 格内无落脚面 → 推过去就是掉出关卡（y>h*16+30 → dead=99 凭空消失）；
+  // ③ 「墙」不算落脚面：_engFootTile 对实心墙也返回 true，必须再查身体所在行是否空，否则会误判。
+  const fy = Math.floor((e.y + e.h + 2) / _engTile);
+  const cx = Math.floor((e.x + e.w / 2) / _engTile);
+  const rows = Math.max(1, Math.ceil(e.h / _engTile)); // 身体占几行（12px → 1 行）
+  const stand = function (tx, dy) {                     // 该列在 fy+dy 这一层能不能站（含身体空间）
+    if (!_engFootTile(L, tx, fy + dy)) return false;
+    for (let k = 1; k <= rows; k++) if (L.solid(tx, fy + dy - k, game.switchState)) return false;
+    return true;
+  };
+  // 要求「连续 2 格都能站」：1 格宽的空隙在 2 格夹缝里根本挪不出去（冲刺 0.35s×2.4 倍速
+  // 只会把它顶到对面墙上再被弹回来，凭空多一次翻向），只有真有一段能走的地方才值得冲。
+  for (let i = 1; i <= 2; i++) {
+    const tx = cx + dir * i;
+    for (let dy = 0; dy >= -1; dy--) {
+      if (!stand(tx, dy)) continue;
+      if (i === 1 && (stand(cx + dir * 2, dy) || stand(cx + dir * 3, dy))) return true;
+      if (i === 2 && stand(cx + dir * 3, dy)) return true;
+    }
+    if (L.solid(tx, fy - 1, game.switchState)) return false;   // 撞墙：冲刺无意义
+    if (!_engDropSafe(L, tx, fy, 4)) return false;             // 无底：不许推下去
+  }
+  return false;
+}
+
+
 function _engOnCrumble(p, c) { // 内部：玩家是否正踩在此崩塌砖顶面上
   if (!p.onGround) return false;
   const bx = c.x * _engTile, by = c.y * _engTile;
@@ -1669,6 +1809,87 @@ function _engEnemySkill(e, dt, L, p) { // 内部（v6 §E）：四类敌人技�
     }
     return;
   }
+  /* ==================== v8.0 任务4：三种新敌状态机（状态名=工单逐字，ui 按名取帧，不得改） ====================
+     全部「距离条件触发 + 无随机 + CD 相位错开」（沿用 _engMkAI 的确定性相位），门禁空转零触发。 */
+  if (e.type === 'beetle') { // 铁甲虫：idle→wind(后仰蓄力 0.35s)→charge(直线冲撞 0.4s)→idle
+    // 冲撞时长 0.4s 是工单文字值；BAL.beetle.skill 按工单只有 rngX/wind/vx/cd 四键，故此处用本地常量。
+    const chargeT = 0.4;
+    if (ai.st === 'wind') {
+      e.vx = 0; // 后仰蓄力：位移冻结（d=0 → 掉头判定天然跳过）
+      if (((ai.t * 10) | 0) !== (((ai.t - dt) * 10) | 0)) { // 每 0.1s：1 粒蓄力尘 + 一次白闪（甲壳反光）
+        _engAddParts(e.x + 7, e.y + 11, 1, '#ffffff', 18, 120);
+        e.flashT = 0.06;
+      }
+      if (ai.t >= sk.wind) {
+        ai.st = 'charge'; ai.t = 0;
+        ai.tx = _engSign(dx) || e.face || 1; e.face = ai.tx; // 方向在前摇结束瞬间锁定
+      }
+    } else if (ai.st === 'charge') {
+      const dir = ai.tx || 1;
+      const my = Math.floor((e.y + e.h / 2) / _engTile);
+      const leadTx = dir > 0 ? Math.floor((e.x + e.w - _engEps) / _engTile) : Math.floor(e.x / _engTile);
+      if (L.solid(leadTx, my, game.switchState)) { // 撞墙提前结束（钳位回墙面，绝不嵌墙）
+        if (dir > 0) e.x = leadTx * _engTile - e.w; else e.x = (leadTx + 1) * _engTile;
+        e.vx = 0; ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd;
+        _engAddStars(e.x + 7, e.y + 2, 3, '#c8c8d8'); game.sfxQueue.push('clank');
+      } else if (ai.t >= chargeT) { // 150×0.4 = 60px 冲程
+        e.vx = 0; ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd;
+      } else e.vx = dir * sk.vx;
+    } else { // idle：|dx|≤rngX 88 且「同高度」（|dy| ≤ 自身身高，即同一层地面）且 grounded
+      if (ai.cd <= 0 && e.grounded && Math.abs(dx) <= sk.rngX && Math.abs(dy) <= 14) {
+        ai.st = 'wind'; ai.t = 0; e.vx = 0;
+      }
+    }
+    return;
+  }
+  if (e.type === 'spitter') { // 酸液花：idle→cast(花苞张大 0.4s)→吐酸弹→idle；站桩不掉头（只翻面）
+    e.vx = 0;
+    e.face = _engSign(dx) || e.face || 1;
+    if (ai.st === 'cast') {
+      if (ai.t >= sk.cast) {
+        ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd;
+        /* 酸弹复用 game.bullets（与大炮弹/法师火球同一数组、同一套「撞墙/撞玩家/出界」滤池），
+           只多两个字段：kind:'acid'（ui 上色）与 g（重力，滤池里按 g 积分 vy）。
+           初速 130 朝玩家；因为 130 很慢，纯重力会让弹道在 150px 处下沉 40px+ 打不到人，
+           所以按抛物线反解补一个上抛分量 vy -= g*t/2（t=直线距离/初速）——这才是「抛物线酸弹」
+           该有的手感：看得见它先抛起再落下，而不是贴地平推。 */
+        const bx = e.x + e.w / 2, by = e.y + 2;
+        const ddx = (p.x + p.w / 2) - bx, ddy = (p.y + p.h / 2) - by;
+        const dd = Math.hypot(ddx, ddy) || 1, gA = 260;
+        game.bullets.push({ x: bx - 4, y: by - 4, w: 8, h: 8,
+          vx: ddx / dd * sk.boltV, vy: ddy / dd * sk.boltV - 0.5 * gA * (dd / sk.boltV),
+          kind: 'acid', g: gA, life: 2.4 });
+        game.sfxQueue.push('shot');
+        _engAddParts(bx, by, 6, '#88d848', 60, 120); // 花苞喷口绿雾
+      }
+    } else if (ai.cd <= 0 && Math.abs(dx) <= sk.rng) { ai.st = 'cast'; ai.t = 0; }
+    return;
+  }
+  if (e.type === 'hopper') { // 跳跳蛛：idle→crouch(下蹲 0.3s)→air(起跳 -300 / ±90)→落地回 idle
+    if (ai.st === 'crouch') {
+      e.vx = 0;
+      if (((ai.t * 10) | 0) !== (((ai.t - dt) * 10) | 0))
+        _engAddParts(e.x + 6, e.y + e.h - 1, 1, '#d8d0c0', 16, 120);
+      if (ai.t >= sk.crouch) {
+        ai.st = 'air'; ai.t = 0;
+        e.vy = -sk.jumpV; e.grounded = false;
+        e.vx = (_engSign(dx) || e.face || 1) * sk.vx; // 朝玩家方向压过去
+        game.sfxQueue.push('jump');
+      }
+    } else if (ai.st === 'air') {
+      if (e.grounded) { // 落地：回 idle + 恢复巡逻速度 + 烟尘 + 轻微震屏（工单要求）
+        ai.st = 'idle'; ai.t = 0; ai.cd = sk.cd;
+        e.vx = (_engSign(e.vx) || 1) * BAL.enemy.hopper.spd;
+        _engAddParts(e.x + e.w / 2, e.y + e.h, 10, '#d8d0c0', 70, 200);
+        _engAddParts(e.x + e.w / 2, e.y + e.h, 4, '#ffffff', 40, 120);
+        _engShake(2, 0);
+        game.sfxQueue.push('land');
+      }
+    } else if (ai.cd <= 0 && e.grounded && Math.abs(dx) <= sk.rng) {
+      ai.st = 'crouch'; ai.t = 0; e.vx = 0;
+    }
+    return;
+  }
 }
 
 function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打击感重写）——身前 18×14 框 vs 敌人/炮弹/'B' 砖
@@ -1856,9 +2077,21 @@ function _engUpdatePlayer(dt, L, p) {
   // v6 §C：装备披风移速加成（波1 恒 0 → effRun=maxRun=120，零行为变化）
   const effRun = PHY.maxRun * (1 + (game.equip ? game.equip.spd : 0));
   if (p.dashT <= 0) p.vx = _engClamp(p.vx, -effRun, effRun);
-  if (p.onGround && p.dashT <= 0) { // 传送带：站上被推动（可叠加到跑速之上，上限 ±170）；冲刺中不吃传送带
-    if (convL) p.vx = _engClamp(p.vx - 520 * dt, -170, 170);
-    if (convR) p.vx = _engClamp(p.vx + 520 * dt, -170, 170);
+  /* ---- v8.0 任务1：传送带（独立带速 p.convV，不占用 p.vx） ----
+     为什么必须独立：旧写法 `p.vx = clamp(p.vx + 520*dt, -170, 170)` 看似把速度顶到 170，
+     但下一帧开头 `p.vx = clamp(p.vx, -effRun, effRun)` 立刻砍回 120 —— 顺向跑时传送带
+     实际只贡献 20px/s，而逆向时又刚好抵掉 50px/s。这就是「传送带太慢没用」的根因。
+     现在带速单独积分、单独钳制（1200 / 280），与跑速代数相加：
+       站住 = 280；顺向跑 = 120+280 = 400（≈3.3 倍跑速）；逆向跑 = -120+280 = 160（被缓慢推回）。
+     冲刺中不带电（沿用旧规则「冲刺不吃传送带」），带速清零 —— 否则逆向冲刺会被带速抵消。 */
+  const cdir = (convR ? 1 : 0) + (convL ? -1 : 0);
+  if (p.dashT > 0) p.convV = 0;
+  else if (p.onGround && cdir !== 0) {
+    p.convV = _engClamp(p.convV + cdir * _engConvAcc * dt, -_engConvCap, _engConvCap);
+  } else if (p.convV) { // 离开带面：0.16s 内衰减到 0（保留一点惯性手感，但不会把玩家甩过整段跳距）
+    const s = _engSign(p.convV);
+    p.convV -= s * 1800 * dt;
+    if (_engSign(p.convV) !== s) p.convV = 0;
   }
   // v5 §1.4：转身 squash（face 翻转瞬间 |vx|>80 → turnT 0.12，ui 横向 0.72→1 回弹）
   if (p.face !== prevFace && Math.abs(p.vx) > 80) p.turnT = 0.12;
@@ -1915,18 +2148,21 @@ function _engUpdatePlayer(dt, L, p) {
   const wasFeet = p.y + p.h; // 本帧 Y 位移前脚底（单向平台判定基准）
 
   /* ---- X 轴（契约算法 1：先 X 后 Y） ---- */
-  p.x += p.vx * dt;
+  // v8.0：实际水平速度 = 自身跑速 + 传送带带速（带速单独钳制 280，见上方说明）。
+  // 碰撞判向必须用合成速度——否则「站住被带子推着走」(p.vx=0, convV=280) 会绕过墙壁检测直接穿墙。
+  const pvx = p.vx + (p.convV || 0);
+  p.x += pvx * dt;
   {
     const y0 = Math.floor(p.y / _engTile), y1 = Math.floor((p.y + p.h - _engEps) / _engTile);
-    if (p.vx > 0) {
+    if (pvx > 0) {
       const tx = Math.floor((p.x + p.w - _engEps) / _engTile); // 右缘所在列
       for (let ty = y0; ty <= y1; ty++) {
-        if (L.solid(tx, ty, game.switchState)) { p.x = tx * _engTile - p.w; p.vx = 0; break; }
+        if (L.solid(tx, ty, game.switchState)) { p.x = tx * _engTile - p.w; p.vx = 0; p.convV = 0; break; }
       }
-    } else if (p.vx < 0) {
+    } else if (pvx < 0) {
       const tx = Math.floor(p.x / _engTile); // 左缘所在列
       for (let ty = y0; ty <= y1; ty++) {
-        if (L.solid(tx, ty, game.switchState)) { p.x = (tx + 1) * _engTile; p.vx = 0; break; }
+        if (L.solid(tx, ty, game.switchState)) { p.x = (tx + 1) * _engTile; p.vx = 0; p.convV = 0; break; }
       }
     }
   }
@@ -2004,7 +2240,7 @@ function _engUpdatePlayer(dt, L, p) {
   /* ---- 动画状态（ui 渲染取用） ---- */
   p.animT += dt;
   if (!p.onGround) p.anim = p.vy < 0 ? 'jump' : 'fall';
-  else if (Math.abs(p.vx) > 10) p.anim = 'run';
+  else if (Math.abs(p.vx) + Math.abs(p.convV || 0) > 10) p.anim = 'run'; // v8.0：站住被带子推也算在跑（否则滑行却播 idle）
   else p.anim = 'idle';
 }
 
@@ -2265,6 +2501,7 @@ function updateWorld(dt) {
       const turn = _engClamp(dh, -BAL.enemy.mage.skill.turn * dt, BAL.enemy.mage.skill.turn * dt), sp = Math.hypot(b.vx, b.vy);
       b.vx = Math.cos(cur + turn) * sp; b.vy = Math.sin(cur + turn) * sp; }
     b.x += b.vx * dt;
+    if (b.g) b.vy = (b.vy || 0) + b.g * dt; // v8.0：酸液花酸弹带重力（抛物线）；大炮弹/火球/Boss 弹无 g 字段 → 轨迹不变
     b.y += (b.vy || 0) * dt; // v3：Boss 星弹带 vy（大炮弹 vy 未定义 → +0，轨迹不变，设计 §3）
     // v6 §3.4：火球寿命到期自爆（橙红余烬；大炮弹/Boss 星弹无 life 字段跳过）
     if (b.life !== undefined) { b.life -= dt;
@@ -2284,8 +2521,10 @@ function updateWorld(dt) {
     }
     e.t += dt;
     // v7 §5.1/§5.4：枪虾/魂火为地面型——重力/落地/掉头与史莱姆同构（速度取 e.vx）
+    // v8.0 任务4：铁甲虫/酸液花/跳跳蛛同为地面型，复用这条分支（工单要求：不另写一套重力/落地/掉头）
     if (e.type === 'slime' || e.type === 'knight' || e.type === 'mage'
-        || e.type === 'lancer' || e.type === 'boomer') {
+        || e.type === 'lancer' || e.type === 'boomer'
+        || e.type === 'beetle' || e.type === 'spitter' || e.type === 'hopper') {
       // v7.6 缺陷1：本帧 Y 位移前的脚底（'=' 单向平台穿越判定基准，与玩家 p.standOn 同口径）
       const eWasFeet = e.y + e.h;
       e.vy = Math.min(e.vy + PHY.grav * dt, BAL.enemy.slime.fall); // 敌人下落上限 300（不随玩家 maxFall 变，设计 §1 表#9）
@@ -2304,17 +2543,134 @@ function updateWorld(dt) {
           }
         }
       }
-      e.x += e.vx * dt;
+      if (e.turnCd > 0) e.turnCd -= dt; // v8.0：掉头冷却递减
+      // v8.0 任务3：脱困冲刺剩余时间（每帧重设 vx —— 撞墙分支会提前把 freeT 清零，见下）
+      if (e.freeT > 0) {
+        e.freeT -= dt;
+        e.vx = e.freeT > 0 ? e.freeVx : _engSign(e.freeVx) * e.freePat; // 冲完回巡逻速度，方向不变
+      }
+      // v8.0：实际水平速度 = 巡逻 vx + 带速 convV（带速在地面才累积，见本分支末尾）
+      e.x += (e.vx + (e.convV || 0)) * dt;
       {
-        const d = _engSign(e.vx);
+        const d = _engSign(e.vx + (e.convV || 0));
         // v6 §3.3：骑士冲锋段跳过掉头判定（撞墙提前结束由 _engEnemySkill 处理）
+        // v8.0：铁甲虫冲撞段同理（撞墙/超时提前结束也在 _engEnemySkill 里钳位）
         if (d !== 0 && !(e.ai && e.ai.st === 'charge')) {
           const tx = d > 0 ? Math.floor((e.x + e.w - _engEps) / _engTile) : Math.floor(e.x / _engTile);
           const my = Math.floor((e.y + e.h / 2) / _engTile);
           const fy = Math.floor((e.y + e.h + 2) / _engTile);
           // 前方齐腰有墙，或悬空无落脚点 → 掉头
           // v7.6 缺陷1：落脚点口径补 '='（否则站在单向平台上的敌人第一帧就判定「前方悬空」原地掉头抖动）
-          if (L.solid(tx, my, game.switchState) || (e.grounded && !_engFootTile(L, tx, fy))) e.vx = -e.vx;
+          const wall = L.solid(tx, my, game.switchState);
+          const ledge = e.grounded && !_engFootTile(L, tx, fy);
+          if (wall) {
+            // v8.0 任务2：撞墙**立即**掉头（绝不能因为冷却而不掉头 —— 那会走进墙里），
+            // 同时把 x 钳到墙面外侧、带速清零（带子正顶在墙上时清零，否则会每帧翻向）。
+            e.vx = -e.vx; e.turnCd = 0.25; e.convV = 0;
+            if (e.freeT > 0) { e.freeT = 0; e.vx = _engSign(e.vx) * e.freePat; } // v8.0：脱困冲刺撞墙即结束，回巡逻速度（否则会以 2.4 倍速一路跑下去）
+            if (d > 0) e.x = tx * _engTile - e.w; else e.x = (tx + 1) * _engTile;
+          } else if (ledge) {
+            const carried = (e.convV || 0) !== 0 && _engSign(e.convV) === d;
+            if (carried && _engDropSafe(L, tx, fy, 12)) {
+              // v8.0 任务2：传送带正把它送出边缘，且下面 12 格内有落脚面 → 不掉头，让它被运下去
+              // （L4 顶层传送带左端被木箱堵成 4.7px 夹缝：旧逻辑每帧掉头 60 次，看着就是一动不动。
+              //  允许落下后它会在下层地面继续正常巡逻 —— 既没穿墙，也没取消传送带实心。）
+            } else if (e.turnCd > 0) {
+              // 冷却中：贴边停住不掉头（旧逻辑在 4.7px 见方的夹缝里 10 秒掉头 60 次，肉眼=一动不动）
+              if (d > 0) e.x = tx * _engTile - e.w; else e.x = (tx + 1) * _engTile;
+            } else {
+              // 掉头 + 带速清零：带子把小怪送到尽头后，让它干干净净地走回去（不清零会因惯性冲出边缘）
+              e.vx = -e.vx; e.turnCd = 0.25; e.convV = 0;
+              if (e.freeT > 0) { e.freeT = 0; e.vx = _engSign(e.vx) * e.freePat; } // v8.0：同上，冲刺到边缘掉头即结束
+              if (d > 0) e.x = tx * _engTile - e.w; else e.x = (tx + 1) * _engTile;
+            }
+          }
+        }
+      }
+      /* ---- v8.0 任务1/2：传送带对地面敌人同向推动（玩家的一半 600/140，避免小怪被甩飞） ----
+         两条护栏：① 推动方向上一格是墙就不推（否则小怪被顶在墙上每帧翻向）；
+         ② 酸液花是站桩怪（工单的传送带敌人清单未含 spitter），不吃带速。 */
+      if (e.grounded && e.type !== 'spitter') {
+        let ec = 0;
+        const efy = Math.floor((e.y + e.h + 0.5) / _engTile);
+        const efx0 = Math.floor(e.x / _engTile), efx1 = Math.floor((e.x + e.w - _engEps) / _engTile);
+        for (let tx = efx0; tx <= efx1; tx++) {
+          const ch = L.tileAt(tx, efy);
+          if (ch === '(') ec -= 1; else if (ch === ')') ec += 1;
+        }
+        ec = _engSign(ec);
+        if (ec !== 0) {
+          const ptx = ec > 0 ? Math.floor((e.x + e.w + 1) / _engTile) : Math.floor((e.x - 1) / _engTile);
+          const pmy = Math.floor((e.y + e.h / 2) / _engTile);
+          // 护栏②：只「同向推」——小怪自己正在逆着带子走时不推（否则被推回去 → 掉头 → 再被推回来，
+          // 就是工单点名的「被推得抖动着反复掉头」）。vx=0（站桩/沉睡）时允许起步被带走。
+          const sameWay = e.vx === 0 || _engSign(e.vx) === ec;
+          if (sameWay && !L.solid(ptx, pmy, game.switchState))
+            e.convV = _engClamp((e.convV || 0) + ec * _engConvAccE * dt, -_engConvCapE, _engConvCapE);
+        } else if (e.convV) { // 离开带面：0.16s 内回到巡逻速度（不带惯性甩飞）
+          const s = _engSign(e.convV);
+          e.convV -= s * 900 * dt;
+          if (_engSign(e.convV) !== s) e.convV = 0;
+        }
+      }
+      /* ---- v8.0 任务3：困住检测 + 脱困 ----
+         为什么要做：v8.0 上一轮只修了「卡死」（spanX<8px）与「每帧掉头」，但 36~68px 的小坑/小平台里
+         往返巡逻的小怪依然一只都没被抓到——它路径长 279（一直在走）、净位移≈0、跨度只有 2~4 格，
+         玩家看到的仍然是「这只怪在原地打转」。这里换口径：**不看好不好动，看好不好走开**。
+         窗口 1.6s（约一次往返）统计 x 的最小/最大值，跨度 < 40px（2.5 格）即判「被困」。
+         三条豁免：① 玩家在技能触发半径内（正在交战，短距离移动是正常博弈）；② 技能状态机不在 idle
+         （冲撞/突刺/压顶/下蹲期间不打断，否则等于给敌人加了「随时取消前摇」）；③ 冲刺未结束。
+         字段：spanMin/spanMax/spanT（窗口）、freeT/freeVx/freePat（冲刺）、rescueN（脱困计数，诊断用）。 */
+      if (e.spanMin === undefined) { // 懒初始化：'W'/'A'/'Y'/'N'/'T'/工厂/召唤体全部走这一处，不必逐条出生分支改
+        e.spanMin = e.x; e.spanMax = e.x; e.spanT = 0; e.freeT = 0; e.freeVx = 0; e.freePat = 0;
+        e.rescueN = 0; e.rescueCd = 0;
+      }
+      if (e.rescueCd > 0) e.rescueCd -= dt; // v8.0 任务3：脱困冷却递减
+      if (e.type !== 'spitter') { // 酸液花站桩（vx 恒 0），不在工单脱困清单内
+        e.spanT += dt;
+        if (e.x < e.spanMin) e.spanMin = e.x;
+        if (e.x > e.spanMax) e.spanMax = e.x;
+        if (e.spanT >= 1.6) {
+          const spanW = e.spanMax - e.spanMin;
+          const narrow = spanW < 40;
+          e.spanT = 0; e.spanMin = e.x; e.spanMax = e.x; // 无论是否脱困，窗口都重置（避免同一窗口反复触发）
+          const skR = BAL.enemy[e.type] && BAL.enemy[e.type].skill;
+          // 交战半径：技能表里 x 向的触发距离（knight/beetle/lancer 用 rngX，mage/hopper 用 rng，boomer 只有 wake）
+          const engR = skR ? (skR.rngX != null ? skR.rngX : (skR.rng != null ? skR.rng : (skR.wake || 0))) : 0;
+          const pdx = (p.x + p.w / 2) - (e.x + e.w / 2);
+          if (narrow && e.freeT <= 0 && e.rescueCd <= 0 && (!e.ai || e.ai.st === 'idle') && Math.abs(pdx) > engR) {
+            /* 脱困方向：默认沿用当前巡逻朝向。为什么不一律「背对玩家」——
+               实测（L1#3）会出现「刚撞墙掉头向左 → 下一帧又向右跳回去」，一秒钟两次反向，
+               比原地打转更像抖动。所以只在玩家真的就在这一侧（3 倍交战半径内）时才强制反向，
+               既不会直接撞向玩家，也不会为了背对远处的玩家而凭空翻向。 */
+            let dir = _engSign(e.vx) || _engSign((e.x + e.w / 2) - (p.x + p.w / 2)) || 1;
+            if (dir === _engSign(pdx) && Math.abs(pdx) < engR * 3) dir = -dir;
+            const spdR = BAL.enemy[e.type].spd || 0;
+            e.rescueCd = 3.0; // 每次脱困后 3s 不再尝试：否则「跳不出去的窄台」会每 1.6s 跳一次，制造新的抖动
+            if ((e.type === 'slime' || e.type === 'hopper')
+                && _engRescueJumpOK(L, e, dir, skR.vx * (2 * (skR.vy || skR.jumpV) / PHY.grav))) {
+              // a) 主动跳：复用各自的技能状态机（slime 的 leap / hopper 的 air），不另写一套弹道
+              if (e.type === 'slime') {
+                e.ai.st = 'leap'; e.ai.t = 0; e.ai.tx = dir * spdR;
+                e.vx = dir * skR.vx; e.vy = -skR.vy;
+              } else {
+                e.ai.st = 'air'; e.ai.t = 0;
+                e.vx = dir * skR.vx; e.vy = -skR.jumpV;
+              }
+              e.grounded = false; // 必须清：_engEnemySkill 的 leap/air 分支靠 grounded 判「落地」，留着会在本帧立刻收招
+              e.rescueN++;
+            } else if (spdR > 0 && _engRescueDashOK(L, e, dir)) {
+              // b) 换向冲刺：0.35s 的短促推力（2.4 倍巡逻速），撞墙/到边缘由上面掉头分支提前结束
+              e.freeT = 0.35; e.freeVx = dir * spdR * 2.4; e.freePat = spdR * (e.elite ? BAL.elite.spdMul : 1);
+              e.vx = e.freeVx;
+              e.rescueN++;
+            } else if (spanW < 8) {
+              // c) 原地掉头：a/b 都不适用时的兜底。只在**真的钉住**（窗口内 x 几乎没动，<8px）时做——
+              // 已经能在 20~40px 里来回走的小怪本来就在不停掉头，再替它翻一次只是凭空多一次反向
+              // （诊断里表现为掉头次数翻倍，比原地打转更像抖动）。站桩怪 vx=0 时是恒等操作，不计数。
+              if (e.vx !== 0) { e.vx = -e.vx; e.rescueN++; }
+            }
+          }
         }
       }
       if (e.type === 'knight' || e.type === 'lancer') e.face = _engSign(e.vx) || e.face; // v5 §4.3：面朝侧=格挡判定方向；v7 §5.1：枪虾面朝侧供 ui 翻帧/突刺兜底向
@@ -2357,7 +2713,16 @@ function updateWorld(dt) {
     // 踩踏：p.vy>60 且玩家脚底深入敌体 <9px → 反弹；否则 HP 伤害（v3：原即死；v5 §F 踩踏改造）
     if (!p.dead && _engAabb(p, e)) {
       if (p.vy > 60 && p.y + p.h - e.y < 9) {
-        if ((e.type === 'knight' || e.elite) && e.hp > 1) { // v5 §4.3：骑士踩踏扣 stompDmg 不秒杀；v7 §5.5：精英同口径（扣 1+反弹）
+        if (e.type === 'beetle' && e.ai && e.ai.st === 'charge') {
+          // v8.0 任务4：铁甲虫冲撞期间甲壳朝上，踩踏无效——只把玩家弹开并吃 1 点伤，
+          // 甲虫本身不掉血（与史莱姆的核心区别：只能从侧面打，或直接跳开）。
+          _engHurtPlayer(e.x + e.w / 2);
+          if (p.vy > 0) p.vy = -BAL.player.stompBounce * 0.6; // 无敌帧挡下伤害时也要弹开，别陷进甲壳
+          p.jumpCut = false;
+          _engShake(2, 0.05);
+          game.sfxQueue.push('clank');
+          _engAddStars(e.x + 7, e.y + 2, 4, '#c8c8d8');
+        } else if ((e.type === 'knight' || e.elite) && e.hp > 1) { // v5 §4.3：骑士踩踏扣 stompDmg 不秒杀；v7 §5.5：精英同口径（扣 1+反弹）
           e.hp -= BAL.player.stompDmg; e.flashT = 0.15;
           _engFloat(e.x + 6, e.y - 4, '' + BAL.player.stompDmg, '#ffffff', 0);
           _engShake(2, 0.05); game.sfxQueue.push('hit');
@@ -2556,11 +2921,25 @@ function updateWorld(dt) {
     if (game.comboT <= 0) { game.comboT = 0; game.combo = 0; }
   }
   const ctx2 = p.x + p.w / 2 - _engVW / 2 + p.face * 20;
-  const cty2 = p.y + p.h / 2 - _engVH / 2;
+  /* v8.0 任务3：纵向死区 + 前瞻（横向 20px 面向前瞻与 0.12 lerp 一字不动）。
+     旧写法 cty2 = 玩家中心 − 视口/2 再 lerp，看似正常，但末行 clamp(0, max(0, L.h*16−224)) 在
+     关卡高度恰好等于视口（L1/L3 的 h=14 → 224px）时上限为 0，cam.y 被永久钉死——玩家在关卡
+     任何高度画面都不动，这就是「这里视角不变化」。相机侧三件事：
+     ① 死区 ±20px：玩家在屏幕纵向中央 ±20px 内移动时目标点完全不动（跳跃不抽搐）；
+     ② 前瞻：vy>120（快落）目标下移 16px 提前看到落点 / vy<−120（快升）上移 12px；
+     ③ 分轴 lerp：纵向 0.08 比横向 0.12 更慢更稳。 */
+  const pcy = p.y + p.h / 2;
+  const camCy = game.cam.y + _engVH / 2;
+  const look = p.vy > 120 ? _engCamLookDown : (p.vy < -120 ? -_engCamLookUp : 0);
+  let cty2 = game.cam.y; // 死区内：目标点=当前值 → 相机不动
+  if (pcy < camCy - _engCamDz) cty2 = pcy - _engCamDz - _engVH / 2 + look;
+  else if (pcy > camCy + _engCamDz) cty2 = pcy + _engCamDz - _engVH / 2 + look;
+  const maxCamY = L.h * _engTile - _engVH;
+  if (maxCamY < 0) cty2 = maxCamY / 2; // v8.0：关卡不足一屏 → cam.y 取负值把内容垂直居中（不做纵向跟随）
   game.cam.x += (ctx2 - game.cam.x) * 0.12;
-  game.cam.y += (cty2 - game.cam.y) * 0.12;
+  game.cam.y += (cty2 - game.cam.y) * _engCamLerpY;
   game.cam.x = _engClamp(game.cam.x, 0, Math.max(0, L.w * _engTile - _engVW));
-  game.cam.y = _engClamp(game.cam.y, 0, Math.max(0, L.h * _engTile - _engVH));
+  game.cam.y = maxCamY < 0 ? _engClamp(game.cam.y, maxCamY, 0) : _engClamp(game.cam.y, 0, maxCamY);
 
   /* ⑬′ v3：技能四 CD 递减 / 连斩白屏递减 */
   game.skills.u = Math.max(0, game.skills.u - dt);

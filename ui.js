@@ -169,7 +169,11 @@ const KEYMAP={
   bag:['KeyB'], // v6 波2 §7.1：背包开关键（B 未被既有键占用；hit('bag') 仅背包层与 play 态消费）
   unlockAll:['KeyF'], // v7.7：首页「全关开放」开关键（F 未被既有键占用；仅 title 态消费）
   wardrobe:['KeyG'],  // v7.7：衣橱开关键（G 未被既有键占用；仅 title/select 态消费；原「成长」面板键位复用）
-  confirm:['Enter','Space','KeyW','ArrowUp']
+  confirm:['Enter','Space','KeyW','ArrowUp'],
+  // v8.0：无方向冲突的确认组——confirm 含 ↑/W，凡「↑/W 已是导航」的界面（选关 ↑=跨章、背包/衣橱 ↑=选上一格）
+  // 用它就会一键双响（选关按 ↑ 直接进关、背包按 W 边移动边装备）。这三处改用 ok（只认 Enter/Space），
+  // 语义仍是「确认」，只是不与方向键抢同一批键——用户反馈的「有些地方不灵」即由此类撞键与缺键造成。
+  ok:['Enter','Space']
 };
 const keys={},pressed={};
 function kd(name){return KEYMAP[name].some(c=>keys[c]);}
@@ -504,7 +508,6 @@ let wardrobeOpen=false,wardrobeSel=0;
 let clearSkinGain=null;       // v7.7：本次通关掉落的皮肤 id（无掉落=null；结算屏展示用）
 // v6 §D/§E：引导与提示计时（渲染按 uiState==='play' 门控；startLevel 重置，见下）
 let oHintDone=false,oHintT=0; // §D2：O 大提示每关一次（上升沿置 oHintT=2.5）
-let skillHintT=0;             // §E1：L1 技能提示条（仅 L1 置 6.0）
 let fallT=0,fallToastT=0;     // §E2：速降 toast（空中连续下落累计 / 展示计时）
 let pqFallHinted=false;       // §E2/H5：pq_hint_fall 本会话已写标记（唯一新增 localStorage 键）
 try{pqFallHinted=localStorage.getItem('pq_hint_fall')==='1';}catch(e){}
@@ -824,7 +827,8 @@ function rowRuns(str){ // 内部：数织一行/一列的连续实心段线索
 }
 
 // v6 波2 §C 背包输入（键盘↔鼠标全等价 H3；参照 stepPuzzleInput 范式：边沿消费、开层不泄漏）。
-// 注意 Enter 用裸 pressed['Enter']——KEYMAP.confirm 含 Space/W/↑，会与 bag 区方向键冲突。
+// 注意确认键走 KEYMAP.ok（Enter/Space）而非 confirm——confirm 含 Space/W/↑，W/↑ 在本层是「上移一格」，
+// 会一键双响（边移动边装备）。v8.0：由裸 pressed['Enter'] 改为 hit('ok')，补齐 Space 确认。
 function bagMove(dx,dy){ // 焦点区内移动（bag 行宽 4 上下 ±4；equip 横移；shard 横移）
   if(bagFocus==='bag')bagSelBag=clamp(bagSelBag+dx+dy,0,11);
   else if(bagFocus==='equip')bagSelEquip=clamp(bagSelEquip+dx,0,2);
@@ -837,7 +841,7 @@ function stepBagInput(){
   if(hit('right'))bagMove(1,0);
   if(hit('up'))bagMove(0,-4);
   if(hit('down'))bagMove(0,4);
-  if(pressed['Enter']){
+  if(hit('ok')){ // v8.0：Enter/Space 均可确认（原裸 pressed['Enter'] 只认回车）
     if(bagFocus==='bag')bagWear(bagSelBag);                  // 穿上
     else if(bagFocus==='equip')bagUnequip('whc'[bagSelEquip]); // 卸下
   }
@@ -910,7 +914,7 @@ function stepWardrobeInput(){ // v7.7：面板独占输入（方向选格 / 回�
     if(((t/cols)|0)>((wardrobeSel/cols)|0)){wardrobeSel=t;SFX.select();}
   }
   if(hit('up')&&wardrobeSel-cols>=0){wardrobeSel-=cols;SFX.select();}
-  if(pressed['Enter'])equipSkin(SKIN_LIST[wardrobeSel]?SKIN_LIST[wardrobeSel].id:progress.skin);
+  if(hit('ok'))equipSkin(SKIN_LIST[wardrobeSel]?SKIN_LIST[wardrobeSel].id:progress.skin); // v8.0：Enter/Space 均可装备（↑/W 已被选格占用，故不走 confirm）
   if(mouse.click&&hover){
     if(hover.indexOf('skin:')===0){const i=+hover.slice(5);wardrobeSel=i;
       equipSkin(SKIN_LIST[i]?SKIN_LIST[i].id:progress.skin);}
@@ -933,9 +937,8 @@ function startLevel(idx){
   puzzle.open=false;puzzle.idx=0;puzzle.grid=null;puzzle.given=null;puzzle.cur={x:0,y:0};
   puzzle.err=0;puzzle.done=false;puzzle.view=false;puzzleRep=0;puzzleSkip=0;puzzle.hintN=0;
   game.puzzleActive=false;
-  // v6 §D2/§E：引导状态随关重置（O 大提示每关一次；技能条仅 L1；速降 toast 计时清零）
+  // v6 §D2/§E：引导状态随关重置（O 大提示每关一次；速降 toast 计时清零）；v8.0 起技能条计时已删除
   oHintDone=false;oHintT=0;
-  skillHintT=idx===0?6.0:0;
   fallT=0;fallToastT=0;
   // v4 §界面⑥：engine loadLevel 清空 solvedPuzzles 后，由 ui 从本地存档回填已解神龛
   game.solvedPuzzles=Object.assign({},progress.puzzles||{});
@@ -981,6 +984,46 @@ function _sign(v){return v<0?-1:1;}
 function _textW(str,s){ // 内部：CNText 宽度估算（CJK≈s px/字，ASCII≈0.55s）
   let w=0;for(const ch of String(str))w+=ch.charCodeAt(0)>255?s:s*0.55;return w;
 }
+
+// ---------- v8.0 §任务1：L1 操作提示常驻天空层 ----------
+// 用户诉求「第一关的提示应该放在背景上，这样能一直看」：原来每关开头只有 3 秒底部黑条（hintT=3.0），
+// 新玩家还没看清就没了，而且底条压在画面上会挡地面/敌人。L1 改为把提示写进**背景层**：
+//   调用点在 drawParallax 之后、世界 ctx.translate 之前 → 屏幕坐标系，不随相机滚动、不随震屏抖动，
+//   也不与地面/敌人/玩家重叠（L1 天空 y=40~82 是空的：顶栏 0~30 是 HUD，地面顶边 y=192）。
+// 样式：低透明度暖白/淡金（0.50~0.62），像「贴在天空上的手写字」，不抢主体；中文/箭头走 drawCNText
+// （系统字体，←→·/ 等符号均有字形，不会画成空白）。其他关卡（levelIdx!==0）本函数直接返回，仍走底部 3 秒条。
+const L1_HINT1='←→ 或 A D 移动 · 空格 / W 跳跃 · J 攻击 · K 冲刺'; // 行1：键位（实测 _textW=288px @11 < 可用 360）
+const L1_HINT2='长按跳跃键跳更高 · 收集金币 · 抵达终点旗';         // 行2：目标（_textW=203px @10 < 360）
+const L1_HINT3='本关藏有谜题神龛 · 寻找金色光柱';                  // 行3：谜题指引（_textW=141px @9 < 360）
+// v8.0 修「三行太淡」：浅蓝天空+白云上纯色半透明字对比不足（第三行金字几乎看不见）——先按 (+1,+1)
+// 偏移画一遍深色投影再画正色，字缘有暗边就够读，仍是半透明「贴在背景上」的质感而不是实心白字。
+// 投影色取 0.9 让「字透明度 × 0.9」后仍落在 0.45~0.56（≈0.55 直接乘会被再衰减到 0.28，白云上等于没有投影）。
+function _cnShadow(str,x,y,px,align){
+  drawCNText(str,x+1,y+1,px,'rgba(10,20,40,0.9)',align);
+}
+function renderL1SkyHint(){
+  if(uiState!=='play')return;                 // 只在 play 态画（结算/选关等界面有自己的面板）
+  if(game.levelIdx!==0)return;                // 仅 L1 常驻；其余关卡保持 3 秒底部条（原行为不变）
+  const L=game.level;if(!L)return;
+  ctx.save();
+  // v8.0 修「太淡」：透明度按实机目检上调 行1 0.40→0.58 / 行2 0.36→0.50 / 行3 0.42→0.62，
+  // 每行先投影后正色（投影不改变 x/y 布局，三条文案坐标与宽度断言全部不变）。
+  ctx.globalAlpha=0.58;                       // 行1：暖白 0.58（投影后仍半透明，不遮天光）
+  _cnShadow(L1_HINT1,VIEW_W/2,42,11,'center');
+  drawCNText(L1_HINT1,VIEW_W/2,42,11,'#ffffff','center');
+  ctx.globalAlpha=0.50;                       // 行2：淡金 0.50（比行1 弱一档，形成层级）
+  _cnShadow(L1_HINT2,VIEW_W/2,57,10,'center');
+  drawCNText(L1_HINT2,VIEW_W/2,57,10,'#f8e8b0','center');
+  // 谜题指引并入第三行（比「底部条只留这一行」更清爽：提示只有一处、不出现上下两块浮字）
+  if(L.shrines&&L.shrines.length&&L.shrines[0]&&!isPuzzleSolved(L.shrines[0].idx)){
+    ctx.globalAlpha=0.62;                     // 行3：金色提亮到 #ffe9a0 + 0.62（原 #f8d048@0.42 在浅蓝上几乎不可见）
+    _cnShadow(L1_HINT3,VIEW_W/2,71,9,'center');
+    drawCNText(L1_HINT3,VIEW_W/2,71,9,'#ffe9a0','center');
+  }
+  ctx.globalAlpha=1;
+  ctx.restore();
+}
+
 let hover=null;        // 当前帧悬停目标 id（step() 消费鼠标点击时读上一渲染帧的值，一帧延迟无碍）
 let selClickTick=-999; // §A.4 选关卡双击计时（单击选中、双击=进入；单位=game.tick）
 const SK_SLOT_KEYS=['skillU','skillI','skillO','skillL']; // §A.3 槽位 i → 输入边沿键（与键盘 hit() 同管线）
@@ -1062,6 +1105,9 @@ function render(){
     ctx.fillStyle=grad;ctx.fillRect(0,0,VIEW_W,VIEW_H);
     // 视差
     drawParallax(themeArt.bg,camX,camY);
+    // v8.0 §任务1：L1 操作提示画在视差背景之上、世界 translate 之前——屏幕坐标（不随相机/震屏），
+    // 且在瓦片/实体之前绘制，天然不会盖住地面与敌人（HUD 只占 0~30，与 42~82 不重叠）。
+    renderL1SkyHint();
     ctx.save();
     ctx.translate(px(-camX+sx),px(-camY+sy));
     renderDecor(L,tick);
@@ -1085,18 +1131,23 @@ function render(){
     renderIntro();  // v3 §D1：登场横幅（intro 态）
     renderUlt();    // v5 §D：O 流星连斩 1.2s 演出覆盖层（屏幕坐标系，renderFlash 之前）
     renderFlash();  // v3 §D2：流星连斩全屏演出（flashT>0）
-    if(hintT>0&&uiState==='play'){
+    if(hintT>0&&uiState==='play'&&game.levelIdx!==0){ // v8.0：L1 的提示已改常驻天空层（renderL1SkyHint，
+      // 含谜题指引第三行），故 L1 不再出这条 3 秒底条，避免同一段文案上下各画一遍；其他关卡不变。
       const a=Math.min(1,hintT); // v8.0：hintT 由 3.0 递减 → 最后 1 秒 1→0 渐隐（globalAlpha 同时作用于底条与文字）
       ctx.globalAlpha=a;
       // v8.0：底条宽度按文案自适应（两侧 8px padding，居中，夹在视口内）——原固定 220px 会让 L17 的
       // 34 字提示左右各溢出 ~77px，看起来像"横贯全屏的黑底+溢出文字"。
       const hw=Math.min(VIEW_W,_textW(L.meta.hint,11)+16);
-      _panel(px((VIEW_W-hw)/2),VIEW_H-46,px(hw),14,{alpha:0.55,cut:2}); // v5 §A-6：hint 底条切角面板
-      drawCNText(L.meta.hint,VIEW_W/2,VIEW_H-42,11,'#ffffff','center');
+      // v8.0 修「金行被底条压掉」：drawCNText 是 textBaseline='top'（y=字顶，不是基线），原底条面板
+      // 178..192 与金行 168..177 只差 1px，抗锯齿下就是叠字。底条整体下移到 182..196（VIEW_H-42），
+      // 金行上移 2px 到 166..175（VIEW_H-58）→ 间距 7px；底条底边 196 也躲开技能槽描边（197.5 起，
+      // 槽 y=198 不是任务书假设的 VIEW_H-22），面板填充不会盖住槽顶边。文字随面板下移到 183（面板内居中）。
+      _panel(px((VIEW_W-hw)/2),VIEW_H-42,px(hw),14,{alpha:0.55,cut:2}); // v5 §A-6：hint 底条切角面板
+      drawCNText(L.meta.hint,VIEW_W/2,VIEW_H-41,11,'#ffffff','center');
       // v6 §F.3：本关有未解神龛时 hint 条上方追加指引行（ui 本地判断，不动 levels.js hint 文本；
       // 设计书 §5.3 超集口径：任何有未解神龛的关卡都提示，含 L8/L9/L10）
       if(L.shrines&&L.shrines.length&&L.shrines[0]&&!isPuzzleSolved(L.shrines[0].idx))
-        drawCNText('本关藏有谜题神龛 · 寻找金色光柱',VIEW_W/2,VIEW_H-56,9,'#f8d048','center');
+        drawCNText('本关藏有谜题神龛 · 寻找金色光柱',VIEW_W/2,VIEW_H-58,9,'#f8d048','center');
       ctx.globalAlpha=1;
     }
     if(GOD)drawPixelText('GOD MODE',VIEW_W/2,VIEW_H-16,1,'#f8d020','center');
@@ -1430,6 +1481,66 @@ function renderEntities(L,tick){
         ctx.fillStyle='#a8d0ff';ctx.fillRect(px(e.x+3+jit),px(e.y+2),e.w-6,e.h-4);
         ctx.fillStyle='#ffffff';ctx.fillRect(px(e.x+4+jit),px(e.y+4),2,3);
         ctx.globalAlpha=1;}
+    }else if(e.type==='beetle'){ // v8.0 §任务3①：甲虫（SPR.beetle[2] 14×12 基准面左，face>0 flipCache；
+      // 帧=(e.t*8|0)%2，wind 蓄力=帧 1 + 1px 上下抖动（预备冲撞的视觉预警）；SPR 缺失→暗红甲壳矩形+双颚兜底）
+      const wind=e.ai&&!e.dead&&e.ai.st==='wind';
+      let img=null;
+      if(e.dead>0){if(SPR.beetleDead)img=SPR.beetleDead;}                  // 死亡帧（缺素材走下方兜底）
+      else if(SPR.beetle){const f=SPR.beetle[wind?1:((e.t||0)*8|0)%2];if(f)img=f;}
+      if(img&&!e.dead&&e.flashT>0)img=whiteOf(img);                        // 受击闪白（尸体不闪）
+      if(img&&!e.dead&&e.face>0)img=flipCache(img);                        // 朝右=翻转（与 mage/knight 同模式）
+      if(img)_drawNewEnemyImg(img,e,jit,fadeA,((e.w||img.width)-img.width)/2,wind?((game.tick>>2)&1):0,'foot');
+      else{ctx.globalAlpha=fadeA;
+        ctx.fillStyle='#7a3a48';ctx.fillRect(px(e.x+jit),px(e.y+3),e.w,e.h-3);      // 甲壳
+        ctx.fillStyle='#a85a68';ctx.fillRect(px(e.x+1+jit),px(e.y+4),e.w-2,2);      // 背脊高光
+        ctx.fillStyle='#4a2430';ctx.fillRect(px(e.x+1+jit),px(e.y+e.h-2),2,2);      // 足
+        ctx.fillRect(px(e.x+e.w-3+jit),px(e.y+e.h-2),2,2);
+        if(!e.dead){ctx.fillStyle='#f0e0c0';ctx.fillRect(px(e.x+(e.face>0?e.w-2:0)+jit),px(e.y+1),2,2);} // 颚
+        ctx.globalAlpha=1;}
+    }else if(e.type==='spitter'){ // v8.0 §任务3②：吐弹花（SPR.spitter[2] 14×16 站桩植物，不翻转；
+      // 帧=(e.t*4|0)%2，cast 吐弹 0.4s=花苞张大（中心锚定 ×1.15，照 jelly 的缩放写法）；
+      // SPR 缺失→深绿茎+亮绿花苞+金花心兜底）
+      const cast=e.ai&&!e.dead&&e.ai.st==='cast';
+      let img=null;
+      if(e.dead>0){if(SPR.spitterDead)img=SPR.spitterDead;}
+      else if(SPR.spitter){const f=SPR.spitter[((e.t||0)*4|0)%2];if(f)img=f;}
+      if(img&&!e.dead&&e.flashT>0)img=whiteOf(img);
+      if(!img){ctx.globalAlpha=fadeA;
+        ctx.fillStyle='#2e6a3e';ctx.fillRect(px(e.x+e.w/2-1+jit),px(e.y+8),2,e.h-8);   // 茎
+        ctx.fillStyle='#4aa85a';ctx.fillRect(px(e.x+jit),px(e.y+2),e.w,7);             // 花苞
+        ctx.fillStyle='#7ad06a';ctx.fillRect(px(e.x+1+jit),px(e.y+3),e.w-2,2);         // 苞顶高光
+        if(!e.dead){ctx.fillStyle='#f8d048';ctx.fillRect(px(e.x+e.w/2-1+jit),px(e.y+5),2,2);} // 花心
+        ctx.globalAlpha=1;
+      }else if(cast){
+        ctx.globalAlpha=fadeA;
+        ctx.save();ctx.translate(px(e.x+e.w/2+jit),px(e.y+e.h/2));ctx.scale(1.15,1.15);
+        ctx.drawImage(img,-img.width/2,-img.height/2);ctx.restore();
+        ctx.globalAlpha=1;
+      }else _drawNewEnemyImg(img,e,jit,fadeA,((e.w||img.width)-img.width)/2,0,'foot');
+    }else if(e.type==='hopper'){ // v8.0 §任务3③：跳蚤（SPR.hopper[2] 12×12 基准面左，face>0 flipCache；
+      // idle=帧 0；crouch=帧 1 + 脚底锚定压扁 0.8；air=帧 1 + 脚底锚定拉伸 1.15；
+      // SPR 缺失→土黄身体+深色后腿兜底）
+      const st=e.ai&&!e.dead?e.ai.st:'idle';
+      let img=null;
+      if(e.dead>0){if(SPR.hopperDead)img=SPR.hopperDead;}
+      else if(SPR.hopper){const f=SPR.hopper[st==='idle'?0:1];if(f)img=f;}
+      if(img&&!e.dead&&e.flashT>0)img=whiteOf(img);
+      if(img&&!e.dead&&e.face>0)img=flipCache(img);
+      if(!img){ctx.globalAlpha=fadeA;
+        ctx.fillStyle='#c8a028';ctx.fillRect(px(e.x+1+jit),px(e.y+3),e.w-2,e.h-5);     // 身体
+        ctx.fillStyle='#e8c850';ctx.fillRect(px(e.x+2+jit),px(e.y+4),e.w-4,2);         // 背脊
+        if(!e.dead){ctx.fillStyle='#6a5410';ctx.fillRect(px(e.x+(e.face>0?e.w-4:2)+jit),px(e.y+3),2,2); // 眼
+          ctx.fillStyle='#8a7018';ctx.fillRect(px(e.x+jit),px(e.y+e.h-3),3,3);         // 后腿
+          ctx.fillRect(px(e.x+e.w-3+jit),px(e.y+e.h-3),3,3);}
+        ctx.globalAlpha=1;
+      }else{
+        const sy=st==='crouch'?0.8:st==='air'?1.15:1;    // 蓄力压扁 / 滞空拉长（脚底为锚点，不悬空）
+        if(sy!==1){ctx.globalAlpha=fadeA;
+          ctx.save();ctx.translate(px(e.x+e.w/2+jit),px(e.y+e.h));ctx.scale(1,sy);
+          ctx.drawImage(img,-img.width/2,-img.height);ctx.restore();
+          ctx.globalAlpha=1;}
+        else _drawNewEnemyImg(img,e,jit,fadeA,((e.w||img.width)-img.width)/2,0,'foot');
+      }
     }else{
       if(e.dead>0){ctx.globalAlpha=0.5*fadeA;ctx.drawImage(SPR.bat[0],px(e.x),px(e.y));ctx.globalAlpha=1;}
       else{const img=SPR.bat[(tick*8|0)%3];
@@ -2337,12 +2448,8 @@ function renderHUD(){
     drawCNText('能量已满！按 O 释放流星连斩',VIEW_W/2,VIEW_H-61,12,'#f8d048','center');
     ctx.globalAlpha=1;
   }
-  if(skillHintT>0&&uiState==='play'&&game.levelIdx===0){ // v6 §E1：L1 技能提示条（hint 条下方；尾 1s 渐隐）
-    ctx.globalAlpha=Math.min(1,skillHintT);
-    _panel(VIEW_W/2-110,VIEW_H-30,220,12,{alpha:0.55,cut:2});
-    drawCNText('J 攻击 · K 冲刺 · 空格 跳×2',VIEW_W/2,VIEW_H-29,10,'#f0f4ff','center');
-    ctx.globalAlpha=1;
-  }
+  // v8.0 删「L1 技能提示条」：背景常驻提示第一行已写「空格 / W 跳跃 · J 攻击 · K 冲刺」，开局 6 秒内
+  // 再弹一条同样内容会重复，且该条 (VIEW_H-30,12 高) 正好压住 y=198 的技能槽。L1 只留背景版，其他关本就没这条。
   if(fallToastT>0&&uiState==='play'){ // v6 §E2：速降一次性 toast（位置=hint 条同排）
     ctx.globalAlpha=clamp(fallToastT/0.5,0,1);
     _panel(VIEW_W/2-120,VIEW_H-46,240,18,{cut:3});
@@ -3152,7 +3259,7 @@ function step(dt){
   game.tick+=dt*60;
   fade=clamp(fade+fadeDir*dt*3,0,1);
   hintT-=dt;
-  oHintT-=dt;skillHintT-=dt;fallToastT-=dt; // v6 §D/§E：提示计时（渲染按 uiState==='play' 门控）
+  oHintT-=dt;fallToastT-=dt; // v6 §D/§E：提示计时（渲染按 uiState==='play' 门控）
   for(let i=_bagFloats.length-1;i>=0;i--){_bagFloats[i].t+=dt;if(_bagFloats[i].t>=2)_bagFloats.splice(i,1);} // v6 波2 §B
   if(game.shake>0)game.shake=Math.max(0,game.shake-dt*18);
 
@@ -3232,7 +3339,8 @@ function step(dt){
         }else{menuSel=i;SFX.select();}
         selClickTick=game.tick;
       }
-      if(hit('confirm')){
+      if(hit('ok')){ // v8.0：改 confirm→ok——原 confirm 含 ↑/W，而 ↑/W 在本屏是「跨章上移」，
+        // 按一次 ↑ 会先换章再直接进关（选关屏最典型的「键不灵/乱跳」）；现 Enter/Space 进关，↑↓ 只导航。
         if(canEnterLevel(menuSel)){SFX.select();startLevel(menuSel);}   // v7.7：同上
         else SFX.shot();
       }
@@ -3253,7 +3361,9 @@ function step(dt){
       // v6 波2 §7.1：开包（B 键 / HUD 钮点击已在桥接块）——死亡演出与暂停/谜题层不响应
       if(hit('bag')&&!game.paused&&game.player&&!game.player.dead)openBag();
       if(hit('restart')){startLevel(game.levelIdx);return;}
-      if(hit('back')&&!game.paused){uiState='select';fade=1;fadeDir=-1;return;}
+      // v8.0：暂停面板写着「ESC: MENU」，但原来 !game.paused 把暂停态的 Esc 整条拦掉（面板文案与行为不符）。
+      // 现在暂停中 Esc = 解除暂停并回选关，未暂停 Esc = 直接回选关（原行为不变）。
+      if(hit('back')){if(game.paused)game.paused=false;uiState='select';fade=1;fadeDir=-1;return;}
       if(!game.paused&&!puzzle.open&&!bagOpen)updateWorld(dt); // v4：覆盖层期间世界暂停（不改 paused 字段）；v6 波2：背包层同（H7 ui 侧双保险）
       // v6 §E2：速降 toast 触发检测（空中连续下落≥0.8s 且未按 ↓ 且从未提示过；条件断开即清零，
       // 落地自然清零；写 localStorage pq_hint_fall 一次性——H5 唯一新增键）
