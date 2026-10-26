@@ -60,9 +60,9 @@ const heroKeys = Object.keys(A.SPR).filter(k => /^hero[A-Z]/.test(k));
 const want = heroKeys.map(k => k[4].toLowerCase() + k.slice(5)).sort();
 console.log('基线 SPR.hero* 键 ' + heroKeys.length + ' 个 → 皮肤帧键集合 ' + want.length + ' 个: ' + want.join(', '));
 
-/* ---------- ② 17 套帧完整性 + 有效 canvas ---------- */
+/* ---------- ② 19 套帧完整性 + 有效 canvas ---------- */
 const SKINS = A.HERO_SKINS;
-if (!Array.isArray(SKINS) || SKINS.length !== 17) fails.push('HERO_SKINS 应为 17 项，实为 ' + (SKINS && SKINS.length));
+if (!Array.isArray(SKINS) || SKINS.length !== 19) fails.push('HERO_SKINS 应为 19 项，实为 ' + (SKINS && SKINS.length));
 // 主角网格用到的全部字符（缺任一调色板键 → _makeSprite 静默跳过该像素 → 帧上出现「洞」）
 const usedChars = {};
 for (const gname of Object.keys(A.GRIDS)) {
@@ -112,9 +112,9 @@ if (blue1.idle1 !== A.SPR.heroIdle1) fails.push("blue 未复用 SPR.heroIdle1（
 if (blue1.attackGold !== A.SPR.heroAttackGold) fails.push('blue 未复用 SPR.heroAttackGold');
 const unk = A.getHeroSkin('不存在的id');
 if (unk !== blue1) fails.push("未知 id 未回落到 blue");
-// 其余 16 套首次取用时才生成（此刻应已全部在缓存里）
+// 其余 18 套首次取用时才生成（此刻应已全部在缓存里）
 const lazyN = Object.keys(A.SPR.skins).length;
-if (lazyN !== 17) fails.push('SPR.skins 缓存数应为 17，实为 ' + lazyN);
+if (lazyN !== 19) fails.push('SPR.skins 缓存数应为 19，实为 ' + lazyN);
 console.log('惰性/缓存: blue 复用既有帧=' + (blue1.idle1 === A.SPR.heroIdle1) + '，同 id 同对象=' + (blue1 === blue2) + '，未知 id 回落 blue=' + (unk === blue1));
 
 /* ---------- ④ 色彩审计 ---------- */
@@ -167,7 +167,7 @@ for (let i = 0; i < 5; i++) {
   tBuildNoPre = Math.min(tBuildNoPre, timeBuild(noPre));
 }
 const tDelta = tBuild - tBuildNoPre;
-// 单套皮肤惰性生成成本（16 套平均）：全新沙箱里 buildSprites 后逐套首取
+// 单套皮肤惰性生成成本（18 套平均）：全新沙箱里 buildSprites 后逐套首取
 const C = sandbox(src); C.buildSprites();
 const tA = process.hrtime.bigint();
 for (const sk of SKINS) if (sk.id !== 'blue') C.getHeroSkin(sk.id);
@@ -184,4 +184,4 @@ if (fails.length) {
   for (const f of fails) console.error('  - ' + f);
   process.exit(1);
 }
-console.log('\n[PASS] 17 套皮肤：帧键集合完整、帧有效且冻结、惰性缓存与回落正确、色彩审计全部通过');
+console.log('\n[PASS] 19 套皮肤：帧键集合完整、帧有效且冻结、惰性缓存与回落正确、色彩审计全部通过');

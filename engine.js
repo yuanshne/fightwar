@@ -243,9 +243,9 @@ const BAL = {
     jelly:  { hp: 2, skill: { rng: 40, wind: 0.6, dur: 0.4, ring: 18, cd: 5.0 } },
     ghost:  { hp: 3, skill: { wake: 150, lose: 260, spd: 26, home: 40 } },
     boomer: { hp: 2, spd: 30, fall: 300, skill: { wake: 120, rng: 36, rngY: 40, wind: 0.8, r: 16 } } },
-  boss:  { hp: 60, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
+  boss:  { hp: 72, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
            windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55, dive: 0.55 }, p2WindMul: 0.85,
-           idleT: [0.54, 0.40], walk: [20, 25],
+           idleT: [0.48, 0.36], walk: [20, 25],
            leap: { T: 0.9, vy: 675, clamp: 300 },
            charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
            barrage: { v: 130, rounds: 3, pairGap: 0.15, endT: 0.45, deg: [-8, 8] }, // v7 §8：deg=现行硬编码 [-8,8] 收编
@@ -261,9 +261,9 @@ const BAL = {
            poolFar: ['barrage', 'charge', 'leap', 'barrage'],
            p2Add: ['nova', 'dive'] },
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
-    hp: 90, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40,
+    hp: 108, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40,
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70 },
-    p2WindMul: 0.85, idleT: [0.63, 0.45], walk: [26, 32],
+    p2WindMul: 0.85, idleT: [0.56, 0.40], walk: [26, 32],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [250, 310], maxT: 1.5, maxX: 320 },
     barrage: { v: 110, rounds: 4, pairGap: 0.18, endT: 0.5, deg: [-18, 0, 18] },
@@ -278,10 +278,10 @@ const BAL = {
     p2Add: ['nova', 'breath'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
   boss3: { // 幽冥判官（L16，nether）——v7 §8 逐字
     // v7.9：hp 140→138。三段血要求每段 HP 是整数（140/3=46.67 会让血条与段内残余对不上），
-    // 138=46×3；总血量差 2 点不影响手感，门禁只断言 maxHp===本表 hp。
-    hp: 138, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
+    // v8.1 再回调 138→165（55×3），门禁只断言 maxHp===本表 hp。
+    hp: 165, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
     windup: { blink: 0.50, scythe: 0.60, barrage: 0.45, summon: 0.50, nova: 0.55, halo: 0.65 },
-    p2WindMul: 0.85, idleT: [0.50, 0.36], walk: [18, 22],
+    p2WindMul: 0.85, idleT: [0.45, 0.32], walk: [18, 22],
     leap: { T: 0.9, vy: 675, clamp: 300 },      // 表完整性（判官轮换池不含 leap/charge）
     charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
     barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-10, 0, 10] },
@@ -299,11 +299,11 @@ const BAL = {
   // 分两棒，不是同时出场：冥古龙被打空三段 → 原地「倒下」，曜光·圣裁者接力进场（nextKind 链）。
   // 两棒共用同一套状态机与同一套三段血规则；新招式全部由既有实体（ground wave / star bullet）
   // 组合而成，不引入新弹种——玩家能躲的前提是「看得懂」，新实体只会制造交互未知数。
-  boss4: { // 冥古龙（L18 首发，nether）：骨角魔龙，四足+破翼，熔岩裂纹；hp 150 → 每段 50
-    hp: 150, p2At: 0, actDist: 176, grav: 1500, fallV: 540, w: 64, h: 48,
+  boss4: { // 冥古龙（L18 首发，nether）：骨角魔龙，四足+破翼，熔岩裂纹；hp 186 → 每段 62
+    hp: 186, p2At: 0, actDist: 176, grav: 1500, fallV: 540, w: 64, h: 48,
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, nova: 0.55,
               sweep: 0.55, breath: 0.75, dive: 0.60 },
-    p2WindMul: 0.82, idleT: [0.56, 0.38], walk: [24, 30],
+    p2WindMul: 0.82, idleT: [0.50, 0.34], walk: [24, 30],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [260, 320], maxT: 1.4, maxX: 340 },
     barrage: { v: 125, rounds: 4, pairGap: 0.16, endT: 0.5, deg: [-12, 0, 12] },
@@ -327,11 +327,11 @@ const BAL = {
      * boss5 体型小、位移多（blink 常贴身落点），同样取 1。 */
     contactDmg: 1, drop1: 'ming1', drop2: 'ming2',
     nextKind: 5 },   // 三段打空 → 不通关，换第二棒（见 dying 分支）
-  boss5: { // 曜光·圣裁者（L18 第二棒，nether）：白袍+金环+光翼，hp 180 → 每段 60
-    hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 52,
+  boss5: { // 曜光·圣裁者（L18 第二棒，nether）：白袍+金环+光翼，hp 216 → 每段 72
+    hp: 216, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 52,
     windup: { blink: 0.55, barrage: 0.45, halo: 0.70, summon: 0.50, nova: 0.55,
               scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60 },
-    p2WindMul: 0.82, idleT: [0.52, 0.36], walk: [20, 26],
+    p2WindMul: 0.82, idleT: [0.47, 0.33], walk: [20, 26],
     leap: { T: 0.9, vy: 675, clamp: 300 },
     charge: { v: [240, 300], maxT: 1.5, maxX: 300 },
     barrage: { v: 115, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },

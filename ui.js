@@ -892,7 +892,7 @@ function equipSkin(id){
   progress.skin=id;
   saveProgress(progress);
   SFX.select();
-  _bagFloat('已装备 · '+skinName(id),'#f8d048',1,VIEW_W/2,185); // 锚在面板底缘内侧（避开 176 的操作行）
+  _bagFloat('已装备 · '+skinName(id),'#f8d048',1,VIEW_W/2,214); // 锚在面板底缘内侧（v8.1 面板加高后避开第 4 行格子）
   return true;
 }
 function openWardrobe(){ // v7.7：仅 title/select 可开（play 态不响应，避免与世界输入交叉）
@@ -986,7 +986,7 @@ let selClickTick=-999; // §A.4 选关卡双击计时（单击选中、双击=�
 const SK_SLOT_KEYS=['skillU','skillI','skillO','skillL']; // §A.3 槽位 i → 输入边沿键（与键盘 hit() 同管线）
 // v7.7：衣橱面板几何（渲染与悬停同源，避免两处漂移）——面板 42,24,300,172；6 列 × 3 行、
 // 格 40×36、pitch 46×38；17 格末格右缘 318 / 末行下缘 164，均在面板内留 4~8px 呼吸，不压边框。
-const WD_PANEL=[42,24,300,172],WD_CELL=[40,36],WD_X0=48,WD_Y0=52,WD_PX=46,WD_PY=38,WD_COLS=6;
+const WD_PANEL=[42,24,300,212],WD_CELL=[40,36],WD_X0=48,WD_Y0=52,WD_PX=46,WD_PY=38,WD_COLS=6; // v8.1：19 套 → 6×4 网格，面板加高 40
 function _skinCellXY(i){return [WD_X0+(i%WD_COLS)*WD_PX,WD_Y0+((i/WD_COLS)|0)*WD_PY];}
 function computeHover(){
   hover=null;
