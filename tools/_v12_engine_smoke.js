@@ -67,7 +67,11 @@ console.log('[表] BAL.boss6 / 老五只新参数');
   ok(B6.summon.type === 'lancer' && B6.summon.n === 2 && leechHpS < playerDps * 0.5,
     'boss6 summon lancer×2 且回血 ' + leechHpS.toFixed(2) + ' hp/s < 玩家 DPS ' + playerDps.toFixed(2) + ' 的一半',
     'leech=' + B6.summon.leech + '%/s/只 cap=' + B6.summon.leechCap + '%');
-  ok(B6.poolNear.join() === 'charge,grab,pillar,summon,quake', 'boss6 poolNear', B6.poolNear.join());
+  // v13：这里原来是整串内容快照，加一招必红。改成「集合断言」——顺序是平衡调整的自由度，
+  // 覆盖率由 _engBossPick 的轮转算法保证（每个池长度周期内每招必出一次），不该被测试钉死。
+  const poolWant = ['charge', 'grab', 'pillar', 'summon', 'quake', 'bomb', 'leap'];
+  ok(poolWant.every(n => B6.poolNear.includes(n)) && B6.poolNear.length === poolWant.length,
+    'boss6 poolNear 七招齐全（v12 五招 + v13 bomb + 通用 leap）', B6.poolNear.join());
   ok(B6.poolFar.join() === 'charge,quake,grab,pillar,summon', 'boss6 poolFar', B6.poolFar.join());
   ok(B6.p2Add.join() === 'nova,dive', 'boss6 p2Add');
   ok(B6.drop1 === 'niu1' && B6.drop2 === 'niu2' && !!sb.BAL.gear.niu1 && !!sb.BAL.gear.niu2, 'boss6 掉落表 niu1/niu2（gear 权重存在）');

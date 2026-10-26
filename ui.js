@@ -1139,6 +1139,9 @@ function render(){
     renderShrines(L,tick); // v4 §界面④：谜题神龛（未解=暗色石碑+?，已解=点亮+顶部谜底缩略图）
     renderSeal(L,tick);    // v11 §任务1/§任务2：终点封印光罩 + 条件面板（在旗之前画，旗压在光罩上透出来）
     renderEntities(L,tick);
+    /* v13.1：幻影必须先画（下层），真身后画（上层）——
+       否则三具剪影把真身盖住，「有眼睛的那个是真的」这条唯一线索就看不见了 = 只能靠猜。 */
+    renderHazardsUnder(tick);
     renderBoss(tick); // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前）
     // v10 §任务1/§任务4：五种 Boss 危险物（世界坐标，实体层之上、renderParts 之前）。
     // 调用点定在 renderBoss 之后而不是 renderEntities 里紧跟 game.waves：Boss 是在 renderEntities
@@ -1753,6 +1756,10 @@ function renderEntities(L,tick){
  * 守卫：game.hazards 缺失或空数组 → 整块空转；未知 kind 跳过；
  *      SPR.meteor / SPR.spike / SPR.bossGhost 缺失 → 程序化兜底，绝不抛异常。
  * ============================================================ */
+function renderHazardsUnder(tick){ // v13.1：只画需要压在 Boss 身下的危险物（当前只有 mirror）
+  const H=game.hazards||[];
+  for(let i=0;i<H.length;i++){const h=H[i]; if(h&&h.kind==='mirror')_hzMirror(h,tick,0,0);}
+}
 function renderHazards(tick,camX,camY){
   const H=game.hazards||[];
   if(!H.length)return;
@@ -1768,6 +1775,10 @@ function renderHazards(tick,camX,camY){
     else if(h.kind==='pillar')_hzPillar(h,tick,ox,oy);       // v12 §任务5：火柱（预警圈 → 升柱）
     else if(h.kind==='core')_hzCore(h,tick,ox,oy);           // v12 §任务5：核心护盾
     else if(h.kind==='quellBlast')_hzQuellBlast(h,tick);     // v12 §任务5：全屏爆闪（可选 hazard）
+    // v13.1：mirror 改由 renderHazardsUnder 画在 Boss 下层，这里跳过（否则重复画两层）
+    else if(h.kind==='pushwall')_hzPushwall(h,tick,ox,oy);   // v13 §六：推进墙
+    else if(h.kind==='bomb')_hzBomb(h,tick,ox,oy);           // v13 §六：弹跳炸弹
+    else if(h.kind==='mist')_hzMist(h,tick,ox,oy);           // v13 §六：水雾区
   }
 }
 
@@ -2034,6 +2045,217 @@ function _hzQuellBlast(h,tick){
   ctx.globalAlpha=1;
 }
 
+
+// v13 §六①：真假身（mirror）——「渲染必须和真身完全一致」是硬契约：本函数**绝不读 h.real**
+// （那是答案，读了等于把谜底画出来）。三具幻影走同一条绘制路径（同帧、同偏移、同 alpha），
+// 玩家只能靠「打错会爆」而不是配色去分辨。
+// 剪影优先借本体 body 帧（与 renderBoss 同取帧公式 → 与真身逐像素同形），其次 SPR.mirror
+// （art 契约 24×32 纯色剪影，并行交付，**必须 || 兜底**），最后程序化色块。
+// 特征只有两条：alpha 0.55 + 紫色描边 ±1px 抖动（三者之间完全无差别）。
+function _hzBossParts(){ // 内部：Boss 部件组（与 renderBoss 同一档回落链，缺失返回 null 不抛）
+  try{
+    const P=[SPR.boss,SPR.boss2,SPR.boss3,SPR.boss4||SPR.boss3,SPR.boss5||SPR.boss4||SPR.boss3,
+             SPR.boss6||SPR.boss4||SPR.boss3][_bossIdx((game.boss||{}).kind)];
+    return P||SPR.boss||null;
+  }catch(e){return null;}
+}
+function _hzMirror(h,tick,ox,oy){
+  if(!h||h.kind!=='mirror')return;
+  const w=Math.max(4,+h.w||52),hg=Math.max(4,+h.h||48);
+  const x=px((+h.x||0)-(+ox||0)),y=px((+h.y||0)-(+oy||0)),T=+tick||0;
+  ctx.save();
+  let body=null;
+  const P=_hzBossParts(),Bf=P&&(P.body||P);
+  if(Bf&&Bf.length&&Bf[0])body=Bf[(T*3|0)%Bf.length];
+  if(!body)body=SPR.mirror||null;                       // art 未合入 → 兜底（不许直接解引用 SPR.mirror.x）
+  const bx0=body?x+Math.round((w-body.width)/2):x;      // 水平居中 + 底对齐（renderBoss 同口径）
+  const by0=body?y+hg-body.height:y;
+  const bw0=body?body.width:w,bh0=body?body.height:hg;
+  ctx.globalAlpha=0.55;
+  if(body)ctx.drawImage(body,px(bx0),px(by0));
+  else{                                                 // 程序化剪影：躯干 + 双臂 + 两眼（够读成「人形」）
+    ctx.fillStyle='#3a2a58';
+    ctx.fillRect(x+Math.round(w*0.28),y+6,Math.max(2,Math.round(w*0.44)),hg-6);
+    ctx.fillRect(x+2,y+Math.round(hg*0.34),Math.max(2,Math.round(w*0.24)),Math.max(2,Math.round(hg*0.34)));
+    ctx.fillRect(x+w-Math.round(w*0.26),y+Math.round(hg*0.34),Math.max(2,Math.round(w*0.24)),Math.max(2,Math.round(hg*0.34)));
+    ctx.fillStyle='#c890ff';
+    ctx.fillRect(x+Math.round(w*0.36),y+Math.round(hg*0.3),3,3);
+    ctx.fillRect(x+Math.round(w*0.58),y+Math.round(hg*0.3),3,3);
+  }
+  /* v13.1：幻影也要有眼睛，且是**紫色**的——真身不隐身之后，「有没有眼睛」不再成立，
+     改成「眼睛什么颜色」，玩家必须真的看一眼才能分辨（而不是数有没有眼）。
+     两团紫眼压在剪影头部，和本体眼睛同位置同尺寸，只有颜色不同。 */
+  if(body){
+    const ey=px(by0+Math.round(bh0*0.30)),ex=px(bx0+Math.round(bw0*0.34));
+    const gap=Math.max(3,Math.round(bw0*0.20));
+    ctx.globalAlpha=0.95;
+    ctx.fillStyle='#d070ff';
+    ctx.fillRect(ex,ey,3,3); ctx.fillRect(ex+gap,ey,3,3);
+  }
+  const jit=Math.round(Math.sin(T*0.55+(+h.x||0))*1);   // 紫描边 ±1px 抖动（贴剪影外框，不参与真假判别）
+  ctx.globalAlpha=0.5+0.22*Math.abs(Math.sin(T*0.3));
+  ctx.strokeStyle='#c060f0';ctx.lineWidth=1;
+  ctx.strokeRect(px(bx0)+jit+0.5,px(by0)+0.5,Math.max(1,bw0-1),Math.max(1,bh0-1));
+  const ft=+h.flashT||0;
+  if(ft>0){                                             // 受击闪白（与 clone/core 同口径 0.12s 衰减）
+    ctx.globalAlpha=clamp(ft/0.12,0,1)*0.8;
+    if(body)ctx.drawImage(whiteOf(body),px(bx0),px(by0));
+    else{ctx.fillStyle='#ffffff';ctx.fillRect(px(bx0),px(by0),bw0,bh0);}
+  }
+  ctx.restore();
+}
+
+// v13 §六②：推进墙（pushwall）——warnT>0 只画预警（半透明虚线轮廓 + 推进方向箭头），不画实体：
+// 这招的正确动作是「朝 Boss 方向持续跑」，玩家必须先看清墙从哪来、往哪推。
+// warnT<=0 画实心：SPR.pushwall（24×64 熔岩裂纹竖条）优先，缺失走程序化岩柱；
+// 斜纹按 dir 滚动（反向滚动会读成「墙在后退」= 给错方向）；顶边一排尖刺（视觉上「碰到就割」）。
+function _hzPushwall(h,tick,ox,oy){
+  if(!h||h.kind!=='pushwall')return;
+  const w=Math.max(2,+h.w||24),hg=Math.max(2,+h.h||64);
+  const x=px((+h.x||0)-(+ox||0)),y=px((+h.y||0)-(+oy||0));
+  const dir=(+h.dir||1)<0?-1:1,wt=+h.warnT||0,T=+tick||0;
+  ctx.save();
+  if(wt>0){                                             // 预警：只给方向，不画实体
+    ctx.globalAlpha=0.14;ctx.fillStyle='#f8a030';ctx.fillRect(x,y,w,hg);
+    ctx.globalAlpha=0.45+0.2*Math.sin(T*0.35);
+    ctx.strokeStyle='#f8a030';ctx.lineWidth=1;
+    if(ctx.setLineDash)ctx.setLineDash([4,3]);
+    ctx.strokeRect(x+0.5,y+0.5,Math.max(1,w-1),Math.max(1,hg-1));
+    if(ctx.setLineDash)ctx.setLineDash([]);
+    ctx.globalAlpha=0.55+0.35*Math.sin(T*0.35);         // 推进方向：3 枚箭头贴在墙的推进前缘
+    ctx.fillStyle='#ffd090';
+    for(let i=0;i<3;i++){
+      const yy=y+Math.round(hg*(i+1)/4),ax=x+(dir>0?w+3:-3);
+      ctx.beginPath();ctx.moveTo(px(ax),yy-3);ctx.lineTo(px(ax+dir*5),yy);
+      ctx.lineTo(px(ax),yy+3);ctx.closePath();ctx.fill();
+    }
+    ctx.restore();return;
+  }
+  const img=SPR.pushwall;                               // art 契约 24×64；非默认尺寸允许拉伸
+  ctx.globalAlpha=1;
+  if(img)ctx.drawImage(img,x,y,w,hg);
+  else{
+    ctx.fillStyle='#3a2c2c';ctx.fillRect(x,y,w,hg);     // 程序化岩柱：深底 + 亮面 + 两侧压暗
+    ctx.fillStyle='#5a4040';ctx.fillRect(x+2,y+1,Math.max(1,w-4),Math.max(1,hg-2));
+    ctx.fillStyle='#2a1e1e';ctx.fillRect(x,y,2,hg);ctx.fillRect(x+Math.max(0,w-2),y,2,hg);
+    ctx.fillStyle='#c85820';                            // 熔岩裂纹（三道折线）
+    for(let i=0;i<3;i++){
+      const cx0=x+Math.round(w*(i+1)/4),yy0=y+8+i*14;
+      ctx.fillRect(cx0,yy0,1,5);ctx.fillRect(cx0+1,yy0+5,2,1);ctx.fillRect(cx0+3,yy0+6,1,4);
+    }
+  }
+  ctx.save();                                           // 斜纹滚动：裁在墙体内，越界不糊到场景
+  ctx.beginPath();ctx.rect(x,y,w,hg);ctx.clip();
+  const per=12,off=((T*1.2*dir)%per+per)%per;
+  ctx.globalAlpha=0.22;ctx.strokeStyle='#ffd090';ctx.lineWidth=1;
+  for(let i=-hg;i<w+hg;i+=per){
+    const sx=x+i+off;
+    ctx.beginPath();ctx.moveTo(sx,y+hg);ctx.lineTo(sx+hg,y);ctx.stroke();
+  }
+  ctx.restore();
+  if(!img){                                             // 顶边尖刺：art 精灵上沿已自带 3px 尖齿，不重复叠
+    ctx.globalAlpha=0.95;ctx.fillStyle='#c8c0b8';
+    const n=Math.max(1,Math.round(w/8));
+    for(let i=0;i<n;i++){
+      const sx=x+(i+0.5)*(w/n),sh=4+((i*7+T|0)%3);
+      ctx.beginPath();ctx.moveTo(px(sx-3),y);ctx.lineTo(px(sx),y-sh);
+      ctx.lineTo(px(sx+3),y);ctx.closePath();ctx.fill();
+    }
+  }
+  const ht=+h.hitT||0;
+  if(ht>0){                                             // 命中闪红（hitT 由引擎递减，UI 只读）
+    ctx.globalAlpha=clamp(ht/0.8,0,1)*0.35;ctx.fillStyle='#f84848';ctx.fillRect(x,y,w,hg);
+  }
+  ctx.restore();
+}
+
+// v13 §六③：弹跳炸弹（bomb）——(x,y) 视作球心（契约里 r 是爆炸半径），落地阴影投到同列地面
+// （借 _hzGroundAt，空中也看得出「离地多高」= 弹跳节奏的读秒）；armed 后引信闪红加快 + 画爆炸半径，
+// 爆炸前 0.2s 整颗白闪（这是「该走了」的最后信号，与「落地就躲死」的坏习惯对着干）。
+function _hzBomb(h,tick,ox,oy){
+  if(!h||h.kind!=='bomb')return;
+  const cx=px((+h.x||0)-(+ox||0)),cy=px((+h.y||0)-(+oy||0));
+  const r=Math.max(4,+h.r||30),ball=6,T=+tick||0;       // r=爆炸半径；ball=铁球视觉半径
+  const armed=!!h.armed,fuse=Math.max(0.05,+h.fuse||0.9),t=Math.max(0,+h.t||0);
+  const left=armed?Math.max(0,fuse-t):-1;
+  ctx.save();
+  const gy=px(_hzGroundAt(+h.x||0,+h.y||0)-(+oy||0));   // 地面阴影（无 level 时回落球心）
+  const hgt=clamp((gy-cy)/72,0,1);
+  ctx.globalAlpha=0.34-0.18*hgt;ctx.fillStyle='#000000'; // 落地阴影：越高越小越淡
+  ctx.beginPath();ctx.ellipse(cx,gy,Math.max(3,ball+2-hgt*3),Math.max(1.5,2.5-hgt),0,0,Math.PI*2);ctx.fill();
+  if(armed){                                            // 爆炸半径随引信收缩（pre:0→1）
+    const pre=clamp(1-left/Math.max(0.05,fuse),0,1);
+    ctx.globalAlpha=0.10+0.20*pre;ctx.fillStyle='#f84848';
+    ctx.beginPath();ctx.arc(cx,cy,Math.max(ball,r*pre),0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=0.35+0.4*pre;ctx.strokeStyle='#f8a030';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(cx,cy,Math.max(ball,r),0,Math.PI*2);ctx.stroke();
+  }
+  const img=SPR.bomb;                                   // art 契约 16×16；缺失走程序化铁球
+  ctx.globalAlpha=1;
+  if(img)ctx.drawImage(img,px(cx-Math.round(img.width/2)),px(cy-Math.round(img.height/2)));
+  else{
+    ctx.fillStyle='#22222c';ctx.beginPath();ctx.arc(cx,cy,ball,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#3e3e4c';ctx.beginPath();ctx.arc(cx-1,cy-1,ball*0.66,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#8a8a9a';ctx.fillRect(cx-3,cy-3,2,2);
+  }
+  const blink=0.5+0.5*Math.sin(T*(armed?0.95:0.38));     // 引信：armed 后频率加快
+  if(!img){                                             // 程序化引信杆（art 16×16 精灵自带引信，不重复画）
+    ctx.globalAlpha=armed?(0.55+0.45*blink):0.5;
+    ctx.fillStyle=armed?'#ff5030':'#f8a030';ctx.fillRect(cx+ball-2,cy-ball-3,2,4);
+  }
+  ctx.globalAlpha=armed?(0.4+0.6*blink):0.45;           // 火星（两条路径都画：spec 要求引信闪红）
+  ctx.fillStyle=armed?'#ffd0a0':'#ffe0a0';ctx.fillRect(cx+ball-2,cy-ball-4,2,2);
+  if(armed&&left<=0.2){                                 // 爆炸前 0.2s 白闪
+    const a=clamp(1-left/0.2,0,1);
+    ctx.globalAlpha=0.3+0.55*a;ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.arc(cx,cy,ball+2,0,Math.PI*2);ctx.fill();
+  }
+  ctx.restore();
+}
+
+// v13 §六④：水雾区（mist）——y 是地面上沿、h 向上长，整柱从 base 往上画。
+// 「跳不出去」必须一眼看出：柱体**填满到顶**不留缺口，底浓顶淡（6 段像素条带，不建 gradient——
+// mock/旧环境的 createLinearGradient 差异会在沙箱里抛错）；上升气泡固定 5 枚按 tick 错相
+// （不 push 数组）；起手/收尾各 0.25s 渐显隐，避免凭空闪现。
+function _hzMist(h,tick,ox,oy){
+  if(!h||h.kind!=='mist')return;
+  const w=Math.max(4,+h.w||56),hg=Math.max(4,+h.h||96);
+  const x=px((+h.x||0)-(+ox||0)),base=px((+h.y||0)-(+oy||0));
+  const T=+tick||0,t=Math.max(0,+h.t||0),life=Math.max(0.1,+h.life||4);
+  const fade=clamp(Math.min(t*4,(life-t)*4),0,1);       // 起手/收尾渐显隐
+  if(fade<=0)return;
+  ctx.save();
+  const bands=6,bh=hg/bands;
+  for(let i=0;i<bands;i++){                             // 渐变柱：i=0 贴地最浓 → 顶部最淡
+    const k=i/(bands-1);
+    // v13.1 实机第三版：青色 (#48d8d0) 在 L13 的蓝底关卡里整根融掉。雾本来就该是白的——
+    // 换成近白高亮 (#c8f0ff)，在任何主题底色上都是「亮的」，而背景基本都是中低明度。
+    ctx.globalAlpha=(0.66-k*0.46)*fade;ctx.fillStyle='#d8f4ff';
+    ctx.fillRect(x,px(base-(i+1)*bh),w,Math.ceil(bh));
+  }
+  ctx.globalAlpha=0.55*fade;ctx.fillStyle='#ffffff';    // 内部 2 条竖纹：柱体有体积，不是一块色板
+  ctx.fillRect(x+Math.round(w*0.22),base-hg+4,2,hg-6);
+  ctx.fillRect(x+Math.round(w*0.7),base-hg+4,2,hg-6);
+  ctx.globalAlpha=0.50*fade;ctx.fillStyle='#c8fff8';    // 顶边柔化：1px 亮线 + 下面一行更淡（v13.1 提亮）
+  ctx.fillRect(x,base-hg,w,1);
+  ctx.globalAlpha=0.12*fade;ctx.fillRect(x,base-hg+1,w,2);
+  ctx.fillStyle='#c8fff8';
+  for(let i=0;i<5;i++){                                 // 上升气泡（固定 5 枚）
+    const ph=(T*0.018+t*0.06+i*0.2)%1;
+    const bx0=x+3+((i*17+Math.round(w*0.2))%Math.max(1,w-6));
+    ctx.globalAlpha=0.55*(1-ph)*fade;
+    ctx.fillRect(px(bx0),px(base-ph*hg),2,2);
+  }
+  ctx.globalAlpha=0.32*fade;ctx.fillStyle='#70f0e0';    // 底缘贴地一圈（雾从地面渗出来）
+  ctx.fillRect(x,base-1,w,2);
+  /* v13.1 实机第二版：L13 是水面关，背景本来就是蓝的，纯青色柱体整根融进去（截图里几乎看不见）。
+     左右各压一条深色边——任何主题下都能一眼框出「这一列现在不能站」。 */
+  ctx.globalAlpha=0.90*fade;ctx.fillStyle='#ffffff';
+  ctx.fillRect(x,base-hg,1,hg);
+  ctx.fillRect(x+w-1,base-hg,1,hg);
+  ctx.fillRect(x,base-hg,w,1);   // 顶边硬线：柱体有了轮廓才读得成「区域」
+  ctx.restore();
+}
 
 // v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
 // 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
@@ -2323,6 +2545,83 @@ function renderBossWindupFx(b,bimg,bx,by){
       }
       ctx.globalAlpha=1;break;
     }
+    // v13 §六：五种新交互的专属前摇（图形 + 单字），延续 v12「一眼读懂该做什么」的原则：
+    // 反=收手 / ?=看清再打 / 推=朝 Boss 跑 / 弹=记住二段落点 / 雾=立刻换位。
+    // 全部画在本体附近（同屏可见），不建数组、不写引擎字段；bimg/bx/by 复用本体当前帧。
+    case 'parry':{                                   // 反伤架势：金色盾形在身前张开（k 越大越亮越大）+「反」
+      const dir=b.face>0?1:-1,fx=px(cx+dir*10),sy=px(top+b.h*0.45),r0=6+k*7;
+      ctx.globalAlpha=0.28+0.32*k;ctx.fillStyle='#f8d048';
+      ctx.beginPath();
+      ctx.moveTo(fx,sy-r0);ctx.lineTo(fx+r0*0.8,sy-r0*0.55);
+      ctx.lineTo(fx+r0*0.6,sy+r0*0.65);ctx.lineTo(fx,sy+r0*1.05);
+      ctx.lineTo(fx-r0*0.6,sy+r0*0.65);ctx.lineTo(fx-r0*0.8,sy-r0*0.55);
+      ctx.closePath();ctx.fill();
+      ctx.globalAlpha=0.7+0.3*k;ctx.strokeStyle='#fff0b0';ctx.lineWidth=1;ctx.stroke();
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('反',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    case 'mirror':{                                  // 真假身：三具紫色残影（间距随 k 拉开）+「?」
+      const sp=10+k*16;
+      for(let i=0;i<3;i++){
+        ctx.globalAlpha=0.16+0.20*k;
+        const ox0=(i-1)*sp,oy0=(i===1?0:2);
+        if(bimg&&bimg.width){
+          const tint=tintOf(bimg,'#b060f0');
+          ctx.drawImage(tint,px(bx+ox0),px(by+oy0));
+        }else{
+          ctx.fillStyle='#b060f0';
+          ctx.fillRect(px(cx+ox0-10),px(top+oy0),20,b.h);
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawPixelText('?',cx,px(top)-13,2,'#c890ff','center');
+      break;
+    }
+    case 'push':{                                    // 推进墙：朝向 3 枚推进箭头（要跟着跑）+「推」
+      const dir=b.face>0?1:-1,gy=px(top+b.h*0.5);
+      ctx.globalAlpha=0.4+0.5*k;ctx.strokeStyle='#f8a030';ctx.lineWidth=1.5;
+      for(let i=0;i<3;i++){
+        const ax=px(cx)+dir*(8+i*(7+k*4));
+        ctx.beginPath();ctx.moveTo(ax,gy-6);ctx.lineTo(ax+dir*5,gy);ctx.lineTo(ax,gy+6);ctx.stroke();
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('推',cx,px(top)-14,8,'#f8a030','center');
+      break;
+    }
+    case 'bomb':{                                    // 弹跳炸弹：抛物线虚线 + 首落点小圈 +「弹」
+      const dir=b.face>0?1:-1,sx=px(cx),sy=px(top)-2;
+      const ex=sx+dir*34,ey=px(top+b.h+6);
+      ctx.globalAlpha=0.5+0.35*k;ctx.strokeStyle='#f8a030';ctx.lineWidth=1;
+      if(ctx.setLineDash)ctx.setLineDash([2,3]);
+      ctx.beginPath();
+      for(let i=0;i<=8;i++){
+        const u=i/8,bxp=sx+(ex-sx)*u,byp=sy+(ey-sy)*u-26*Math.sin(Math.PI*u)*(0.6+0.4*k);
+        if(i)ctx.lineTo(bxp,byp);else ctx.moveTo(bxp,byp);
+      }
+      ctx.stroke();
+      if(ctx.setLineDash)ctx.setLineDash([]);
+      ctx.beginPath();ctx.arc(ex,ey,4+k*2,0,Math.PI*2);ctx.stroke();   // 首落点
+      ctx.globalAlpha=0.85;ctx.fillStyle='#f84848';ctx.fillRect(ex-1,ey-1,3,3);
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('弹',cx,px(top)-14,8,'#f8a030','center');
+      break;
+    }
+    case 'mist':{                                    // 水雾：脚下青色气团扩散 +「雾」
+      const gy=px(top+b.h);
+      for(let i=0;i<3;i++){
+        ctx.globalAlpha=0.14+0.16*k-i*0.03;ctx.fillStyle='#48d8d0';
+        ctx.beginPath();ctx.arc(px(cx+(i-1)*12),gy-4-Math.sin(k*4+i)*3,7+3*k,0,Math.PI*2);ctx.fill();
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('雾',cx,px(top)-14,8,'#48d8d0','center');
+      break;
+    }
   }
 }
 
@@ -2371,6 +2670,33 @@ function renderBossTags(b,tick){
     drawCNText('回',cx,ty+2,9,'#70f090','center');
     ctx.globalAlpha=1;
     ty-=15;
+  }
+  // v13 §六：反伤架势「反」红标——parryOn 期间普通攻击会被反弹，必须一眼看出「现在别打」
+  // （大招才是正解），所以用红底红框 + 呼吸，与金色「破防/破绽」形成明确对立。
+  if(b.parryOn){
+    const w=16;
+    _panel(cx-w/2,ty,w,13,{cut:2,alpha:0.86});
+    drawCNText('反',cx,ty+2,9,'#ff8080','center');
+    ctx.globalAlpha=0.45+0.45*Math.abs(Math.sin(tick*0.4));
+    ctx.strokeStyle='#f84848';ctx.lineWidth=1;
+    ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
+    ty-=15;
+  }
+  // v13 §五：破防窗口「破防」+ 剩余条（宽度按 breakT/2.0 收缩；2.0 是契约里的破防总时长）。
+  // 这是 v13 唯一的「打得更疼」窗口，必须比破绽更显眼：金字金框 + 条一亮一暗地呼吸。
+  {
+    const bt=clamp(+b.breakT||0,0,9);
+    if(bt>0){
+      const p=clamp(bt/2.0,0,1),w=46,x0=cx-w/2;
+      _panel(x0,ty,w,13,{cut:2,alpha:0.88});
+      drawCNText('破防',x0+4,ty+2,9,'#f8d048');
+      ctx.fillStyle='#3a2c08';ctx.fillRect(x0+25,ty+4,18,5);
+      ctx.fillStyle='#ffe070';ctx.fillRect(x0+25,ty+4,Math.round(18*p),5);
+      ctx.globalAlpha=0.5+0.4*Math.abs(Math.sin(tick*0.3));
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=1;
+      ctx.strokeRect(x0+24.5,ty+3.5,19,6);ctx.globalAlpha=1;
+      ty-=15;
+    }
   }
   if((b.comboN|0)>=1){
     // 中文走 drawCNText、数字走 drawPixelText（契约）：面板里是「连」+ 剩余招数（像素字）。
@@ -2432,6 +2758,17 @@ function renderBoss(tick){
     ctx.beginPath();ctx.ellipse(bcx2,bcy2,rx2,ry2,0,0,Math.PI*2);ctx.fill();
     ctx.globalAlpha=0.55+0.2*Math.sin(tick*0.22);ctx.strokeStyle='#bfeaff';ctx.lineWidth=1.5;
     ctx.beginPath();ctx.ellipse(bcx2,bcy2,rx2,ry2,0,0,Math.PI*2);ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+  /* v13.1 实机补强：原来 parryCast 期间只有头顶一个「反」字标签，本体看不出和平时有什么不同，
+     玩家第一反应是「为什么我打它不掉血」。护罩必须套在身上——打不动的东西要先看起来打不动。
+     与 coreOn 的青色护罩同构，换金色 + 脉动更快（架势只有 1.8s，慢脉动看不出来）。 */
+  if(b.parryOn){
+    const gx=b.x+b.w/2,gy=b.y+b.h/2,grx=b.w/2+6,gry=b.h/2+5;
+    ctx.globalAlpha=0.16+0.05*Math.sin(tick*0.30);ctx.fillStyle='#f8d048';
+    ctx.beginPath();ctx.ellipse(gx,gy,grx,gry,0,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=0.70+0.20*Math.sin(tick*0.30);ctx.strokeStyle='#ffe9a0';ctx.lineWidth=2;
+    ctx.beginPath();ctx.ellipse(gx,gy,grx,gry,0,0,Math.PI*2);ctx.stroke();
     ctx.globalAlpha=1;
   }
   let dy=0,ad=14,jaw=0,eye='eye';                    // 默认 idle 行
@@ -2953,6 +3290,13 @@ function renderHUD(){
     // ③ 血条 128..302 × 29..37（内区 129,30,172×8）
     ctx.fillStyle='rgba(14,26,58,.82)';ctx.fillRect(128,29,174,9);        // 条底深蓝
     ctx.strokeStyle='#f0c860';ctx.strokeRect(128.5,29.5,173,8);
+    if((+b.breakT||0)>0){                             // v13 §五：破防期血条描边转金并呼吸（与「破防」条同一信号）
+      ctx.save();
+      ctx.globalAlpha=(b.state==='dying'?clamp(1-b.t/2.2,0,1):1)*(0.5+0.5*Math.abs(Math.sin(game.tick*0.35)));
+      ctx.strokeStyle='#ffe070';ctx.lineWidth=2;
+      ctx.strokeRect(127.5,28.5,175,10);
+      ctx.restore();
+    }
     if(BP.seg){
       const bx=129,by=30,bh=8;
       const txs=_bossTickXs(b);                         // v10 §任务3①：两条刻度线位置（唯一口径，按 maxHp 比例）

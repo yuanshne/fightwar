@@ -336,34 +336,50 @@ const BAL = {
            contactDmg: 1,
            // v7 §8 追加键：kind1 现行硬编码逐字收编（零行为变化——H5，_v6_loot_test ② L7 采样双证）
            w: 52, h: 48, drop1: 'boss1', drop2: 'boss2',
-           summon: { type: 'slime', n: 2, off: [-40, 40], leech: 0.4 }, // v12：召唤物回血 0.4%/s/只（spec §二）
+           summon: { type: 'slime', n: 2, off: [-40, 40], leech: 0.4, cd: 16, hp: 4 },
+  // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
+  //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
+  //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
+
            // v12（spec §二）：用招池摊开新类型——近身 grab / 远程 spike 保留，charge 仍居首
-           poolNear: ['charge', 'grab', 'leap', 'summon', 'meteor'],
+           poolNear: ['charge', 'grab', 'leap', 'summon', 'meteor'],   // boss1 保留抓取（最基础的 Boss），去重集中在后五只
+   // v13.1 去同质化：每只 Boss 池子都是 7 招，其中 2~3 招是**招牌**（互不重合），
+   //   其余是允许重合的通用机动招（leap/barrage/summon/quake 这类）。招牌清单：
+   //   星核=跳劈/陨石/召唤/抓取｜蛟龙=扫尾/水雾/吸附｜判官=镰刀/真假身/分身｜
+   //   冥古龙=吐息/推墙/核心｜圣裁=光环/圣盾/追踪弹｜牛魔=三连撞/火油弹/抓取/火柱。
+
            poolFar: ['barrage', 'charge', 'grab', 'leap', 'spike'],
            p2Add: ['nova', 'dive'] },
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
     hp: 288, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40, // v10：96→288（×3，每段 96）
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
-              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 }, // v10 五新招前摇 + v12 补键
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
+              mist: 0.60 }, // v10 五新招前摇 + v12 补键 + v13 mist
     p2WindMul: 0.85, idleT: [0.56, 0.40], walk: [26, 32],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [250, 310], maxT: 1.5, maxX: 320 },
     barrage: { v: 110, rounds: 4, pairGap: 0.18, endT: 0.5, deg: [-18, 0, 18] },
     sweep: { rounds: 3, gap: 0.55, wv: 130, life: 0.42, wh: 16 },
     nova: { v: 110, t: [0.55, 0.95], endT: 1.2 },
-    summon: { type: 'jelly', n: 2, off: [-44, 44], leech: 0.5 }, // v12：召唤物回血 0.5%（spec §二）
+    summon: { type: 'jelly', n: 2, off: [-44, 44], leech: 0.5, cd: 16, hp: 3 },
+  // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
+  //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
+  //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
+
     breath: { rounds: 2, gap: 0.50, wv: 120, life: 0.5, wh: 16 },  // v7.9 末段新招：两段贴地潮涌
     // v10 新招参数（蛟龙：近身吸附 / 远程追踪弹）
     pull:   { dur: 1.2, force: 320, r: 140 },
     homing: { n: 3, gap: 0.22, v: 78, turn: 1.4, life: 2.6 },
     quake: { w: 14, h: 26, v: 200, life: 0.9, n: 2, gap: 0.35 }, // v12：劈地窄高波（跳 26px 即躲）
+    // v13 §二：水雾区（原地不动就持续挨打；跑出去即脱身，雾不挡移动不挡攻击）
+    mist:  { n: 3, w: 56, h: 96, life: 4.0, tick: 0.5, dmg: 1, off: [-80, 0, 80] },
     stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6, breath: 0.55,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 }, // v12 补键
-    poolNear: ['sweep', 'quake', 'summon', 'leap', 'pull'],   // v12（spec §二）
-    poolFar: ['barrage', 'charge', 'quake', 'barrage', 'homing'],
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mist: 0.6 }, // v12 补键 + v13 mist
+    poolNear: ['sweep', 'mist', 'leap', 'pull', 'barrage', 'quake', 'summon'],   // v13.1：7 招；招牌=横扫/水雾/吸人，quake/summon 是允许重合的通用招
+    poolFar: ['barrage', 'charge', 'quake', 'barrage', 'homing', 'mist'],
     p2Add: ['nova', 'breath'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
   boss3: { // 幽冥判官（L16，nether）——v7 §8 逐字
     // v7.9：hp 140→138。三段血要求每段 HP 是整数（140/3=46.67 会让血条与段内残余对不上），
@@ -373,7 +389,8 @@ const BAL = {
     hp: 432, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
     windup: { blink: 0.50, scythe: 0.60, barrage: 0.45, summon: 0.50, nova: 0.55, halo: 0.65,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
-              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 }, // v10 五新招前摇 + v12 补键
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
+              mirror: 0.60 }, // v10 五新招前摇 + v12 补键 + v13 mirror
     p2WindMul: 0.85, idleT: [0.45, 0.32], walk: [18, 22],
     leap: { T: 0.9, vy: 675, clamp: 300 },      // 表完整性（判官轮换池不含 leap/charge）
     charge: { v: [230, 290], maxT: 1.5, maxX: 320 },
@@ -381,17 +398,23 @@ const BAL = {
     blink: { hideT: 0.30, dx: 96, after: 0.35 },
     scythe: { wv: 150, life: 0.6, w: 16, h: 22 },
     nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
-    summon: { type: 'ghost', n: 2, off: [-48, 48], leech: 0.5 }, // v12：召唤物回血 0.5%
+    summon: { type: 'ghost', n: 2, off: [-48, 48], leech: 0.5, cd: 16, hp: 4 },
+  // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
+  //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
+  //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
+
     halo: { v: 95, t: [0.50, 0.85, 1.20], endT: 1.55 },   // v7.9 末段新招：三圈鬼火
     // v10 新招参数（判官：近身分身 / 远程地刺）
     clone: { n: 2, life: 6.0, hp: 2 },
     spike: { n: 4, gap: 0.16, h: 24, life: 1.1 },
     quell: { dur: 2.2, warn: 0.9, r: 22, n: 2, breakDmg: 12, dmg: 2 }, // v12：蓄力全屏（可打断 / 站结界圈）
+    // v13 §二：真假身（本体混进幻影列 + 隐身免伤；打错爆炸、打真身转大破绽）
+    mirror: { n: 3, life: 5.0, hp: 1, popDmg: 1, swapOff: 96 },
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { blink: 0.4, halo: 0.6, scythe: 0.6, barrage: 0.5, summon: 0.5, nova: 0.6, leap: 0.7, charge: 0.4,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 }, // v12 补键
-    poolNear: ['scythe', 'blink', 'quell', 'summon', 'clone'],  // v12（spec §二）
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mirror: 0.6 }, // v12 补键 + v13 mirror
+    poolNear: ['scythe', 'blink', 'quell', 'mirror', 'clone', 'summon', 'barrage'],  // v13.1：7 招；招牌=镰刀/真假身/分身
     poolFar: ['barrage', 'blink', 'quell', 'scythe', 'spike'],
     p2Add: ['nova', 'halo'], contactDmg: 1, drop1: 'gui1', drop2: 'gui2', revive: 0.9 },
   // ==================== v7.9 终章双 Boss ====================
@@ -403,7 +426,8 @@ const BAL = {
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, nova: 0.55,
               sweep: 0.55, breath: 0.75, dive: 0.60,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
-              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 }, // v10 五新招前摇 + v12 补键
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
+              push: 0.75 }, // v10 五新招前摇 + v12 补键 + v13 push
     p2WindMul: 0.82, idleT: [0.50, 0.34], walk: [24, 30],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [260, 320], maxT: 1.4, maxX: 340, hits: 3 }, // v12：三段连撞（spec §二）
@@ -415,18 +439,24 @@ const BAL = {
     // 陨落（dive）：leap 落地那一下额外甩一圈 8 向弹，把「跳劈」从纯位移变成需要读落点的招
     dive: { ringV: 105 },
     nova: { v: 110, t: [0.55, 0.95], endT: 1.2 },
-    summon: { type: 'ghost', n: 2, off: [-52, 52], leech: 0.4 }, // v12：召唤物回血 0.4%
+    summon: { type: 'ghost', n: 2, off: [-52, 52], leech: 0.4, cd: 16, hp: 4 },
+  // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
+  //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
+  //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
+
     // v10 新招参数（冥古龙：近身陨石雨 / 远程吸附）
     meteor: { n: 3, gap: 0.28, warn: 0.85, vy: 260, r: 9 },
     pull:   { dur: 1.2, force: 320, r: 140 },
     quake: { w: 14, h: 26, v: 200, life: 0.9, n: 2, gap: 0.35 },   // v12：劈地窄高波
     core: { n: 2, hp: 3, life: 10, r: 9 },                          // v12：核心护盾（破盾才掉血）
+    // v13 §二：推进墙（从玩家背向 Boss 的一侧进场，只能朝 Boss 方向持续跑）
+    push: { w: 24, h: 64, v: 88, dmg: 2, warn: 0.9 },
     stagger: 1.4, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6,
                sweep: 0.6, breath: 0.55, dive: 0.65,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 }, // v12 补键
-    poolNear: ['breath', 'quake', 'core', 'sweep', 'meteor'],       // v12（spec §二）
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, push: 0.6 }, // v12 补键 + v13 push
+    poolNear: ['breath', 'push', 'quake', 'core', 'meteor', 'sweep', 'summon'],       // v13.1：7 招；招牌=吐息/推墙/核心
     poolFar: ['barrage', 'charge', 'quake', 'breath', 'pull'],
     p2Add: ['nova', 'dive'],
     /* v8.0：接触伤害 2→1。实测 46% 的受伤发生在 Boss 收招/待机/弹幕已放完之后——
@@ -440,7 +470,8 @@ const BAL = {
     windup: { blink: 0.55, barrage: 0.45, halo: 0.70, summon: 0.50, nova: 0.55,
               scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
-              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 }, // v10 五新招前摇 + v12 补键
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
+              parry: 0.55 }, // v10 五新招前摇 + v12 补键 + v13 parry
     p2WindMul: 0.82, idleT: [0.47, 0.33], walk: [20, 26],
     leap: { T: 0.9, vy: 675, clamp: 300 },
     charge: { v: [240, 300], maxT: 1.5, maxX: 300 },
@@ -455,18 +486,24 @@ const BAL = {
     // 于是 `if (b.next === 'dive' && T.dive)` 恒假 —— 圣裁者的跳劈落地永远不甩环，
     // 与其余四只 Boss 的跳劈（落地甩 8 向弹）行为不一致。补齐后 p2Add 才真正生效。
     dive: { ringV: 100 },
-    summon: { type: 'ghost', n: 2, off: [-44, 44], leech: 0.4 }, // v12：召唤物回血 0.4%
+    summon: { type: 'ghost', n: 2, off: [-44, 44], leech: 0.4, cd: 16, hp: 4 },
+  // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
+  //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
+  //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
+
     // v10 新招参数（圣裁者：近身追踪弹 / 远程分身）
     homing: { n: 3, gap: 0.22, v: 78, turn: 1.4, life: 2.6 },
     clone:  { n: 2, life: 6.0, hp: 2 },
     grab: { reach: 46, dmg: 2 },                                     // v12：抓取摔投
     quell: { dur: 2.2, warn: 0.9, r: 22, n: 2, breakDmg: 12, dmg: 2 }, // v12：蓄力全屏
+    // v13 §二/§四：反伤架势（连打会被反弹；大招可破招并开 2.4s 破防窗口）
+    parry: { dur: 1.8, reflect: 1, breakT: 2.4 },
     stagger: 1.4, enrage: 1.2, dying: 2.6, revive: 0.9,
     recover: { blink: 0.4, barrage: 0.5, halo: 0.6, summon: 0.5, nova: 0.6,
                scythe: 0.6, leap: 0.7, charge: 0.4, dive: 0.65,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 }, // v12 补键
-    poolNear: ['halo', 'grab', 'quell', 'scythe', 'homing'],          // v12（spec §二）
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, parry: 0.6 }, // v12 补键 + v13 parry
+    poolNear: ['halo', 'parry', 'quell', 'homing', 'blink', 'grab', 'scythe'],          // v13.1：7 招；招牌=光环/圣盾/追踪弹
     poolFar: ['barrage', 'blink', 'quell', 'halo', 'clone'],
     p2Add: ['nova', 'dive'],
     contactDmg: 1, drop1: 'yao1', drop2: 'yao2' },
@@ -475,7 +512,8 @@ const BAL = {
      火柱（离圈且绕开已升起柱）/ 召唤回血（先清小怪）/ 震地波（跳）。参数逐字=spec §二。 */
   boss6: { hp: 630, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 56, h: 48, // =210×3（每段 210）
     windup: { leap: 0.55, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55, dive: 0.60,
-              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
+              bomb: 0.55 },
     p2WindMul: 0.85, idleT: [0.52, 0.36], walk: [22, 28],
     leap: { T: 0.95, vy: 690, clamp: 310 },   // p2Add 的 dive 复用 leap 抛物线
     dive: { ringV: 100 },
@@ -488,11 +526,17 @@ const BAL = {
     // 牛魔王血最厚（630），原 0.5%/s/只 ×2 = 6.3 hp/s —— 等于玩家全部输出，血条根本推不动。
     // 实测原值：一次召唤 6 秒回满 37.8 hp（段血 18%），要 19 刀才追回来。
     // 改 0.18%/s/只（2 只 2.27 hp/s，约玩家 1/3 输出）+ 单次上限 2.4%（15.1 hp ≈ 7 刀）。
-    summon: { type: 'lancer', n: 2, off: [-44, 44], leech: 0.18, leechCap: 2.4 },
+    summon: { type: 'lancer', n: 2, off: [-44, 44], leech: 0.18, leechCap: 2.4, cd: 18, hp: 4 },
+  // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
+  //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
+  //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
+
+    // v13 §二：弹跳炸弹（弹两下落点会变；记住了才躲得掉）
+    bomb: { n: 3, gap: 0.32, vy: -300, vx: 110, grav: 900, bounce: 2, damp: 0.55, fuse: 0.9, r: 30, dmg: 1 },
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, dive: 0.65,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 },
-    poolNear: ['charge', 'grab', 'pillar', 'summon', 'quake'],       // spec §二
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, bomb: 0.6 },
+    poolNear: ['charge', 'bomb', 'grab', 'pillar', 'summon', 'quake', 'leap'],       // v13.1：7 招；招牌=三连撞/火油弹/抓取/火柱
     poolFar: ['charge', 'quake', 'grab', 'pillar', 'summon'],
     p2Add: ['nova', 'dive'],
     contactDmg: 1, drop1: 'niu1', drop2: 'niu2' },
@@ -1025,6 +1069,7 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
     // v12：复活清新交互态——hazards 已被上面清空，若 coreOn 残留则 Boss 会「无核心但免伤」永久无敌
     B.coreOn = false; B.chargeN = 0; B.leechOn = 0; B.leechAcc = 0;
     B.quellDmg = 0; B.quellDur = 0; B.quellFlash = 0;
+    B.parryOn = false; B.breakT = 0;   // v13：架势/破防同 coreOn 口径复位（hazards 已清空，残留即永久反弹）
     if (B.state !== 'revive') { B.state = 'idle'; B.t = 0; } // 阶段切换演出不打断
   }
   for (const e of L.enemies) {
@@ -1315,9 +1360,14 @@ function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, 
        leechOn  召唤回血视觉强度 0..1（4/s 线性收敛）
        leechAcc 本次召唤已回的总血（leeCap 口径=单次累计上限%）
        quellDmg 蓄力期承伤累计（>= breakDmg 打断）／quellDur 蓄力剩余秒／quellFlash 全屏红闪计时
-       coreOn   核心护盾生效中（_engBossHurt 全免伤） */
+       coreOn   核心护盾生效中（_engBossHurt 全免伤）
+       ---- v13 新字段（spec §四/§五） ----
+       parryOn  反伤架势生效中（普攻反弹、大招破招）
+       breakT   破防窗口剩余秒（0=未破防；>0 时承伤 ×2.0） */
     chargeN: 0, leechOn: 0, leechAcc: 0,
-    quellDmg: 0, quellDur: 0, quellFlash: 0, coreOn: false
+    quellDmg: 0, quellDur: 0, quellFlash: 0, coreOn: false,
+    summonCd: 0,   // v13.1：召唤冷却剩余秒（>0 时 summon 不进选招池）,
+    parryOn: false, breakT: 0
   };
 }
 
@@ -1325,7 +1375,11 @@ function _engBossDur(name, phase) { // 内部：前摇表(秒)，P2 ×p2WindMul�
   const T = _engBossTable((game.boss && game.boss.kind) || 0);
   // v10 连段：第二招（comboN>=1）前摇再 -20%——连段要「快」，但前摇本身仍 ≥0.4s，读招窗口不消失。
   const comboMul = (game.boss && game.boss.comboN >= 1) ? 0.8 : 1;
-  return T.windup[name] * (phase === 2 ? T.p2WindMul : 1) * comboMul;
+  /* v13：缺键兜底链 本表 → 参考表(kind0/1) → 0.6。
+     v12 踩过「boss6 没配某招参数 → undefined.life 直接抛异常」，前摇同样不能返回 NaN。*/
+  const w = (T.windup && T.windup[name] !== undefined) ? T.windup[name]
+          : (BAL.boss.windup[name] !== undefined ? BAL.boss.windup[name] : 0.6);
+  return w * (phase === 2 ? T.p2WindMul : 1) * comboMul;
 }
 
 function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不用随机）；v7 §6.2：池全读表（R4）
@@ -1336,6 +1390,9 @@ function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不�
   if (b.phase === 2) pool = pool.concat(T.p2Add);
   const alive = game.level.enemies.filter(function (e) { return !(e.dead > 0); }).length;
   if (alive >= 2) pool = pool.filter(function (n) { return n !== 'summon'; });
+  /* v13.1：召唤是「技能」，不是常驻循环。冷却期内直接滚出池子——
+     否则队伍清得再快，下一轮轮转又把 summon 排上来，玩家会一直处于打小怪状态。 */
+  if ((b.summonCd || 0) > 0) pool = pool.filter(function (n) { return n !== 'summon'; });
   if (!pool.length) pool = ['barrage'];
   /* v10：轮转游标改为「在未过滤 lastPattern 的池上按位递增，撞到上一招就顺延一位」。
      旧写法先 filter 掉 lastPattern 再取模，池长每帧都在 4/5 之间跳，索引会漂——
@@ -1370,17 +1427,41 @@ function _engSegHp(b) { // 当前段内剩余（= UI 画填充用的 hp）
   return _engClamp(b.hpTotal - (2 - b.bandBreak) * b.bandMax, 0, b.bandMax);
 }
 
-function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
+function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
+  // v13 §四：isUlt=true 仅限大招（U 星陨 / O 连斩）——它决定能不能破 parry 架势。
   const b = game.boss;
   if (!b || b.state === 'dormant' || b.state === 'intro' || b.state === 'enrage'
         || b.state === 'dying' || b.state === 'dead' || b.state === 'revive'
-        || (b.state === 'blinkCast' && b.hidden)) return false; // v7 §6.3：blink 隐身期免伤；v7.9：revive 假死期免伤
+        || ((b.state === 'blinkCast' || b.state === 'mirrorCast') && b.hidden)) return false; // v7 §6.3：blink 隐身期免伤；v7.9：revive 假死期免伤；v13：mirror 隐身期免伤
   // v12 §一.7：核心护盾期本体全免伤——只闪白 + 金属音提示「打错目标了」，一滴血都不掉。
   if (b.coreOn) { b.flashT = 0.08; game.sfxQueue.push('clank'); return false; }
   const T = _engBossTable(b.kind || 0); // v7 §6：P2 线/掉落表读表
-  // v10 破绽期：stagger 期间「免伤关闭 + 受到伤害 ×1.5」——这是连段结束后玩家唯一的输出窗口，
-  // 倍率必须能感知到（2 伤 → 3，满装 5 伤 → 8）。四舍五入保整数，最小 1。
-  const real = b.state === 'stagger' ? Math.max(1, Math.round(dmg * 1.5)) : dmg;
+  /* ---- v13 §四：反伤架势（必须放在 coreOn 之后、正常扣血之前） ----
+     普通攻击打上去一滴血不掉、反伤 1 心给玩家（惩罚无脑连打）；
+     大招打上去是「破招」：解除架势 + 大破绽 + 2.4s 破防窗口，这一击照常结算伤害。 */
+  if (b.parryOn) {
+    const P = T.parry || BAL.boss5.parry;
+    if (!isUlt) {
+      // 架势保持到 dur 结束（退出只有一条路：parryCast 里 b.t >= dur），这里只做反弹
+      b.flashT = 0.08;
+      game.sfxQueue.push('clank');
+      _engHurtPlayer(b.x + b.w / 2, P.reflect || 1);      // 反弹 1 心（护盾/无敌帧照常生效）
+      _engFloat(b.x + b.w / 2, b.y - 6, '反弹', '#f8d048', 1);
+      _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 8, '#f8d048', 90, 180);
+      return false;
+    }
+    b.parryOn = false;
+    b.state = 'stagger'; b.staggerDur = (T.stagger || 1.5) * 1.6; b.t = 0;
+    b.breakT = P.breakT || 2.4;
+    b.comboQ = []; b.comboN = 0; b.vx = 0;
+    _engFloat(b.x + b.w / 2, b.y - 6, '破招!', '#f8d048', 1);
+    game.sfxQueue.push('bossbreak');
+    _engShake(8, 0);
+    _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 18, '#f8d048', 120, 240);
+  }
+  /* v10 破绽期 ×1.5；v13 §五 破防窗口 ×2.0（优先）。只改内部 real，不动 b.hp 派生值。 */
+  const mul = (b.breakT > 0) ? 2.0 : (b.state === 'stagger' ? 1.5 : 1);
+  const real = mul === 1 ? dmg : Math.max(1, Math.round(dmg * mul));
   // v12 §一.3：quell 蓄力期把真实伤害累进 quellDmg（打断判定用；打断结算在 quellCast 里做）
   if (b.state === 'quellCast') b.quellDmg = (b.quellDmg || 0) + real;
   b.lastDmg = real;                    // 供调用方显示真实伤害（浮字不再显示被放大的旧值）
@@ -1395,6 +1476,7 @@ function _engBossHurt(dmg) { // 内部：Boss 唯一承伤入口（攻击/星陨
       // 不清的话刚跨段那一秒会被上一阶段的存货当场打死，这是最典型的一类「交互有问题」。
       b.bandBreak = nb; b.bandFlashT = 1.0;
       b.state = 'revive'; b.t = 0; b.vx = 0; b.vy = 0; b.hidden = false;
+      b.parryOn = false;                    // v13：跨段清理反伤架势（revive 期不得继续反弹）
       b.comboQ = []; b.comboN = 0; b.staggerDur = 0; b.pullT = 0; // v10：跨段清连段状态（旧队列不得跨段继续）
       game.bullets = []; game.waves = [];
       game.hazards = []; // v10：跨段同样清场——刚跨段那一秒被上一阶段残留的陨石/地刺打死是最伤的挫败
@@ -1456,6 +1538,7 @@ function _engBossSummon(T) { // 内部：v7 §6.2 参数化召唤（type/n/off �
   for (let i = 0; i < S.n; i++) {
     const e = _engMkEnemy(S.type, b.x + b.w / 2 + S.off[i] - 8, b.y + b.h - 16, false);
     e.hp *= _engBossMinionHpMul; // v10：倍率已改 1（基础血 ×3 后不再叠加 Boss 关加成）；保留调用点作为未来挂点
+    if (S.hp) e.hp = S.hp;       // v13.1：表内覆盖召唤体血量（基础血 9 太肉，见 summon 表注释）
     e.vx = _engSign(S.off[i]) * Math.abs(e.vx || BAL.enemy[S.type].spd || 0) || _engSign(S.off[i]) * 28;
     e.summoned = true; // v11：召唤体不计入终点封印的战斗线（enemyTotal 是构造期快照，逻辑对齐）
     e.leech = true;    // v12 §一.2：存活且 leech 的召唤体按 T.summon.leech 给 Boss 回血（先清小怪才断奶）
@@ -1472,6 +1555,9 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
   b.flashT -= dt; b.t += dt;
   if (b.bandFlashT > 0) b.bandFlashT -= dt;   // v7.9：击破闪白倒计时（UI 读它做整条闪光，不自己计时）
   if (b.quellFlash > 0) b.quellFlash -= dt;   // v12：结界爆发的全屏红闪倒计时（UI 按 >0 叠色）
+  if (b.summonCd > 0) b.summonCd -= dt;       // v13.1：召唤冷却递减（任何状态都减）
+  // v13 §五：破防窗口每帧递减（任何状态都减，含 stagger/revive——窗口是玩法层计时，不是状态计时）
+  if (b.breakT > 0) b.breakT = Math.max(0, b.breakT - dt);
   /* ---- v12 §一.2：召唤物回血（每帧，UI 读 b.leechOn 做血条绿色流动） ----
      口径：n = 存活且 leech 的召唤体数；segCeil = (3-bandBreak)*bandMax —— 回血绝不跨段，
      否则「打掉两段后靠小怪奶回满」会让三段血的设计彻底失效。
@@ -1526,6 +1612,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'barrageFire'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'summon') { if (b.t >= _engBossDur('summon', b.phase)) {
         b.state = 'summonCast'; b.t = 0;
+        b.summonCd = (T.summon && T.summon.cd) || 16;   // v13.1：召唤进入冷却
         _engBossSummon(T); } } // v7 §6.2：召唤工厂化（kind1 slime×2 与内联构造等价，见 _engBossSummon 注）
     else if (b.next === 'nova') { if (b.t >= _engBossDur('nova', b.phase)) {
         b.state = 'novaCast'; b.t = 0; b.fireN = 0; } }
@@ -1565,6 +1652,17 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'pillarCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'core') { if (b.t >= _engBossDur('core', b.phase)) {
         b.state = 'coreCast'; b.t = 0; b.fireN = 0; } }
+    /* ---- v13 五种新交互类型：前摇结束进各自的 Cast 态（spec §三~§五） ---- */
+    else if (b.next === 'parry') { if (b.t >= _engBossDur('parry', b.phase)) {
+        b.state = 'parryCast'; b.t = 0; b.fireN = 0; b.parryOn = true; } }
+    else if (b.next === 'mirror') { if (b.t >= _engBossDur('mirror', b.phase)) {
+        b.state = 'mirrorCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'push') { if (b.t >= _engBossDur('push', b.phase)) {
+        b.state = 'pushCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'bomb') { if (b.t >= _engBossDur('bomb', b.phase)) {
+        b.state = 'bombCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'mist') { if (b.t >= _engBossDur('mist', b.phase)) {
+        b.state = 'mistCast'; b.t = 0; b.fireN = 0; } }
     break;
 
   case 'leapAir': {
@@ -1835,6 +1933,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
       b.quellDmg = 0; b.quellDur = 0;
       _engClearHazards('ward');
       b.state = 'stagger'; b.t = 0; b.staggerDur = 1.2;
+      b.breakT = Math.max(b.breakT || 0, 2.0);          // v13 §五：打断=破招，统一开 2.0s 破防窗口
       b.comboQ = []; b.comboN = 0;
       _engFloat(bcx, b.y - 6, '打断!', '#f8d048', 1);
       game.sfxQueue.push('clank'); _engShake(8, 0);
@@ -1926,7 +2025,101 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     }
     break; }
 
-  case 'recover':  b.vx = 0;
+  /* ==================== v13：五种新交互类型的 Cast 态（spec §三~§五） ====================
+     设计口径与 v12 同构：每一招要求**不同的正确动作**——收手 1.8s 或大招破招（parry）/
+     看清再打（mirror）/ 朝 Boss 方向持续跑（push）/ 记住弹两下（bomb）/ 立刻换位置（mist）。
+     全部参数 `T.xxx || BAL.<参考表>.xxx` 兜底：v12 踩过「boss6 缺参数对象 → undefined.life 抛异常」。
+     伤害一律走 _engHurtPlayer（护盾/无敌帧有效）。 */
+  case 'parryCast': { // ⑧ 反伤架势（boss5）：dur 秒内普攻被反弹、大招可破招（判定在 _engBossHurt）
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const PA = T.parry || BAL.boss5.parry;
+    if (!b.parryOn) { b.state = 'recover'; b.t = 0; break; }  // 被大招破招（state 已在 _engBossHurt 切成 stagger）
+    if (b.t >= (PA.dur || 1.8)) { b.parryOn = false; b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'mirrorCast': { // ⑨ 真假身（boss3）：本体混进幻影列并隐身免伤，打错爆炸 / 打真身转大破绽
+    b.vx = 0;
+    const MI = T.mirror || BAL.boss3.mirror;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXm = L.w * _engTile, slots = [];
+      for (let i = 0; i < MI.n; i++) {          // n 具幻影等距排开（±swapOff），贴边按场地夹住
+        const off = (i - (MI.n - 1) / 2) * (MI.swapOff || 96);
+        slots.push(_engClamp(bcx + off - b.w / 2, 8, WXm - b.w - 8));
+      }
+      const realIdx = (Math.random() * MI.n) | 0;   // 真身随机挑一具：必须「看清再打」
+      for (let i = 0; i < MI.n; i++) {
+        game.hazards.push({ kind: 'mirror', x: slots[i], y: b.y, w: b.w, h: b.h,
+          t: 0, life: MI.life || 5.0, hp: MI.hp || 1, flashT: 0, real: i === realIdx });
+      }
+      b.x = slots[realIdx];                     // 本体挪到真身那一具的位置（打真身时 b.x 天然就是它）
+      /* v13.1 实机改判：**真身不隐身**。
+         原来 hidden=true，三具幻影长得一模一样、真身完全不可见 → 玩家只有 1/3 运气，
+         这不是「看清再打」，是抽奖。现在真身照常画（完整五官），幻影是纯剪影 + 紫眼，
+         唯一线索是「眼睛颜色」——要看得见才谈得上辨。 */
+      b.hidden = false;
+      game.sfxQueue.push('blink'); _engShake(4, 0);
+      _engFx(bcx, b.y + b.h / 2, { ring: 1, r: 6, r1: 52, life: 0.4, color: '#b060f0' });
+    }
+    let mirrorAlive = 0;
+    for (const e of (game.hazards || [])) if (e.kind === 'mirror') mirrorAlive++;
+    if (mirrorAlive === 0) { b.hidden = false; b.state = 'recover'; b.t = 0; break; } // 外部清场兜底
+    if (b.t >= (MI.life || 5.0)) {              // 超时保底：绝不能让 Boss 永久隐身
+      _engClearHazards('mirror'); b.hidden = false; b.state = 'recover'; b.t = 0;
+    }
+    break; }
+
+  case 'pushCast': { // ⑩ 推进墙（boss4）：从玩家背向 Boss 的一侧进场，只能朝 Boss 方向持续跑
+    b.vx = 0;
+    const PU = T.push || BAL.boss4.push;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXp = L.w * _engTile;
+      const dirP = pcx < bcx ? 1 : -1;          // 玩家在 Boss 左边 → 墙从左侧推向右（朝 Boss）
+      const gyP = _engGroundY(bcx, b.y + b.h - 2);
+      game.hazards.push({ kind: 'pushwall',
+        x: dirP > 0 ? -32 - PU.w : WXp + 32,    // 场地该侧边缘外侧 32px（整面墙在镜头外起跑）
+        y: gyP - PU.h, w: PU.w, h: PU.h, v: PU.v, dir: dirP,
+        warnT: PU.warn || 0.9, dmg: PU.dmg || 1, hitT: 0 });
+      game.sfxQueue.push('roar'); _engShake(4, 0);
+      _engFx(bcx, b.y + b.h / 2, { ring: 1, r: 6, r1: 44, life: 0.4, color: '#f86020' });
+    }
+    if (b.t >= 0.35) { b.state = 'recover'; b.t = 0; }   // 墙独立推进，Boss 不陪着站桩
+    break; }
+
+  case 'bombCast': { // ⑪ 弹跳炸弹（boss6）：每 gap 秒从 Boss 中心偏上抛一颗，左右交替
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const BM = T.bomb || BAL.boss6.bomb;
+    const wantB = Math.floor(b.t / BM.gap);
+    while (b.fireN < wantB && b.fireN < BM.n) {
+      const dirB = (b.fireN % 2 === 0) ? 1 : -1;
+      game.hazards.push({ kind: 'bomb', x: bcx, y: b.y + 8,
+        vx: dirB * BM.vx, vy: BM.vy, grav: BM.grav, bounceN: BM.bounce, damp: BM.damp,
+        r: BM.r, t: 0, fuse: BM.fuse, dmg: BM.dmg || 1, armed: false });
+      game.sfxQueue.push('shot'); b.fireN++;
+    }
+    if (b.fireN >= BM.n && b.t >= BM.n * BM.gap + 0.35) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'mistCast': { // ⑫ 水雾区（boss2）：一次在玩家两侧 + 脚下各起一团雾（不挡移动不挡攻击）
+    b.vx = 0;
+    const MS = T.mist || BAL.boss2.mist;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXs = L.w * _engTile;
+      for (let i = 0; i < MS.n; i++) {
+        const offM = (MS.off && MS.off[i] !== undefined) ? MS.off[i] : (i - (MS.n - 1) / 2) * 80;
+        const mx = _engClamp(pcx + offM, 8, WXs - 8);
+        // y = 地面上沿（h 向上长）——落地立即生效，不用等雾「长起来」
+        game.hazards.push({ kind: 'mist', x: mx - MS.w / 2, y: _engGroundY(mx, p.y),
+          w: MS.w, h: MS.h, t: 0, life: MS.life || 4.0, tickT: 0, dmg: MS.dmg || 1 });
+      }
+      game.sfxQueue.push('blink'); _engShake(3, 0);
+    }
+    if (b.t >= 0.4) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'recover':  b.vx = 0; b.parryOn = false;   // v13：离开任何状态的统一兜底（parry 只活在 parryCast）
     // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
     if (b.t >= (T.recover[b.next] || 0.5)) {
       /* v10 连段 / 破绽：
@@ -1976,7 +2169,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
 
   /* 接触伤害（除休眠/演出/死亡态/blink 隐身期）：吃玩家无敌帧（工单 C 伪代码口径；v7 §6.3 追加隐身跳过） */
   if (b.state !== 'dormant' && b.state !== 'intro' && b.state !== 'dying' && b.state !== 'dead'
-      && b.state !== 'revive' && !(b.state === 'blinkCast' && b.hidden)
+      && b.state !== 'revive' && !(b.hidden && (b.state === 'blinkCast' || b.state === 'mirrorCast')) // v13：mirror 隐身期同样免接触
       && !p.dead && _engAabb(b, p)) _engHurtPlayer(bcx, T.contactDmg || 1);
 }
 
@@ -2024,11 +2217,56 @@ function _engCoreBreakCheck() { // 内部（v12）：核心全破 → 破盾转 
   if (!b || !b.coreOn) return false;
   for (const e of (game.hazards || [])) if (e.kind === 'core') return false;
   b.coreOn = false; b.state = 'stagger'; b.t = 0; b.staggerDur = 2.0;
+  b.breakT = Math.max(b.breakT || 0, 2.0);   // v13 §五：破盾=破招，统一开 2.0s 破防窗口
   b.comboQ = []; b.comboN = 0;
   _engFloat(b.x + b.w / 2, b.y - 6, '破盾!', '#f8d048', 1);
   _engFx(b.x + b.w / 2, b.y + b.h / 2, { ring: 1, r: 8, r1: 68, life: 0.5, color: '#8ad8f8' });
   game.shake = 10; game.sfxQueue.push('clank');
   return true;
+}
+
+/* ==================== v13：真假身判定（内部） ====================
+   mirror 是唯一「可被玩家打掉、又决定 Boss 是否免伤」的 hazard：三处受击入口
+   （_engResolveAttack 普攻 / 星陨 U / 连斩 O）只负责 `e.hp -= 1`，结算统一由
+   _engMirrorSettle 在 _engUpdateHazards 的收尸处做，避免判定分叉 / 同一具幻影被结算两次。
+   兜底双保险：单体 e.t >= e.life 自删；Boss 侧 mirrorCast 再按整组存活数 + 总时长收势——
+   任何一条路径断了都会让 b.hidden 卡住 → Boss 永久隐身免伤。 */
+function _engMirrorPick(px) { // 内部（v13）：离 px 最近的一具真假身（大招瞄准用）
+  let tgt = null, bd = 1e9;
+  for (const e of (game.hazards || [])) if (e.kind === 'mirror') {
+    const d = Math.abs(e.x + e.w / 2 - px);
+    if (d < bd) { bd = d; tgt = e; }
+  }
+  return tgt;
+}
+
+function _engMirrorSettle(e) { // 内部（v13）：真假身**唯一结算点** —— 真身转大破绽，假身爆炸 1 心
+  // 只在 _engUpdateHazards 的收尸处调用（与 v12 的 _engCoreBreakCheck 同口径）：
+  // 三条受击路径（普攻/星陨/连斩）只负责 `e.hp -= 1`，结算统一在这里做，
+  // 否则同一具幻影会被扣两次血、或者在攻击判定里结算后又被 hazard 循环结算一次。
+  const b = game.boss;
+  const T = b ? _engBossTable(b.kind || 0) : BAL.boss3;
+  const M = T.mirror || BAL.boss3.mirror;
+  if (e.real) {
+    _engClearHazards('mirror');            // 真身已找出，残影一起散（不留「假目标」继续骗人）
+    if (b) {
+      b.hidden = false;                    // 解除隐身免伤（唯一的解除点之一，另一处是超时）
+      b.x = e.x;                           // 本体落回真身那一具的位置（spec §三：b.x 保持该幻影位置）
+      b.state = 'stagger'; b.t = 0;
+      b.staggerDur = (T.stagger || 1.5) * 1.5;
+      b.comboQ = []; b.comboN = 0; b.vx = 0; b.vy = 0; b.parryOn = false;
+      _engFloat(b.x + b.w / 2, b.y - 6, '真身!', '#f8d048', 1);
+    }
+    game.shake = 8; game.sfxQueue.push('bossbreak');
+    _engAddParts(e.x + e.w / 2, e.y + e.h / 2, 20, '#b060f0', 130, 240);
+    _engFx(e.x + e.w / 2, e.y + e.h / 2, { ring: 1, r: 6, r1: 54, life: 0.45, color: '#b060f0' });
+  } else {
+    _engHurtPlayer(e.x + e.w / 2, M.popDmg || 1);   // 打错目标 → 爆炸 1 心（护盾/无敌帧照常生效）
+    game.shake = 6; game.sfxQueue.push('boom');
+    _engFloat(e.x + e.w / 2, e.y - 6, '假的!', '#f85030', 1);
+    _engAddParts(e.x + e.w / 2, e.y + e.h / 2, 16, '#b060f0', 120, 240);
+    _engFx(e.x + e.w / 2, e.y + e.h / 2, { ring: 1, r: 4, r1: 36, life: 0.35, color: '#b060f0' });
+  }
 }
 
 /* ==================== v10：Boss 场地危险物（game.hazards） ====================
@@ -2045,6 +2283,7 @@ function _engUpdateHazards(dt) {
   const hz = game.hazards || (game.hazards = []);
   let pullOn = false; // 本帧是否有生效中的力场（决定 p.pullV 是继续充能还是衰减）
   let coreDied = false;                               // v12：本帧有核心碎了 → 循环后统一查破盾
+  let mirrorDead = null;                              // v13：本帧被击破的幻影 → 循环后统一结算（唯一结算点）
   for (let i = hz.length - 1; i >= 0; i--) {
     const e = hz[i];
     let dead = false;
@@ -2179,11 +2418,91 @@ function _engUpdateHazards(dt) {
         game.sfxQueue.push('kill');
       }
       // 超时由 coreCast 统一处理（单一真值，避免 hazard 自删后 Boss 仍 coreOn → 永久无敌）
+    /* ---- v13 四种新 hazard（spec §三）----
+       受击判定：mirror 在 _engResolveAttack / 星陨 / 连斩三处（与 core 同一入口）；
+       pushwall / bomb / mist 是纯危险物，不可被打掉，各自带自删条件（绝不留残留）。 */
+    } else if (e.kind === 'mirror') { // 真假身：可打，打错爆炸、打真身转大破绽（结算见 _engMirrorSettle）
+      e.t += dt;
+      if (e.flashT > 0) e.flashT -= dt;
+      e.fxT = (e.fxT || 0) - dt;
+      if (e.fxT <= 0) { e.fxT = 0.16;
+        _engFx(e.x + e.w / 2 + (Math.random() * 2 - 1) * e.w * 0.4, e.y + e.h * 0.4,
+          { vy: -30, life: 0.3, color: '#b060f0', size: 1 }); }
+      // v13 兜底：任何路径把 hp 扣到 ≤0（普攻/星陨/连斩/自检直接改字段）都在这里统一收尸，
+      // 与 v12 core 完全同口径——散在三处结算会出现「0 血幻影还挂在场上」→ Boss 永久隐身。
+      if (e.hp <= 0) { dead = true; (mirrorDead || (mirrorDead = [])).push(e); }
+      else if (e.t >= e.life) dead = true;   // 单体超时（Boss 侧还有整组超时兜底）
+    } else if (e.kind === 'pushwall') { // 推进墙：预警期不动不伤 → 匀速推 → 越过场地另一端自删
+      if (e.warnT > 0) {
+        e.warnT -= dt;
+        if (e.warnT <= 0) { e.warnT = 0; game.sfxQueue.push('roar'); _engShake(4, 0); }
+      } else {
+        if (e.hitT > 0) e.hitT -= dt;
+        e.x += e.dir * e.v * dt;
+        const WXh = L.w * _engTile;
+        if ((e.dir > 0 && e.x > WXh) || (e.dir < 0 && e.x + e.w < 0)) dead = true;
+        else if (!p.dead && _engAabb(e, p) && e.hitT <= 0) {
+          e.hitT = 0.8;                                    // 防连帧：一面墙最多每 0.8s 撞一次
+          _engHurtPlayer(e.x + e.w / 2, e.dmg || 1);
+          // spec §三：命中后无条件朝推进方向甩出去（护盾挡下也照样被墙顶着走，否则会被墙反复碾）
+          p.vx = e.dir * 220; p.vy = -180;
+          p.onGround = false; p.standOn = null; p.jbuf = 0; p.coyote = 0;
+          game.sfxQueue.push('bosshit'); _engShake(5, 0);
+          _engFloat(p.x + 5, p.y - 6, '推!', '#f86020', 0);
+        }
+      }
+    } else if (e.kind === 'bomb') { // 弹跳炸弹：弹 bounceN 次落点才定，armed 后 fuse 秒自爆
+      if (!e.armed) {
+        e.vy += (e.grav || 900) * dt;
+        e.x += e.vx * dt; e.y += e.vy * dt;
+        const tyb = Math.floor((e.y + e.r) / _engTile), txb = Math.floor(e.x / _engTile);
+        const land = e.vy > 0 && L.solid(txb, tyb, game.switchState);
+        if (land) {
+          e.y = tyb * _engTile - e.r;
+          if ((e.bounceN || 0) > 0) {                      // 还有弹跳次数 → 落点会变（本招的记忆点）
+            e.bounceN--; e.vy = -e.vy * (e.damp || 0.55);
+            _engAddParts(e.x, e.y + e.r, 8, '#c8c8d8', 70, 160);
+            game.sfxQueue.push('shot');
+          } else { e.vy = 0; e.vx = 0; e.armed = true; e.t = 0; game.sfxQueue.push('blink'); }
+        } else if (!p.dead && _engCircleRect(e.x, e.y, e.r, p)) { // 空中直接砸到玩家 → 也爆
+          dead = true;
+          _engHurtPlayer(e.x, e.dmg || 1);
+          game.shake = 7; game.sfxQueue.push('boom');
+          _engAddParts(e.x, e.y, 14, '#f86020', 120, 240);
+          _engFx(e.x, e.y, { ring: 1, r: 4, r1: 30, life: 0.35, color: '#f8b040' });
+        } else if (e.y > L.h * _engTile + 30) dead = true;   // 掉进深坑：自删，不留残留
+      } else {
+        e.t += dt;
+        if (e.t >= (e.fuse || 0.9)) {                        // 引爆（自爆兜底：绝不永久留在场上）
+          dead = true;
+          if (!p.dead && Math.abs((p.x + p.w / 2) - e.x) < e.r
+              && Math.abs((p.y + p.h / 2) - e.y) < e.r) _engHurtPlayer(e.x, e.dmg || 1);
+          game.shake = 7; game.sfxQueue.push('boom');
+          _engAddParts(e.x, e.y, 18, '#f86020', 130, 250);
+          _engFx(e.x, e.y, { ring: 1, r: 4, r1: e.r, life: 0.4, color: '#f8b040' });
+        }
+      }
+    } else if (e.kind === 'mist') { // 水雾区：纯持续伤害区，不挡移动不挡攻击（跑出去即脱身）
+      e.t += dt;
+      if (e.tickT > 0) e.tickT -= dt;
+      if (e.t >= e.life) dead = true;
+      else {
+        if (e.tickT <= 0 && !p.dead && _engAabb({ x: e.x, y: e.y - e.h, w: e.w, h: e.h }, p)) {
+          _engHurtPlayer(e.x + e.w / 2, e.dmg || 1);
+          e.tickT = e.tick || 0.5;
+        }
+        e.fxT = (e.fxT || 0) - dt;
+        if (e.fxT <= 0) { e.fxT = 0.20;
+          _engFx(e.x + 4 + Math.random() * (e.w - 8), e.y - 6,
+            { vy: -46, life: 0.55, color: '#48d8e8', size: 1 }); }
+      }
     }
     if (dead) hz.splice(i, 1);
   }
   // v12：核心在本帧碎掉 → 立刻查破盾（Boss 免伤必须在同一帧解除，不能让玩家多打一帧空气）
   if (coreDied) _engCoreBreakCheck();
+  // v13：幻影在本帧被击破 → 统一结算（真身显形/假身爆炸都只在这里发生，攻击路径只扣 hp）
+  if (mirrorDead) for (const e of mirrorDead) _engMirrorSettle(e);
   // 力场结束：吸附速度 8/s 衰减归零（不会一直把玩家拖着走）；力场生效中则保持充能
   if (!pullOn && p.pullV) {
     p.pullV *= Math.max(0, 1 - 8 * dt);
@@ -2200,6 +2519,12 @@ function _engSkillTargetX(p) { // 内部：星陨目标 x——Boss 中心 / 200
       if (d0 < cd) { cd = d0; coreX = e.x + e.w / 2; }
     }
     if (coreX !== null) return coreX;
+  }
+  // v13：真假身期间本体是隐身的（b.hidden），按 Boss 中心落点等于「瞄准空处」——既露馅又难看。
+  // 改锁最近的一具幻影（真假未知，打错照样爆炸，猜谜玩法不被大招白送答案）。
+  if (game.boss && game.boss.state === 'mirrorCast') {
+    const mu = _engMirrorPick(p.x + p.w / 2);
+    if (mu) return mu.x + mu.w / 2;
   }
   if (game.boss && game.boss.state !== 'dormant' && game.boss.state !== 'dead'
       && game.boss.state !== 'dying') return game.boss.x + game.boss.w / 2;
@@ -2699,8 +3024,17 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   for (let i = hzArr.length - 1; i >= 0; i--) {
     const hz2 = hzArr[i];
     // hitSeq：与敌人同口径「一摆一伤」——判定框存活 0.12s（7 帧），不记名会被同一刀连扣 7 次
-    if ((hz2.kind !== 'clone' && hz2.kind !== 'core') || hz2.hitSeq === p.atkSeq || !_engAabb(box, hz2)) continue;
+    if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror')
+        || hz2.hitSeq === p.atkSeq || !_engAabb(box, hz2)) continue;
     hz2.hitSeq = p.atkSeq;
+    if (hz2.kind === 'mirror') {                     // v13：真假身只扣 hp，结算统一在 _engUpdateHazards 收尸处
+      hz2.hp -= 1; hz2.flashT = 0.15;
+      _engFloat(hz2.x + hz2.w / 2, hz2.y - 4, '1', '#b060f0', 0);
+      _engAddStars(hz2.x + hz2.w / 2, hz2.y + hz2.h / 2, 4, '#b060f0');
+      _engAddCombo();
+      game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+      continue;
+    }
     if (hz2.kind === 'core') {                       // v12：核心不吃 ATK，固定 1（3 下破一颗）
       _engFloat(hz2.x + hz2.w / 2, hz2.y - 4, '1', '#8ad8f8', 0);
       _engCoreHit(hzArr, hz2, 1);
@@ -3079,8 +3413,15 @@ function updateWorld(dt) {
           _engFloat(tgtO.x + tgtO.w / 2, tgtO.y - 4, '1', '#8ad8f8', 1);
           _engCoreHit(hzO, tgtO, 1); _engCoreBreakCheck();
         }
-      } else if (game.boss && _engBossHurt(BAL.skills.o.dmg))
-        _engFloat(game.boss.x + 26, game.boss.y - 4, '' + game.boss.lastDmg, '#48d8e8', 1); // Boss 承伤 5 青（v10：破绽期按真实值）
+      } else {
+        /* v13：真假身期间连斩打最近的一具幻影——只扣 hp，显形/爆炸由 hazard 收尸处统一结算 */
+        const muO = game.boss ? _engMirrorPick(p.x + p.w / 2) : null;
+        if (muO) {
+          muO.hp -= 1; muO.flashT = 0.15;
+          _engFloat(muO.x + muO.w / 2, muO.y - 4, '1', '#b060f0', 1);
+        } else if (game.boss && _engBossHurt(BAL.skills.o.dmg, true))   // v13：O 连斩 = 大招，可破 parry
+          _engFloat(game.boss.x + 26, game.boss.y - 4, '' + game.boss.lastDmg, '#48d8e8', 1); // Boss 承伤 5 青（v10：破绽期按真实值）
+      }
       for (const e of L.enemies) if (!(e.dead > 0) && _engOnScreen(e)) { // 屏内普通敌全灭+击飞
         _engKillEnemy(e);
         e.dvx = (_engSign(e.x - p.x) || p.face) * 150; e.dvy = -170;
@@ -3610,8 +3951,19 @@ function updateWorld(dt) {
         _engCoreHit(hzU, cu, 1); boom = true; break;
       }
       if (boom && game.boss) _engCoreBreakCheck();
+    } else if (!boom) {
+      /* v13：真假身 —— 星陨砸到的是一具「看得见」的幻影（真身/假身都可能），这里只扣 hp，
+         显形/爆炸统一由 _engUpdateHazards 的收尸处结算（唯一结算点） */
+      const hzM = game.hazards || (game.hazards = []);
+      for (let k = 0; k < hzM.length; k++) {
+        const mu = hzM[k];
+        if (mu.kind !== 'mirror' || !_engAabb(m, mu)) continue;
+        mu.hp -= 1; mu.flashT = 0.15;
+        _engFloat(mu.x + mu.w / 2, mu.y - 4, '1', '#b060f0', 0);
+        boom = true; break;
+      }
     }
-    if (!boom && game.boss && _engAabb(m, game.boss)) { _engBossHurt(BAL.skills.u.bossDmg); _engAddCombo(); boom = true; // v5：Boss 伤 1→2
+    if (!boom && game.boss && _engAabb(m, game.boss)) { _engBossHurt(BAL.skills.u.bossDmg, true); _engAddCombo(); boom = true; // v5：Boss 伤 1→2；v13：星陨=大招，可破 parry
       _engFloat(game.boss.x + game.boss.w / 2, game.boss.y - 4, '' + game.boss.lastDmg, '#48d8e8', 0); } // v10：破绽期按真实值
     if (!boom) for (const e of L.enemies)
       if (!(e.dead > 0) && _engAabb(m, e)) { _engKillEnemy(e); boom = true; break; }
@@ -3702,6 +4054,10 @@ function updateWorld(dt) {
       if (e.hp <= 0) { _engKillEnemy(e); e.dvx = bl.dir * 130; e.dvy = -150;
         _engFloat(e.x + 6, e.y - 6, 'KO', '#f8d048', 0); game.sfxQueue.push('kill'); } }
     // ② Boss：一程一伤，固定 2，走 _engBossHurt（免伤态自动 false 不计数）
+    // v13：按集成队口径传 isUlt=true（技能刀光视同大招，可破 parry 架势）
+    /* v13 裁决：星刃（L）**不能**破 parry——它是 CD 6s 的常规远程技能、不消耗 ultCharge，
+       能破的话玩家站在安全距离按一下 L 就白拿 2.4s 破防，架势这招直接作废。
+       破招只认消耗充能的大招（O 起手 / U 星陨）。 */
     if (game.boss && !bl.hits['boss' + bl.phase] && _engAabb(bl, game.boss) && _engBossHurt(dmg)) {
       bl.hits['boss' + bl.phase] = 1;
       _engFloat(game.boss.x + 26, game.boss.y - 4, '' + game.boss.lastDmg, '#48d8e8', 0); game.sfxQueue.push('hit'); } // v10：破绽期按真实值

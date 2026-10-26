@@ -94,6 +94,12 @@
  *      只换体建器 _buildBullDemonBody 与调色板 _P_NIU/_P_NIU_RAGE），白剪影 boss6White={body,arm,jaw}
  *      照 boss4White 同法生成；eye/jaw/core 覆盖区按 ui 冻结偏移留暗框，写在体建器函数头上。
  *   J. HERO_SKINS 追加第 20 项 'inferno'（= L19 掉落，表第 idx+1 项规则不变）。
+ * —— v13 危险物素材（spec 2026-10-26-v13-boss2 §七，三新键、既有键零改动）——
+ *   K. SPR.bomb 16×16：铁球（主体 #3a3f4a / 暗部 #22262e / 高光 #6a7280）+ 顶部 3px 引信 #8a5a2a
+ *      + 引信尖亮红（球体左上受光/右下背光，两枚铆钉，一眼读成「会炸的球」而不是石头）；
+ *      SPR.mirror 24×32：兜帽斗篷人形剪影，全图只用 #b070f0 一个色（无内部细节，UI 自染色/叠 alpha）；
+ *      SPR.pushwall 24×64：熔岩裂纹砖墙（上沿 3px 尖齿朝上、#6a2418 底 + #c04020 裂纹网 +
+ *      #f88040 发光缝、下沿压暗）。三者生成后 Object.freeze（v13 冻结约束，防 UI 侧误改字段）。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -2670,6 +2676,98 @@ function _bossGhostSprite() { // 内部：分身剪影 → canvas（52×48，ui 
   return _makeSprite(_bossGhostGrid(), _P_BOSSGHOST);
 }
 
+/* ==================== v13 危险物素材（bomb / mirror / pushwall） ====================
+ * spec 2026-10-26-v13-boss2 §七。三件都是「中性道具」：
+ *   · bomb 用铁灰三阶 + 棕引信 + 亮红火星——比石头多一根引信和火星，形状上靠「正圆 + 顶部长尾」区分；
+ *   · mirror 是单色剪影（只 #b070f0 一个色）：UI 会自己染色 + 叠 55% 透明 + 紫色描边抖动，
+ *     图里任何内部细节都会在染色后变成脏噪点，所以只保留「尖兜帽 → 收颈 → 宽肩 → 外扩斗篷 → 破下摆」的轮廓；
+ *   · pushwall 24×64 竖条：上沿 3px 尖齿（尖角朝上）+ 砖缝 + 沿竖直方向走的裂纹网 + 发光缝，
+ *     下沿压暗一档——墙贴地时底部要「沉」下去，否则会像悬空的橙条。
+ * 三件均在 buildSprites 里 Object.freeze：v13 冻结约束，防 UI 侧误加字段/换引用（与皮肤帧同口径）。 */
+const _P_BOMB = { // 内部：炸弹调色板（d 描边兼暗部 / m 主体 / l 高光 / f 引信 / r 火星）
+  d: '#22262e', m: '#3a3f4a', l: '#6a7280', f: '#8a5a2a', r: '#ff4030'
+};
+const _BOMB = [ // 16×16：球体 x2..13 / y5..15（正圆），引信自球顶向右上 3px 长（2px 粗，1px 会在 16px 尺度看不见），尖端亮红
+  '............r...', // 0  火星
+  '...........rr...', // 1
+  '..........ff....', // 2  引信
+  '.........ff.....', // 3
+  '........ff......', // 4
+  '.......dd.......', // 5  球顶
+  '.....ddlmdd.....', // 6
+  '....dllmmmdd....', // 7
+  '...dlmmmmmmdd...', // 8
+  '...dlmmmmmmdd...', // 9
+  '..dlmmmmmmmmdd..', // 10
+  '..dlmmmmmmmmdd..', // 11
+  '...dlmdmmmddd...', // 12  两枚铆钉（x6/x10）压在右下暗部里，兼作「铁球」材质暗示
+  '...dlmmmmmmdd...', // 13
+  '....dlmmdddd....', // 14
+  '.....dddddd.....'  // 15
+];
+const _P_MIRROR = { M: '#b070f0' }; // 内部：幻影剪影（单色——UI 染色，内部不加任何色阶）
+function _mirrorGrid() { // 内部：24×32 兜帽斗篷剪影（行半宽表；纯色块，挖破下摆）
+  const W = 24, H = 32, CX = 11.5;
+  const HW = [1, 2, 3, 4, 5, 6, 6, 6, 6, 5, 4, 4, 7, 7, 7, 6, 6, 7, 8, 8, 9, 9, 9, 9, 10, 10, 10, 10, 10, 10, 10, 10]; // y0 帽尖 → y9 帽口 → y10-11 收颈 → y12 宽肩 → y24 起斗篷最宽
+  const G = [];
+  for (let y = 0; y < H; y++) {
+    const row = new Array(W).fill('.');
+    const h = HW[y], x0 = Math.ceil(CX - h), x1 = Math.floor(CX + h);
+    for (let x = x0; x <= x1; x++) row[x] = 'M';
+    G.push(row);
+  }
+  [4, 9, 14, 19].forEach(function (x) { G[H - 1][x] = '.'; }); // 下摆锯齿（对称四点，剪影左右镜像不错位）
+  [7, 16].forEach(function (x) { G[H - 2][x] = '.'; G[H - 3][x] = '.'; }); // 两道深 2px 的破口：读成布条
+  return G.map(function (r) { return r.join(''); });
+}
+const _P_PUSHWALL = { // 内部：熔岩砖墙（B 底 / C 裂纹 / G 发光缝 / D 砖缝 / K 下沿压暗）
+  B: '#6a2418', C: '#c04020', G: '#f88040', D: '#3e140e', K: '#4a1710'
+};
+function _pushwallGrid() { // 内部：24×64 熔岩裂纹砖墙（尖齿 y0-2 / 砖缝 4 道 / 裂纹网 2 主脉 + 7 分叉 / 下沿压暗）
+  const W = 24, H = 64, G = [];
+  const put = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  const line = function (x0, y0, x1, y1, ch) { // Bresenham：裂纹必须 1px 连成线，虚线会读成噪点
+    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy, x = x0, y = y0;
+    for (let n = 0; n < 400; n++) {
+      put(x, y, ch);
+      if (x === x1 && y === y1) break;
+      const e2 = err * 2;
+      if (e2 > -dy) { err -= dy; x += sx; }
+      if (e2 < dx) { err += dx; y += sy; }
+    }
+  };
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  for (let y = 2; y < H; y++) for (let x = 0; x < W; x++) G[y][x] = 'B'; // 主体（齿底行 y2 起）
+  // ① 上沿 3px 尖齿：周期 6，尖 1px（y0 高光）/ 腰 3px（y1 热色）/ 底 1 行（y2 已铺底）
+  [2, 8, 14, 20].forEach(function (cx) {
+    put(cx, 0, 'G');
+    put(cx - 1, 1, 'C'); put(cx, 1, 'C'); put(cx + 1, 1, 'C');
+  });
+  // ② 砖缝：4 道横缝 + 竖向错缝（错缝=砌体感；竖缝不到顶，避免把墙切成 4 块独立竖条）
+  [16, 29, 42, 55].forEach(function (y) { for (let x = 0; x < W; x++) G[y][x] = 'D'; });
+  [[4, 15, 7], [17, 28, 16], [30, 41, 7], [43, 54, 16], [56, 63, 7]].forEach(function (seg) {
+    for (let y = seg[0]; y <= seg[1]; y++) G[y][seg[2]] = 'D';
+  });
+  // ③ 裂纹网：两条纵贯主脉（左右交替横摆，避免两条平行竖线读成木纹）+ 七条分叉
+  const C1 = [[7, 4], [6, 9], [8, 14], [5, 20], [7, 26], [6, 33], [9, 39], [7, 46], [8, 53], [6, 60]];
+  const C2 = [[17, 5], [19, 10], [16, 16], [18, 23], [15, 29], [17, 36], [20, 43], [17, 50], [18, 57]];
+  const BR = [[[8, 14], [13, 18]], [[13, 18], [14, 22]], [[6, 33], [2, 37]], [[2, 37], [3, 42]],
+    [[17, 36], [21, 33]], [[9, 39], [12, 44]], [[15, 29], [12, 26]]];
+  const vein = function (path) { for (let i = 0; i + 1 < path.length; i++) line(path[i][0], path[i][1], path[i + 1][0], path[i + 1][1], 'C'); };
+  vein(C1); vein(C2); BR.forEach(vein);
+  // ④ 发光缝：只在裂纹上点状提亮（连成一条会读成橙色带，就不像「缝里的熔岩」了）
+  [[7, 6], [8, 16], [6, 24], [9, 37], [7, 44], [8, 51], [6, 58], [18, 8], [16, 18], [18, 25], [17, 34], [20, 41], [18, 48], [18, 55],
+    [12, 19], [13, 21], [3, 39], [11, 42], [13, 27]].forEach(function (p) { put(p[0], p[1], 'G'); });
+  // ⑤ 下沿压暗：最后 8 行换 K，第 55 行棋盘过渡（硬切会在砖缝上留下一条亮边）
+  for (let y = 56; y < H; y++) for (let x = 0; x < W; x++) if (G[y][x] === 'B') G[y][x] = 'K';
+  for (let x = 0; x < W; x++) if (((x + 55) & 1) === 0 && G[55][x] === 'B') G[55][x] = 'K';
+  return G.map(function (r) { return r.join(''); });
+}
+function _frozenSpr(spr) { // 内部：v13 冻结（精灵画布本身冻结；内容不可变、引用不可换）
+  return Object.freeze(spr);
+}
+
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
@@ -3216,6 +3314,11 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     arm: _whiteVariant(SPR.boss6.arm),
     jaw: _whiteVariant(SPR.boss6.jaw[1])
   };
+  // v13：三件新危险物素材（spec §七 尺寸逐字：16×16 / 24×32 / 24×64）——生成后立即冻结；
+  //   既有 SPR 键一律不动（ui 侧按 (SPR.xxx || 程序化兜底) 取用）。
+  SPR.bomb = _frozenSpr(_makeSprite(_BOMB, _P_BOMB));
+  SPR.mirror = _frozenSpr(_makeSprite(_mirrorGrid(), _P_MIRROR));
+  SPR.pushwall = _frozenSpr(_makeSprite(_pushwallGrid(), _P_PUSHWALL));
   // —— v7.7：预生成 blue 皮肤帧对象（纯引用上面已画好的 hero* 帧，零额外像素绘制，耗时≈0）；
   //     其余 19 套留待 ui 首次取用时惰性生成，启动期不付 19×20 张画布的钱。——
   getHeroSkin('blue');
