@@ -928,8 +928,16 @@ function _engHurtPlayer(fromX, dmg) { // 内部：一切 HP 伤害的唯一入�
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return false;
   if (p.invT > 0) return false;                    // 无敌帧：伤害与击退全免
-  if (p.shieldT > 0) {                             // v5 §3.3：护盾吸收 1 次（不获得无敌帧）
-    p.shieldHp--; _engShake(2, 0); game.sfxQueue.push('shieldhit');
+  if (p.shieldT > 0) {                             // v5 §3.3：护盾吸收 1 次
+    // v8.2 修复：吸收命中必须给无敌帧（同正常受击 1.0s）——此前不给，敌人贴身/弹幕
+    // 穿身时伤害逐帧判定，2 层吸收 2 帧内打光、第 3 帧人照样掉血，观感即"一碰就碎"。
+    p.shieldHp--; p.invT = BAL.player.invT;
+    p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * BAL.player.hurtKbX * 0.8;   // 击退=离伤害源（0.8x 弹开）
+    p.vy = -BAL.player.hurtKbY * 0.6; p.dashT = 0;
+    p.airJumps = 1; p.springAir = false;
+    _engShake(4, 0); game.sfxQueue.push('shieldhit');
+    _engAddParts(p.x + 5, p.y + 7, 10, '#bfeaff', 95, 160);
+    _engFloat(p.x + 5, p.y - 6, 'GUARD', '#8ad8f8', 0);
     if (p.shieldHp <= 0) _engShieldBreak();        // 吸收耗尽 → 破盾事件（sfx+碎裂 fx+清盾）
     return false;
   }
