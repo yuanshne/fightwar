@@ -82,6 +82,12 @@
  *      光翼+发光面具；与 boss3 暗紫判官形成明暗对立）。两者键集合=SPR.boss2，装配仍走 _mkV7Boss，
  *      白剪影 boss4White/boss5White={body,arm,jaw}；眼/瞳/核心/下颚复用既有网格+新调色板。
  *      叠加契约写在两个体建器函数头上（eye/jaw/core 覆盖区各留 ±1px 暗框，两种 x 偏移都在框内）。
+ * —— v10 危险物素材（工单 v10-hazard-art）：补 ui.js 两个精灵挂点，替换原有程序化兜底 ——
+ *   G. SPR.spike 地刺 20×24×4 帧：ui 按当前高度把整帧纵向压到 20×hh（ui.js:1791），
+ *      所以四帧一律底边对齐、只往上长；帧0 裂纹+冒尖(6px)/帧1 半高(12px)/帧2 全长(24px)/帧3 全长+尖端高光。
+ *   H. SPR.bossGhost Boss 分身 52×48 单张 canvas（与本体同尺寸，ui 按 clone 的 w/h 缩放，alpha 由 ui 叠）：
+ *      5 个 Boss 通用剪影（宽肩/粗腿/头顶双角），半透能量体用 3 道亮紫纹路表达，不做具体 Boss 形象。
+ *      两者都只用中性冷灰/纯紫，不引主题专属色——同一张图要在 grass..nether 六个主题底上都成立。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -2383,6 +2389,151 @@ function _buildSeraphBody(pal) { // 内部：圣裁者身体 44×52（光环+金
   return _rasterGrid(G, pal);
 }
 
+/* ==================== v10 危险物素材（工单 v10-hazard-art）：地刺 + Boss 分身 ====================
+ * 为什么两套独立调色板、且都避开主题色：这两个精灵要在 grass/cave/sky/factory/lava/nether 六个主题底上
+ * 复用，任何主题专属色（草绿/岩浆橙/工殿金）换个主题就脏；冷灰在六种底上的明度都居中，
+ * 紫色则是「非实体能量」的通用语义色，也和 ui.js 原有兜底色系一致（换素材不换观感）。 */
+const _P_SPIKE = { // 内部：地刺（中性冷灰四阶；描边=带蓝相深灰，禁纯黑）
+  k: '#2a2a34', // 1px 描边（深灰偏蓝，暗底上仍能与黑区分）
+  d: '#5a5a68', // 暗部（右侧背光面）
+  m: '#8a8a96', // 主体
+  l: '#c8c8d4', // 高光（左上受光缘 / 尖端）
+  r: '#46464f'  // 底部碎石（介于描边与暗部之间的一档，碎石才不会糊进描边）
+};
+/* v10：地刺单帧 20×24 —— ui.js:1791 会把整帧纵向压到 20×hh 再贴，所以：
+ *   ① 只往上长、底边（y=23）永远是地面接触线，压缩后仍然「长在地上」；
+ *   ② 三根尖刺（中 x=9.5、两侧 x=3/16），中间高两侧低；底部宽 9/5/5，中刺先画、侧刺后画压住它的两边，
+ *      于是根部拼成一条 1..18 的连续石带（三根同簇，不留缝）；
+ *   ③ 明暗按「左受光」：左缘 1px l 高光、右半侧 d 暗部、整圈 k 描边；3px 细段是 [k][m][k]
+ *      （整行给 l 会变成一根白线），1px 尖端给 l（黑点会读成悬浮的脏像素）。 */
+function _spikeGrid(midH, sideH, midW, sideW, glow) { // 内部：地刺 20×24 单帧（底对齐，自下而上生长）
+  const W = 20, H = 24, G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const set = function (x, y, ch) { if (x >= 0 && x < W && y >= 0 && y < H) G[y][x] = ch; };
+  // 地面裂纹先画：只放在 y=22 的缝里——帧0 刺还矮时露出来（「地先裂、再冒尖」），长高后被刺身盖住
+  [[2, 22], [8, 22], [13, 22], [17, 22]].forEach(function (p) { set(p[0], p[1], 'k'); });
+  [[1, 22], [18, 22]].forEach(function (p) { set(p[0], p[1], 'r'); }); // 边角碎石
+  const spike = function (cx, h, hw0, chips, lean) {
+    for (let dy = 0; dy < h; dy++) {
+      const y = H - 1 - dy;
+      const c = Math.round(cx) + ((lean && dy >= h * 0.55) ? lean : 0);       // 侧刺上段向外偏 1px：三根不平行才像天然石笋
+      let x0, x1;
+      if (dy === h - 1) { x0 = x1 = c; }                                     // 顶端收成 1px 尖
+      else {
+        const hw = Math.max(1, Math.round(hw0 * (1 - Math.pow(dy / h, 1.5)))); // 下宽上窄：9/7/5/3 四级台阶
+        x0 = c - hw; x1 = c + hw;
+        if (chips && hw >= 2 && chips.indexOf(dy) >= 0) x1 -= 1;             // 崩口：石棱不能是一条笔直的边
+      }
+      for (let x = x0; x <= x1; x++) set(x, y, 'k');                         // 整行先铺描边
+      for (let x = x0 + 1; x <= x1 - 1; x++) set(x, y, x <= c ? 'm' : 'd');  // 左主体 / 右暗部（中脊留 m，纯 d 会变黑棍）
+      if (x1 - x0 >= 4) set(x0 + 1, y, 'l');                                // ≥5px 宽才留 1px 受光缘（细段给 l 整根发白）
+      if (x0 === x1) set(x0, y, 'l');                                       // 1px 尖给亮色：黑点会读成「悬浮的脏像素」
+    }
+  };
+  spike(9.5, midH, midW, [5, 14], 0);   // 中刺先画：它最宽，后画会吃掉侧刺的描边
+  spike(3, sideH, sideW, [4, 10], -1);
+  spike(16, sideH, sideW, [4, 10], 1);
+  // 最底一行压成碎石带（最后画）：三根刺「从裂开的地里长出来」，同时给整簇一个共用的落脚线
+  const RUBBLE = 'rrdrrkrdrrdkrrkrrk';
+  for (let i = 0; i < RUBBLE.length; i++) set(1 + i, H - 1, RUBBLE[i]);
+  if (glow) { // 帧3：呼吸态——中脊 6px 提亮（只动中列，左右描边一像素都不碰，循环时轮廓不抖）
+    for (let y = 1; y <= 6; y++) set(10, y, 'l');
+  }
+  return G.map(function (row) { return row.join(''); });
+}
+function _spikeFrames() { // 内部：地刺四帧（帧0 冒尖 6px / 帧1 半高 12px / 帧2·3 全长 24px）
+  return [
+    _makeSprite(_spikeGrid(6, 4, 2, 1, false), _P_SPIKE),
+    _makeSprite(_spikeGrid(12, 8, 3, 1.5, false), _P_SPIKE),
+    _makeSprite(_spikeGrid(24, 12, 4, 2, false), _P_SPIKE),
+    _makeSprite(_spikeGrid(24, 12, 4, 2, true), _P_SPIKE)
+  ];
+}
+
+const _P_BOSSGHOST = { // 内部：Boss 分身（紫系四阶；描边=深紫，禁纯黑——本体全是深色，纯黑描边会与本体重叠）
+  k: '#3a1a52', // 1px 描边（深紫）
+  D: '#5a2f80', // 暗部（右下背光）
+  m: '#7a4aa8', // 主体
+  l: '#b888e0', // 高光 / 能量纹
+  v: '#d9b6ff'  // 能量芯（眼 / 胸口，比高光再亮一档才读得出「不是实体」）
+};
+/* v10：Boss 分身通用剪影 52×48 —— 5 个 Boss 共用一张，所以不画任何具体 Boss 的特征（眼型/角形/配色），
+ * 只保留「大型怪物」的骨相：小头 + 双角 + 极宽肩 + 收腰 + 两条粗腿 + 外扩脚掌。
+ * 做法：先铺布尔遮罩（行跨表，左右严格镜像于 x=25.5），再统一派生 1px 内描边 → 左上受光带 l /
+ * 右下暗带 D → 最后压 3 道能量纹（双眼 / 胸口 Y 形裂 / 双肩短纹）。
+ * 描边取「内描边」而非外描边：ui 按 clone 底边对齐贴图，外描边会把脚底顶出地面 1px。 */
+function _bossGhostGrid() { // 内部：分身剪影 52×48（返回字符串网格，交给 _makeSprite 上色）
+  const W = 52, H = 48, M = [];
+  for (let y = 0; y < H; y++) M.push(new Array(W).fill(false));
+  const put = function (x, y) { if (x >= 0 && x < W && y >= 0 && y < H) M[y][x] = true; };
+  const on = function (x, y) { return x >= 0 && x < W && y >= 0 && y < H && M[y][x]; };
+  const hwRow = function (y, hw) { for (let x = 26 - hw; x <= 25 + hw; x++) put(x, y); }; // hw=半宽（左右对称）
+  // ① 双角：自头顶两角向上外弯（根 7px→尖 1px），镜像；只到 y9，与头骨 y7 起叠合
+  for (let y = 0; y <= 9; y++) {
+    const t = (9 - y) / 9;                          // 0=根 1=尖
+    const cx = Math.round(17 - 7 * t);              // 中心线 17→10（向上外倾）
+    const hw = t > 0.82 ? 0 : t > 0.5 ? 1 : t > 0.25 ? 2 : 3; // 尖 1px / 3 / 5 / 根 7px（细长角会读成触须）
+    for (let x = cx - hw; x <= cx + hw; x++) { put(x, y); put(W - 1 - x, y); }
+  }
+  // ② 头骨 y7..18（12 行，最宽 16 → 收颚到 6）：小头配大身，是「巨型怪」剪影的第一眼信息
+  [4, 6, 8, 8, 8, 8, 8, 8, 8, 8, 7, 6].forEach(function (hw, i) { hwRow(7 + i, hw); });
+  // ③ 短颈 y19..21：刻意收窄，让宽肩「炸」出来
+  [4, 4, 5].forEach(function (hw, i) { hwRow(19 + i, hw); });
+  // ④ 肩胸 y22..31：8→22 三级放大（宽 44 = 画布 85%），再收到 16 —— 倒三角，肩线一眼可读
+  [8, 11, 14, 17, 19, 21, 22, 20, 18, 16].forEach(function (hw, i) { hwRow(22 + i, hw); });
+  // ⑤ 收腰 y32..38：12→11→12，腰比胸窄 10px、又比腿窄 2px —— 倒三角 + 外凸大腿，两条腿才读得出来
+  [12, 11, 11, 12, 12, 12, 11].forEach(function (hw, i) { hwRow(32 + i, hw); });
+  // ⑥ 双臂 y28..43：挂在肩外侧、与躯干留 1~3px 透光缝（不画缝的话宽肩+宽腰会糊成一整块梯形）；
+  //    小臂比上臂细 1px、拳头再宽 1px —— 三段粗细差是「手臂」唯一的读法（纯矩形会读成两条垂带）
+  for (let y = 28; y <= 43; y++) {
+    const ax0 = y >= 34 ? 4 : 3;
+    for (let x = ax0; x <= 10; x++) put(x, y);
+    for (let x = 41; x <= 51 - ax0; x++) put(x, y);
+  }
+  for (let y = 39; y <= 43; y++) {
+    for (let x = 1; x <= 10; x++) put(x, y);
+    for (let x = 41; x <= 50; x++) put(x, y);
+  }
+  // ⑦ 两条粗腿 y39..44（各 13px 宽，中间 2px 透光缝）+ 外扩脚掌 y45..47（各 15px 宽）
+  for (let y = 39; y <= 44; y++) {
+    for (let x = 12; x <= 24; x++) put(x, y);
+    for (let x = 27; x <= 39; x++) put(x, y);
+  }
+  for (let y = 45; y <= 47; y++) {
+    for (let x = 10; x <= 24; x++) put(x, y);
+    for (let x = 27; x <= 41; x++) put(x, y);
+  }
+  // ⑧ 内描边 + 明暗派生：边缘 1px k；紧贴描边的上/左像素 l（受光），下/右像素 D（背光），其余 m
+  const G = [];
+  for (let y = 0; y < H; y++) G.push(new Array(W).fill('.'));
+  const edge = function (x, y) { return !on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1); };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    if (!on(x, y)) continue;
+    if (edge(x, y)) { G[y][x] = 'k'; continue; }
+    if (!on(x, y - 1) || !on(x - 1, y) || !on(x, y - 2) || !on(x - 2, y)) G[y][x] = 'l';
+    else if (!on(x, y + 1) || !on(x + 1, y)) G[y][x] = 'D';
+    else G[y][x] = 'm';
+  }
+  // ⑨ 三道能量纹（只压 m/D，绝不覆盖描边 k，否则轮廓会漏）：双眼 + 胸口 Y 形裂 + 双肩短纹
+  const vein = function (x, y, ch) {
+    if (x < 0 || x >= W || y < 0 || y >= H) return;
+    if (G[y][x] === 'k' || G[y][x] === '.') return;
+    G[y][x] = ch || 'l';
+  };
+  for (let x = 21; x <= 23; x++) { vein(x, 11); vein(W - 1 - x, 11); }   // 眼：外高内低的斜切＝凶相
+  for (let x = 20; x <= 22; x++) { vein(x, 12, 'v'); vein(W - 1 - x, 12, 'v'); }
+  for (let y = 24; y <= 36; y++) { vein(25, y); vein(26, y); }                                    // 胸口中缝
+  [[22, 30], [23, 29], [24, 28], [21, 31], [20, 32], [27, 28], [28, 29], [29, 30], [30, 31], [31, 32]]
+    .forEach(function (p) { vein(p[0], p[1]); vein(W - 1 - p[0], p[1]); });                        // Y 形分叉
+  [[8, 28], [9, 27], [10, 26], [11, 25]].forEach(function (p) { vein(p[0], p[1]); vein(W - 1 - p[0], p[1]); }); // 肩纹
+  vein(25, 31, 'v'); vein(26, 31, 'v'); vein(25, 32, 'v'); vein(26, 32, 'v');                      // 胸口能量芯
+  G[0][10] = 'l'; G[0][W - 1 - 10] = 'l';                                                          // 角尖点高光（黑点会读成噪点）
+  return G.map(function (row) { return row.join(''); });
+}
+function _bossGhostSprite() { // 内部：分身剪影 → canvas（52×48，ui 侧直接 drawImage）
+  return _makeSprite(_bossGhostGrid(), _P_BOSSGHOST);
+}
+
 /* ==================== SPR 精灵字典与构建 ==================== */
 const SPR = {}; // 精灵画布字典（契约导出）：buildSprites() 填充
 
@@ -2533,6 +2684,10 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.spitterDead = _makeSprite(_SPITTER_DEAD, _P_SPITTER_DEAD);
   SPR.hopper = [_makeSprite(_HOPPER1, _P_HOPPER), _makeSprite(_HOPPER2, _P_HOPPER)];
   SPR.hopperDead = _makeSprite(_HOPPER_DEAD, _P_HOPPER_DEAD);
+  // v10 危险物：地刺 4 帧（ui 按 hh 纵向压整帧，故四帧全部底对齐）+ Boss 分身剪影（5 个 Boss 共用，
+  // 与本体同为 52×48 以便 ui 按 clone 的 w/h 缩放）；两张图共 5 张 canvas，纯 fillRect 增量 < 3ms。
+  SPR.spike = _spikeFrames();
+  SPR.bossGhost = _bossGhostSprite();
   // —— 物品（金币四帧旋转；v5 发光件 _glow 内描边，rim 色照抄设计书 §5.4）——
   SPR.coin = [_COIN1, _COIN2, _COIN3, _COIN2].map(function (grid, i) { // 四帧旋转
     return _glow(i === 3 ? flipSprite(_makeSprite(_COIN2, _P_ITEM)) : _makeSprite(grid, _P_ITEM), '#fff2a0');
