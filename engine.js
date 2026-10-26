@@ -484,7 +484,11 @@ const BAL = {
     grab: { reach: 46, dmg: 2 },                                     // 抓取摔投（2 伤，长前摇）
     quake: { w: 14, h: 26, v: 200, life: 0.9, n: 2, gap: 0.35 },     // 劈地窄高波
     pillar: { n: 3, warn: 0.9, w: 14, h: 40, life: 2.5, gap: 0.25, dmg: 1 }, // 火柱
-    summon: { type: 'lancer', n: 2, off: [-44, 44], leech: 0.5 },    // 召唤枪虾 + 回血 0.5%/s/只
+    // v12.1 削弱：leech 是「maxHp 的百分比」，而玩家 DPS 是固定值（atkBase 2 / cd 0.35 ≈ 5.7 hp/s），
+    // 牛魔王血最厚（630），原 0.5%/s/只 ×2 = 6.3 hp/s —— 等于玩家全部输出，血条根本推不动。
+    // 实测原值：一次召唤 6 秒回满 37.8 hp（段血 18%），要 19 刀才追回来。
+    // 改 0.18%/s/只（2 只 2.27 hp/s，约玩家 1/3 输出）+ 单次上限 2.4%（15.1 hp ≈ 7 刀）。
+    summon: { type: 'lancer', n: 2, off: [-44, 44], leech: 0.18, leechCap: 2.4 },
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, dive: 0.65,
                grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 },

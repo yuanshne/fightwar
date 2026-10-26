@@ -60,7 +60,13 @@ console.log('[表] BAL.boss6 / 老五只新参数');
   ok(B6.grab.reach === 46 && B6.grab.dmg === 2, 'boss6 grab reach46 dmg2');
   ok(B6.quake.h === 26 && B6.quake.w === 14 && B6.quake.n === 2, 'boss6 quake 14×26 n2');
   ok(B6.pillar.n === 3 && B6.pillar.h === 40 && B6.pillar.warn === 0.9 && B6.pillar.life === 2.5, 'boss6 pillar n3 h40 warn0.9 life2.5');
-  ok(B6.summon.type === 'lancer' && B6.summon.n === 2 && B6.summon.leech === 0.5, 'boss6 summon lancer×2 leech0.5');
+  // v12.1：回血要按 hp/s 校准（leech 是 maxHp 百分比，玩家 DPS 是定值）。原 0.5%/s/只 → 6.3 hp/s
+  // = 玩家全部输出，实测一次召唤 6 秒回 37.8 hp。现在要求「回血速率 < 玩家 DPS 的一半」。
+  const playerDps = sb.BAL.player.atkBase / sb.BAL.atk.cd;
+  const leechHpS = B6.hp * B6.summon.leech / 100 * B6.summon.n;
+  ok(B6.summon.type === 'lancer' && B6.summon.n === 2 && leechHpS < playerDps * 0.5,
+    'boss6 summon lancer×2 且回血 ' + leechHpS.toFixed(2) + ' hp/s < 玩家 DPS ' + playerDps.toFixed(2) + ' 的一半',
+    'leech=' + B6.summon.leech + '%/s/只 cap=' + B6.summon.leechCap + '%');
   ok(B6.poolNear.join() === 'charge,grab,pillar,summon,quake', 'boss6 poolNear', B6.poolNear.join());
   ok(B6.poolFar.join() === 'charge,quake,grab,pillar,summon', 'boss6 poolFar', B6.poolFar.join());
   ok(B6.p2Add.join() === 'nova,dive', 'boss6 p2Add');
@@ -107,12 +113,17 @@ console.log('[1] charge 多段连撞');
   ok(stag && Math.abs(b.staggerDur - T.stagger * 0.7) < 1e-6, '段数耗尽 → stagger，staggerDur=0.7×stagger',
     'staggerDur=' + b.staggerDur);
   ok(b.comboQ.length === 0 && b.comboN === 0, '撞墙清 comboQ/comboN');
-  // 未撞墙（位移上限）→ recover，不进 stagger
+  // 未撞墙（位移上限）：v12 起若还有剩余段数就原地折返续冲（L19 锚点到墙 348px < 340×3，
+  // 只认撞墙的话三段撞会退化成一冲一收）；最后一段才进 stagger。hits=1 的老 Boss 仍是 recover。
   const r2 = open();
   r2.b.state = 'chargeRun'; r2.b.chargeN = 0; r2.b.chargeDir = -1; r2.b.chargeFrom = r2.b.x; r2.b.t = 0;
-  r2.b.x = 400; let rec = false;
-  for (let i = 0; i < 200 && !rec; i++) { step(1); if (r2.b.state === 'recover') rec = true; }
-  ok(rec, '未撞墙（maxT/maxX 到点）→ recover（旧行为不变）', r2.b.state);
+  r2.b.x = 400; let turned = false;
+  for (let i = 0; i < 200 && !turned; i++) {
+    step(1);
+    if ((r2.b.chargeN | 0) === 1 && r2.b.chargeDir === 1 && r2.b.state === 'chargeRun') turned = true;
+  }
+  ok(turned, '未撞墙（maxT/maxX 到点）→ 折返续冲（chargeN=1、方向翻转、仍在 chargeRun）',
+    r2.b.state + '/chargeN=' + r2.b.chargeN + '/dir=' + r2.b.chargeDir);
   // 进 windup(charge) 时 chargeN 归零
   const r3 = open();
   r3.b.chargeN = 2; r3.b.state = 'idle'; r3.b.t = 99;
@@ -162,9 +173,11 @@ console.log('[3] quell 蓄力全屏');
   ok(Math.abs(b.quellDur - T.quell.dur) < 0.05, 'b.quellDur = T.quell.dur', b.quellDur.toFixed(2));
   const wards = hzOf(g, 'ward');
   ok(wards.length === T.quell.n, '生成 n 个 ward 结界', wards.length);
-  const W = g.level.w * 16;
-  ok(wards.length === 2 && Math.abs(wards[0].x - W * 0.25) < 1e-6 && Math.abs(wards[1].x - W * 0.75) < 1e-6,
-    'ward x = 场地 25% / 75% 列中心', wards.map(w => w.x.toFixed(0)).join(','));
+  // 相机跟的是玩家不是 Boss：结界按场地百分比摆会跑到镜头外（实机截图为空），改以玩家为基准左右各 120px
+  const pcxQ = p.x + p.w / 2;
+  ok(wards.length === 2 && Math.abs(Math.abs(wards[0].x - pcxQ) - 120) < 1 &&
+     Math.abs(Math.abs(wards[1].x - pcxQ) - 120) < 1,
+    'ward 以玩家为基准左右各 120px', wards.map(w => w.x.toFixed(0)).join(',') + ' / 玩家 ' + pcxQ.toFixed(0));
   ok(wards.every(w => w.r === T.quell.r && w.life > 0), 'ward r=22 / life=dur');
 
   // 圈外 → 全屏 2 伤
@@ -274,9 +287,12 @@ console.log('[7] core 核心护盾');
   ok(b.state === 'coreCast' && b.coreOn === true, '进 coreCast 且 b.coreOn=true', b.state + '/' + b.coreOn);
   const cores = hzOf(g, 'core');
   ok(cores.length === T.core.n, '生成 2 个核心', cores.length);
-  const W = g.level.w * 16;
-  ok(Math.abs(cores[0].x + 9 - W * 0.2) < 1e-6 && Math.abs(cores[1].x + 9 - W * 0.8) < 1e-6,
-    '核心 x = 场地 20% / 80% 列', cores.map(c => (c.x + 9).toFixed(0)).join(','));
+  // 站位：Boss 两侧 ±150px；贴场地边界时按 clamp[12, W-30] 夹住（L19 只有 72 格，右边那颗常被夹）
+  const bcxK = b.x + b.w / 2, WCc = g.level.w * 16;
+  const coreOK = (v, want) => Math.abs(v - want) < 1 || v <= 12 + 1 || v >= WCc - 30 - 1;
+  ok(coreOK(cores[0].x + 9, bcxK - 150) && coreOK(cores[1].x + 9, bcxK + 150),
+    '核心在 Boss 两侧 ±150px（贴边按场地 clamp）',
+    cores.map(c => (c.x + 9).toFixed(0)).join(',') + ' / Boss ' + bcxK.toFixed(0) + ' / W ' + WCc);
   ok(cores.every(c => c.hp === 3 && c.maxHp === 3 && c.w === 18 && c.h === 18 && c.r === 9), '核心 hp3 / 18×18 / r9');
   ok(cores.every(c => c.y === b.y + 20), '核心悬空 y=b.y+20');
   // 本体免伤
