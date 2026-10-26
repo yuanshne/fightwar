@@ -3644,7 +3644,12 @@ function renderMenu(th,tick){
         if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-6,y+21,4,2);ctx.fillRect(x+48,y+21,4,2);}}
       else if(hover==='select:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮
         ctx.strokeRect(x+0.5,y+0.5,45,43);}
-      drawCNText(locked?'???':_cardName(ALL_LEVELS[i].name),x+23,y+5,7,
+      // v12：卡宽 46（可用 ~42），'BOSS·双生终焉' 7px 要 49px，会压到右邻卡上；
+      // 按实测宽度自动降字号到 7/6/5，保证关名不越卡。
+      const cardNm = locked ? '???' : _cardName(ALL_LEVELS[i].name);
+      let nmSz = 7;
+      while (nmSz > 5 && _textW(cardNm, nmSz) > 42) nmSz--;
+      drawCNText(cardNm,x+23,y+5,nmSz,
         locked?'#5a6488':(boss?'#f8d048':'#f0f4ff'),'center');              // 关名 7px（Boss 金色）
       const st=progress.stars[i]||0;
       drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+23,y+22,12,
