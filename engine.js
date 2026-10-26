@@ -62,7 +62,7 @@
      - `const BAL` 全数值总表（平衡表 §0 逐字落地，唯一权威）+ 全量硬编码收编替换
        （未列数值数值不动；行为零变化由 tools/_v6_feel_test.js §N.3 逐帧断言自证）；
      - 装备注入接口（读侧）：game.equip{atk,hp,spd,cd}/cdMul（波1 恒默认零副作用，波2 bag 队写入）
-       → p.maxHp=5+equip.hp / 普攻 ATK=1+equip.atk / 限速 effRun=maxRun×(1+equip.spd) / 技能 CD×cdMul；
+       → p.maxHp=5+equip.hp（满装 7）/ 普攻 ATK=2+equip.atk（满装 5）/ 限速 effRun=maxRun×(1+equip.spd) / 技能 CD×cdMul；
      - 技能4 星刃回旋（L 键）：game.blades[] 去程 320 直飞 160px → 回程 340 追踪玩家；
        每程固定伤 2（不吃 ATK）、一程一目标一伤；骑士正面格挡 / Boss 承伤 / 斩碎弹幕（含火球）；
      - 四类敌人技能（_engMkAI/_engEnemySkill 状态机，触发全距离条件无随机，CD 相位确定性错开）：
@@ -227,9 +227,14 @@ function _engRectTiles(L, rx, ry, rw, rh, cb) { // 内部：遍历矩形覆盖�
 
 /* ==================== 物理常量（契约导出；键名固定，数值可 ±15%） ====================
    v6 §A：grav 1500→1320、maxFall 360→285（任务书指定例外，超出 ±15% 带，附记 v6 记录）、
-   jumpV 330→309、springV 520→488（等高换算 k=√(1320/1500)≈0.9381，h=v²/2g 不变）。 */
+   jumpV 330→309、springV 520→488（等高换算 k=√(1320/1500)≈0.9381，h=v²/2g 不变）。
+   v9 下落手感（玩家"下落太快、落地像砸下去"）：上升重力 1320 不变 / 下落重力 850 /
+   顶点 ±50px/s 内 0.62 倍滞空 / 落速上限 205；落速上限以外的 acc/fric/fricIce/maxRun/
+   jumpV/springV/coyote/buffer 一字不动。下落时间约 0.30s→约 0.39s，总滞空 0.58→约 0.71s，
+   跳高仍约 53-57px（v7.8 的 3 格台余量不减少——顶点前重力未动）。 */
 const PHY = {
-  grav: 1320, maxFall: 285, acc: 1400, fric: 1800, fricIce: 180,
+  grav: 1320, gravFall: 850, maxFall: 205, apexBand: 50, apexMul: 0.62, fastGravMul: 1.35,
+  acc: 1400, fric: 1800, fricIce: 180,
   // v7.8 跳跃高度：309→385。解析跳高 33.6px→56.1px（=3.5 瓦片），实测 53.1px（逐帧欧拉积分比解析值低约 3px）。
   // 依据：关卡里 48px（3 格）平台共 200+ 处（L4 95 / L9 62 / L11 44 / L14 26），
   // 旧值实测 33.6px：单跳连 2 格（32px）都只剩 1.6px 余量、3 格必须二段跳卡时机，玩家实测"有些台阶上不去"。
@@ -240,12 +245,17 @@ const PHY = {
   coyote: 0.12, buffer: 0.18 // v2 P1 手感调优：土狼 0.09→0.12、缓冲 0.11→0.18（任务书指定）
 };
 
-/* ==================== v6 BAL 全数值总表（新契约导出；平衡表 §0 逐字照抄，唯一权威） ====================
-   docs/specs/2026-10-24-v6-balance.md §0：不得增删键、不得改值；每个键附平衡表推导索引。
-   〔书〕=v6 任务书指定；〔换算〕=新重力等比 k=0.9381；〔收编〕=现行代码值收编不改；〔定〕=平衡表新定。 */
+/* ==================== v6 BAL 全数值总表（契约导出；唯一权威数值表，v9 在 v6 基线上修订） ====================
+   v6 BAL 全数值总表注释：docs/specs/2026-10-24-v6-balance.md §0 的派生/推导索引沿用；
+   v9 平衡修订（只动下列数值，键名不增删）：
+     玩家：atkBase 1→2（无装备普攻翻倍）；gear.stat.w 金 6→3、蓝/紫 3/4→2（满装 ATK 7→5）；
+     gear.stat.h 紫/金 4→2（满装 HP 9→7）。
+     三命 Boss：总血必须能被 3 整除，hp 72→63 / 108→96 / 165→144 / 186→162 / 216→189
+     （每段 21/32/48/54/63）；p2At、windup、idleT 及任何招式参数均不动。
+     TTK 预期（实测口径）：无装备双 Boss 约 170s→约 85-100s；满装约 53s→约 60-65s。 */
 const BAL = {
   fall:  { fast: 360 },                       // §F 速降上限（=旧 maxFall，按住↓恢复精准落地）
-  player:{ hpBase: 5, atkBase: 1, critMul: 2, critMod: 4,
+  player:{ hpBase: 5, atkBase: 2, critMul: 2, critMod: 4,
            stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
   atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
   // v7.7 手感：cd 0.8→0.5（对照空洞骑士 0.45~0.55s；dur/v 不动 ⇒ 冲刺距离 59.53px 不变）
@@ -282,7 +292,7 @@ const BAL = {
     spitter: { hp: 3, spd: 0,  fall: 300, skill: { rng: 150, cast: 0.4, boltV: 130, cd: 2.2 } },
     // hopper 44（比史莱姆快但慢于玩家）：跳跃 300 ≈ 34px 高、滞空 0.45s，vx 90 只用于朝玩家压位。
     hopper:  { hp: 2, spd: 44, fall: 300, skill: { rng: 110, crouch: 0.3, jumpV: 300, vx: 90, cd: 1.8 } } },
-  boss:  { hp: 72, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
+  boss:  { hp: 63, p2At: 30, actDist: 176, grav: 1500, fallV: 520,
            windup: { leap: 0.50, barrage: 0.45, charge: 0.60, summon: 0.50, nova: 0.55, dive: 0.55 }, p2WindMul: 0.85,
            idleT: [0.48, 0.36], walk: [20, 25],
            leap: { T: 0.9, vy: 675, clamp: 300 },
@@ -300,7 +310,7 @@ const BAL = {
            poolFar: ['barrage', 'charge', 'leap', 'barrage'],
            p2Add: ['nova', 'dive'] },
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
-    hp: 108, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40,
+    hp: 96, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40,
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70 },
     p2WindMul: 0.85, idleT: [0.56, 0.40], walk: [26, 32],
     leap: { T: 1.0, vy: 700, clamp: 320 },
@@ -318,7 +328,8 @@ const BAL = {
   boss3: { // 幽冥判官（L16，nether）——v7 §8 逐字
     // v7.9：hp 140→138。三段血要求每段 HP 是整数（140/3=46.67 会让血条与段内残余对不上），
     // v8.1 再回调 138→165（55×3），门禁只断言 maxHp===本表 hp。
-    hp: 165, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
+    // v9：165→144（48×3），与 atkBase 2 / 满装 ATK 5 同步，缩短无装备侧 TTK。
+    hp: 144, p2At: 56, actDist: 176, grav: 1500, fallV: 520, w: 40, h: 52,
     windup: { blink: 0.50, scythe: 0.60, barrage: 0.45, summon: 0.50, nova: 0.55, halo: 0.65 },
     p2WindMul: 0.85, idleT: [0.45, 0.32], walk: [18, 22],
     leap: { T: 0.9, vy: 675, clamp: 300 },      // 表完整性（判官轮换池不含 leap/charge）
@@ -338,8 +349,8 @@ const BAL = {
   // 分两棒，不是同时出场：冥古龙被打空三段 → 原地「倒下」，曜光·圣裁者接力进场（nextKind 链）。
   // 两棒共用同一套状态机与同一套三段血规则；新招式全部由既有实体（ground wave / star bullet）
   // 组合而成，不引入新弹种——玩家能躲的前提是「看得懂」，新实体只会制造交互未知数。
-  boss4: { // 冥古龙（L18 首发，nether）：骨角魔龙，四足+破翼，熔岩裂纹；hp 186 → 每段 62
-    hp: 186, p2At: 0, actDist: 176, grav: 1500, fallV: 540, w: 64, h: 48,
+  boss4: { // 冥古龙（L18 首发，nether）：骨角魔龙，四足+破翼，熔岩裂纹；hp 162 → 每段 54
+    hp: 162, p2At: 0, actDist: 176, grav: 1500, fallV: 540, w: 64, h: 48,
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, nova: 0.55,
               sweep: 0.55, breath: 0.75, dive: 0.60 },
     p2WindMul: 0.82, idleT: [0.50, 0.34], walk: [24, 30],
@@ -366,8 +377,8 @@ const BAL = {
      * boss5 体型小、位移多（blink 常贴身落点），同样取 1。 */
     contactDmg: 1, drop1: 'ming1', drop2: 'ming2',
     nextKind: 5 },   // 三段打空 → 不通关，换第二棒（见 dying 分支）
-  boss5: { // 曜光·圣裁者（L18 第二棒，nether）：白袍+金环+光翼，hp 216 → 每段 72
-    hp: 216, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 52,
+  boss5: { // 曜光·圣裁者（L18 第二棒，nether）：白袍+金环+光翼，hp 189 → 每段 63
+    hp: 189, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 52,
     windup: { blink: 0.55, barrage: 0.45, halo: 0.70, summon: 0.50, nova: 0.55,
               scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60 },
     p2WindMul: 0.82, idleT: [0.47, 0.33], walk: [20, 26],
@@ -397,7 +408,7 @@ const BAL = {
   gear:  {                                           // §Q（波2 生效）
     boss1: [44,30,16,8,2], boss2: [20,35,25,15,5], elite: [55,30,12,3,0],
     eliteChance: 0.14, bossExtra: 0.30,
-    stat: { w: [1,2,3,4,6], h: [1,2,3,4,4], cSpd: [4,6,8,10,12], cCd: [4,6,8,10,12] },
+    stat: { w: [1,2,2,2,3], h: [1,1,2,2,2], cSpd: [4,6,8,10,12], cCd: [4,6,8,10,12] },
     shardsPerStep: 3, shardsPerSalvage: 2, bagSize: 12,
     // v7 §8 追加六表（权重和=100，序=白/绿/蓝/紫/金）
     jiao1: [30, 28, 20, 14, 8],  jiao2: [16, 28, 26, 18, 12],
@@ -442,6 +453,7 @@ const _engAtkWind = 0.05;             // 内部：攻击起手时长（期间无
    冷却一结束立刻起手——空洞骑士的「按下=出手」在引擎侧的等价物。
    （v7.7 曾在此为「局外成长削减冲刺冷却」留过一个每级步长常量，局外成长移除后一并删除。） */
 const _engAtkBuf = 0.12;              // 内部：攻击输入缓冲窗口（s，约 7 帧；> 1 帧输入抖动，< 冷却 0.35）
+const _engBossMinionHpMul = 3;        // v9.2：Boss 关杂兵 HP 倍率（含 Boss 召唤物；Boss 本体不吃）
 
 /* ==================== v3 Boss/技能常量（内部） ====================
    v7 §6：Boss 激活半径改由 _engBossTable(kind).actDist 供表（三表同值 176，零行为变化），
@@ -571,6 +583,9 @@ class Level {
         }
       }
     }
+
+    /* ---------- v9.2：Boss 关杂兵 HP ×3（Boss 本体在 game.boss 独立维护，不受影响） ---------- */
+    if (meta.boss) for (const e of this.enemies) e.hp *= _engBossMinionHpMul;
 
     /* ---------- 门分组：相邻（4 向）D 的连通分量 ---------- */
     this.doorGroups = [];
@@ -1207,6 +1222,7 @@ function _engBossSummon(T) { // 内部：v7 §6.2 参数化召唤（type/n/off �
   const b = game.boss, L = game.level, S = T.summon;
   for (let i = 0; i < S.n; i++) {
     const e = _engMkEnemy(S.type, b.x + b.w / 2 + S.off[i] - 8, b.y + b.h - 16, false);
+    e.hp *= _engBossMinionHpMul; // v9.2：召唤物与 Boss 关杂兵同档强化
     e.vx = _engSign(S.off[i]) * Math.abs(e.vx || BAL.enemy[S.type].spd || 0) || _engSign(S.off[i]) * 28;
     L.enemies.push(e);
   }
@@ -1896,7 +1912,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   if (!(p.atkT > 0) || p.dead) return;
   const box = { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
   // v5 §2#4：暴击——本击使连击数到 critMod 的倍数 → 伤害×critMul、金色数字（hit-stop 不变）；全分支共用
-  // v6 §C：ATK = atkBase + equip.atk（装备武器注入，波1 恒 1）；v7.7：局外成长项已删（暴击仍 ×critMul）
+  // v6 §C：ATK = atkBase + equip.atk（atkBase 2，满装 ATK 5）；v7.7：局外成长项已删（暴击仍 ×critMul）
   const crit = ((game.combo + 1) % BAL.player.critMod) === 0;
   const ATK = BAL.player.atkBase + (game.equip ? game.equip.atk : 0);
   const dmg = crit ? ATK * BAL.player.critMul : ATK;
@@ -2133,9 +2149,14 @@ function _engUpdatePlayer(dt, L, p) {
   if (p.jumpCut && p.vy < 0 && !game.input.jump) p.vy *= 0.45;
   p.prevJump = game.input.jump ? 1 : 0; // v7.7：仅保留记录（不再参与截断判定）
   { // v5 §B：重力减半仅冲刺爆发段（0.05~0.23s）；蓄力/滑行正常重力
+    // v9 下落手感：上升用 PHY.grav(1320)、下落用 PHY.gravFall(850)；|vy| ≤ apexBand 时再乘 apexMul，
+    // 让顶点附近多滞空；按住↓速降额外 ×fastGravMul（上限仍 BAL.fall.fast=360）。
     const dashEl = p.dashT > 0 ? _engDashDur - p.dashT : -1;
-    const g = PHY.grav * (dashEl >= 0.05 && dashEl < 0.23 ? _engDashGrav : 1);
-    // v6 §1.3 速降：空中按住 input.down → 上限恢复旧值 360（BAL.fall.fast），否则 285（PHY.maxFall）。
+    let g = p.vy > 0 ? PHY.gravFall : PHY.grav;
+    if (Math.abs(p.vy) <= PHY.apexBand) g *= PHY.apexMul;
+    if (!p.onGround && game.input.down && p.vy > 0) g *= PHY.fastGravMul;
+    if (dashEl >= 0.05 && dashEl < 0.23) g *= _engDashGrav;
+    // v6 §1.3 速降：空中按住 input.down → 上限恢复旧值 360（BAL.fall.fast），否则 205（PHY.maxFall）。
     // 风柱交互不变：'w' 净上力与落速上限无关，按↓不破解风谜题（设计书 §1.3）。
     const cap = (!p.onGround && game.input.down) ? BAL.fall.fast : PHY.maxFall;
     p.vy = Math.min(p.vy + g * dt, cap);

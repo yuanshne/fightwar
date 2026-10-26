@@ -91,7 +91,7 @@
 //      关闭钮、双操作行；焦点三区 Tab 循环 equip(3)→bag(12)→shard；键盘↔鼠标全等价（H3：
 //      Enter 穿/脱·双击穿·单击槽脱·X 分解·C 升阶·按钮同函数）。
 //   §D recomputeEquip（设计书 §6.2 冻结公式）：progress.equip→inv 查件→平衡表 §Q 累加→注入
-//      game.equip/cdMul；p.maxHp 差值同步（升上限即时回血、卸下只降上限）；调用点 boot/startLevel/
+//      game.equip/cdMul；p.maxHp 差值同步（lv9.1：只同步上限、不回血——hp 仅按新上限截断，脱/穿不再刷血）；调用点 boot/startLevel/
 //      每次背包变更。数据模型注：穿着件常驻 inv（工单 §D 冻结代码以 inv 查穿着件），格内右下金点标记。
 //   §E 掉落渲染：gearDrops 底部稀有度色光柱（宽 8，±14px 渐隐）+ico 稀有度叠色（source-atop 缓存）
 //      +浮动+金件描边脉冲；ico* 缺失程序化槽位剪影；世界悬停 geardrop:i 外扩 4px 命名卡。
@@ -411,8 +411,8 @@ function recomputeEquip(){
   game.equip=eq;game.cdMul=1-eq.cd;
   const p=game.player;
   if(p&&typeof p.maxHp==='number'){
-    const diff=(BAL_PLAYER_HP+eq.hp)-p.maxHp;   // 头饰：升上限同时当前 HP+差值（奖励即时可感）
-    p.maxHp+=diff;if(diff>0)p.hp+=diff;p.hp=Math.min(p.hp,p.maxHp); // 卸下只降上限（diff≤0 不加血）
+    p.maxHp=BAL_PLAYER_HP+eq.hp;
+    p.hp=Math.min(p.hp,p.maxHp); // 只按新上限截断：脱装降上限会压血，穿装升上限不回血（防脱穿刷血）
   }
   if(repaired)saveProgress(progress);
 }

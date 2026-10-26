@@ -85,8 +85,8 @@ def main():
             tag = 'L%d' % lv
             ck(tag + ' 机关种类 ≥2（现 %d：%s）' % (len(kinds), '/'.join(kinds) or '无'),
                len(kinds) >= 2, json.dumps(d, ensure_ascii=False))
-            lo = 4 if lv == 17 else 6   # 纵向关只有 26 格宽，5 只已经是上限附近
-            ck(tag + ' 敌人 %d~10 只' % lo, lo <= d['enemies'] <= 10,
+            lo = 10 if lv == 17 else 12   # v9 密度补强后的下限（纵向关 26 格宽，按 10 只计）
+            ck(tag + ' 敌人 %d~18 只' % lo, lo <= d['enemies'] <= 18,
                'enemies=%d %s' % (d['enemies'], d['etypes']))
             ck(tag + ' 至少 1 颗宝石（挑战房回报）', d['gems'] >= 1, 'gems=%d' % d['gems'])
             ck(tag + ' 主题未被改动', d['theme'] == theme, 'theme=' + d['theme'])
