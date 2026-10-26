@@ -3575,14 +3575,21 @@ function renderTitleCover(tick){
 // 15 关=第三章 2 卡；13 关时第三章头=13 但空章不显示。
 // v7.9：第三章 3→5 关（新增 L17/L18）。章长仍按 min(声明, 余量) 截断——章节文件只到 L16 时实际画 3 卡，
 // 关卡补齐后自动变 5 卡，无需再改本表；一排放 5 张卡：x=6+j*53，第 5 张左缘 218、右缘 264，画布 384 内不越界。
+// v12：末章改为「吃掉剩余关」——原表第三章声明 5 关（idx 13~17），加 L19 后 idx18 没有卡位，
+// 选关屏画不出第 19 关（光标 clamp 到 18 却停在空白处），玩家只能靠通关 L18 后回车一次进，等于"找不到牛魔王"。
+// 现在末章 len=min(7, n-章首)，一行上限 7 卡：x=6+6*53=324，右缘 370 < 384 不越界。
 const CH_HEAD=[[0,7],[7,6],[13,5]];
 const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章'];
-const CH_HEAD_Y=[24,86,148],CH_CARD_Y=[34,96,158];
+const CH_HEAD_Y=[24,86,148],CH_CARD_Y=[34,96,158],CH_ROW_MAX=7; // 单行卡位上限（画布宽 384 内）
 function _chapters(){
   const n=ALL_LEVELS.length,out=[];
   if(n<=10)return[{i:0,first:0,len:n,wrap:7}];
-  for(let c=0;c<CH_HEAD.length&&CH_HEAD[c][0]<n;c++)
-    out.push({i:c,first:CH_HEAD[c][0],len:Math.min(CH_HEAD[c][1],n-CH_HEAD[c][0]),wrap:0});
+  for(let c=0;c<CH_HEAD.length&&CH_HEAD[c][0]<n;c++){
+    const last=c===CH_HEAD.length-1||CH_HEAD[c+1][0]>=n;  // 末章（或后继章首已越界）
+    const len=last?Math.min(CH_ROW_MAX,n-CH_HEAD[c][0])
+                  :Math.min(CH_HEAD[c][1],n-CH_HEAD[c][0]);
+    out.push({i:c,first:CH_HEAD[c][0],len,wrap:0});
+  }
   return out;
 }
 function _cardXY(ch,j){ // 卡左上角：多章=单行 x=6+j*53；单章过渡=7 列换行（行距 62）

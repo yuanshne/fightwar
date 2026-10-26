@@ -94,7 +94,8 @@ function mkShell() {
 const EXPOSE = '\n;globalThis.__UI={' +
   'game:game,progress:progress,startLevel:startLevel,step:step,render:render,' +
   'renderSeal:renderSeal,renderClear:renderClear,renderHUD:renderHUD,' +
-  'SPR:SPR,ALL_LEVELS:ALL_LEVELS,VIEW:VIEW_W,textW:_textW,cnW:_textW' +
+  'SPR:SPR,ALL_LEVELS:ALL_LEVELS,VIEW:VIEW_W,textW:_textW,cnW:_textW,' +
+  'chapters:_chapters,rowMax:CH_ROW_MAX' +   // v12：选关章节表（加关后是否漏卡）
   '};\n';
 function runSandbox() {
   const mainCanvas = mkShell();
@@ -409,6 +410,22 @@ console.log('\n==== ⑪ 真实引擎 seal 端到端（L1 实关） ====');
     rec.fillRect.filter(r => r.style === '#5a2ec8').length === 0 &&
     rec.fillRect.filter(r => r.style === '#8a4ae0' || r.style === '#d8b0ff').length === 12,
     '碎片 ' + rec.fillRect.filter(r => r.style === '#8a4ae0' || r.style === '#d8b0ff').length + ' 片');
+}
+
+/* ---- v12：选关屏必须给每一关都留卡位（加 L19 后末章按声明长度截断，第 19 关无卡可画） ---- */
+{
+  const chs = U.chapters();
+  const covered = new Set();
+  chs.forEach(c => { for (let j = 0; j < c.len; j++) covered.add(c.first + j); });
+  const miss = U.ALL_LEVELS.map((_, i) => i).filter(i => !covered.has(i));
+  check('选关屏章节表覆盖全部 ' + U.ALL_LEVELS.length + ' 关（无漏卡）',
+    miss.length === 0, miss.length ? '漏 idx ' + JSON.stringify(miss) : '覆盖完整');
+  const lastCh = chs[chs.length - 1];
+  const lastRight = 6 + (lastCh.len - 1) * 53 + 46;
+  check('末章最后一张卡不出画布（右缘 ' + lastRight + ' ≤ 384）', lastRight <= 384,
+    '末章 ' + lastCh.len + ' 卡');
+  check('单章卡位不超过一行上限 ' + U.rowMax, chs.every(c => c.wrap || c.len <= U.rowMax),
+    chs.map(c => c.len).join('/'));
 }
 
 /* ==================== 汇总 ==================== */
