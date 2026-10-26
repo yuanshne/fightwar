@@ -176,8 +176,8 @@ try {
     for (const bi of bossIdxs) {
       const meta = sandbox.ALL_LEVELS[bi];
       const kind = meta.boss === true ? 1 : meta.boss; // v7 §6.1：boss:true≡kind1
-      if (!(kind >= 1 && kind <= 5)) {   // v7.9：值域扩到 5（4=冥古龙 5=曜光·圣裁者，终章双 Boss）
-        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2|3|4|5）');
+      if (!(kind >= 1 && kind <= 6)) {   // v7.9：值域扩到 5（4=冥古龙 5=曜光·圣裁者，终章双 Boss）；v12：再扩到 6（L19 牛魔王）
+        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2|3|4|5|6）');
         process.exit(1);
       }
       sandbox.loadLevel(bi, false);
@@ -196,7 +196,7 @@ try {
         console.error('L' + (bi + 1) + ' Boss kind 违约: 实际 ' + g.boss.kind + '（应 ' + kind + '）');
         process.exit(1);
       }
-      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3, SBAL.boss4, SBAL.boss5][kind - 1].hp; // v7 §1.5：maxHp 与参数表一致（v7.9 扩到 5 表）
+      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3, SBAL.boss4, SBAL.boss5, SBAL.boss6][kind - 1].hp; // v7 §1.5：maxHp 与参数表一致（v7.9 扩到 5 表，v12 扩到 6 表）
       if (g.boss.maxHp !== wantHp) {
         console.error('L' + (bi + 1) + ' Boss maxHp 违约: 实际 ' + g.boss.maxHp + '（应 BAL 表 ' + wantHp + '）');
         process.exit(1);

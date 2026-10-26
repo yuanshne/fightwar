@@ -1159,6 +1159,16 @@ function render(){
     ctx.restore();
     renderDarkness(tick); // v7 §9.7：黑暗层（nether 专属；世界渲染完成后、HUD 前）
     renderLedgeGlow(tick); // v8.0：暗处可落脚平台顶边自发光（必须在黑暗层之后，否则被压暗）
+    // v12 §任务7：quell 全屏爆闪（b.quellFlash 由引擎 0.4→0 递减）。插在 HUD 之前：
+    // 盖住世界但**不盖 HUD**（血条/心形读数在爆闪中仍可读），且远早于 renderPause（暂停面板绝不会被挡）。
+    {
+      const qf=+(game.boss&&game.boss.quellFlash)||0;
+      if(qf>0){
+        ctx.setTransform(1,0,0,1,0,0);
+        ctx.globalAlpha=1;ctx.fillStyle='rgba(248,80,48,'+(0.35*clamp(qf/0.4,0,1)).toFixed(3)+')';
+        ctx.fillRect(0,0,VIEW_W,VIEW_H);
+      }
+    }
     renderHUD();
     renderIntro();  // v3 §D1：登场横幅（intro 态）
     renderUlt();    // v5 §D：O 流星连斩 1.2s 演出覆盖层（屏幕坐标系，renderFlash 之前）
@@ -1754,6 +1764,10 @@ function renderHazards(tick,camX,camY){
     else if(h.kind==='homing')_hzHoming(h,tick,ox,oy);
     else if(h.kind==='clone')_hzClone(h,tick,ox,oy);
     else if(h.kind==='pull')_hzPull(h,tick,ox,oy);
+    else if(h.kind==='ward')_hzWard(h,tick,ox,oy);           // v12 §任务5：quell 结界圈
+    else if(h.kind==='pillar')_hzPillar(h,tick,ox,oy);       // v12 §任务5：火柱（预警圈 → 升柱）
+    else if(h.kind==='core')_hzCore(h,tick,ox,oy);           // v12 §任务5：核心护盾
+    else if(h.kind==='quellBlast')_hzQuellBlast(h,tick);     // v12 §任务5：全屏爆闪（可选 hazard）
   }
 }
 
@@ -1917,6 +1931,110 @@ function _hzPull(h,tick,ox,oy){
   ctx.globalAlpha=1;
 }
 
+// v12 §任务5①：quell 结界（ward）——金色光柱 + 底圈，半径直接读 h.r。
+// 语义：圈心 = 安全区（站进去不吃全屏 AOE），所以必须比普通红圈「更像庇护所」：金柱向上、不画红色任何东西。
+// 绘制预算 ≤10：底圈 2 弧 + 柱体 3 条竖带 + 顶盖 2 条 + 3 枚上升光点。
+function _hzWard(h,tick,ox,oy){
+  const x=px(h.x-ox),y=px(h.y-oy),r=Math.max(8,+h.r||22);
+  const a=0.5+0.5*Math.sin(tick*0.18);
+  ctx.globalAlpha=1;ctx.fillStyle='rgba(248,208,72,0.10)';
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=0.55+0.35*a;ctx.strokeStyle='#f8d048';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.stroke();
+  ctx.globalAlpha=0.4;ctx.strokeStyle='#fff0b0';ctx.lineWidth=1;
+  if(ctx.setLineDash)ctx.setLineDash([3,3]);
+  ctx.beginPath();ctx.arc(x,y,r*0.55,0,Math.PI*2);ctx.stroke();
+  if(ctx.setLineDash)ctx.setLineDash([]);
+  const cw=Math.max(8,Math.round(r*0.7)),ch=88;
+  ctx.globalAlpha=0.10+0.05*a;ctx.fillStyle='#f8d048';ctx.fillRect(x-cw/2,y-ch,cw,ch);
+  ctx.globalAlpha=0.18+0.08*a;ctx.fillStyle='#fff0b0';ctx.fillRect(x-cw/4,y-ch,cw/2,ch);
+  ctx.globalAlpha=0.5;ctx.fillStyle='#fff8c8';ctx.fillRect(x-1,y-ch,2,ch);
+  ctx.globalAlpha=0.65;ctx.fillStyle='#ffffff';
+  ctx.fillRect(x-cw/2,y-ch,cw,1);ctx.fillRect(x-cw/2,y-1,cw,1);
+  ctx.fillStyle='#fff8c8';
+  for(let i=0;i<3;i++){                                   // 上升光点：固定 3 枚，按 tick 错相
+    const f=(tick*0.02+i/3)%1;
+    ctx.globalAlpha=0.65*(1-f);
+    ctx.fillRect(x+(i-1)*5,y-f*ch,2,2);
+  }
+  ctx.globalAlpha=1;
+}
+
+// v12 §任务5②：火柱（pillar）——warnT>0 只画地面红圈 + 收缩倒计时（圈收到最小=起柱）；
+// warnT<=0 后 h 从 0 长到 mh，画橙红火柱，底边固定在 h.y（引擎给的 gy），矩形宽 h.w。
+function _hzPillar(h,tick,ox,oy){
+  const x=px(h.x-ox),base=px(h.y-oy),w=Math.max(4,+h.w||14),wt=+h.warnT||0;
+  if(wt>0){
+    const wm=+h.warnMax||+h.warn||0.9,k=clamp(1-wt/wm,0,1);
+    const r0=Math.max(7,Math.round(w*0.8)+4),ri=Math.max(1,r0*(1-k));
+    ctx.globalAlpha=0.55+0.4*Math.sin(tick*0.45);
+    ctx.fillStyle='rgba(248,72,72,0.16)';
+    ctx.beginPath();ctx.arc(x,base-2,r0,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#f84848';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(x,base-2,r0,0,Math.PI*2);ctx.stroke();
+    ctx.globalAlpha=0.85;ctx.strokeStyle='#ffd0d0';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(x,base-2,ri,0,Math.PI*2);ctx.stroke();   // 收缩环＝倒计时
+    ctx.globalAlpha=0.8;ctx.fillStyle='#f84848';ctx.fillRect(x-1,base-4,3,3);
+    ctx.globalAlpha=1;
+    return;
+  }
+  const hh=clamp(+h.h||0,0,+h.mh||40);
+  if(hh<=1)return;
+  const top=base-hh;
+  ctx.globalAlpha=1;
+  ctx.fillStyle='rgba(192,40,24,0.88)';ctx.fillRect(x-w/2,top,w,hh);          // 柱体
+  ctx.fillStyle='#f87030';ctx.fillRect(x-Math.max(1,w*0.28),top+1,Math.max(2,w*0.56),hh-1);
+  ctx.fillStyle='#ffd080';ctx.fillRect(x-Math.max(1,w*0.12),top+2,Math.max(2,w*0.24),Math.max(1,hh-4));
+  ctx.fillStyle='#e04020';                                                     // 顶焰：3 枚按 tick 抖动
+  for(let i=0;i<3;i++){
+    const fx=x+(i-1)*Math.max(2,w*0.3),fh=3+((tick*7+i*13)%5);
+    ctx.fillRect(px(fx)-1,top-fh,2,fh);
+  }
+  ctx.globalAlpha=0.35;ctx.fillStyle='#f8a030';                               // 底部灼光（贴地）
+  ctx.beginPath();ctx.arc(x,base,Math.max(6,w),0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;
+}
+
+// v12 §任务5③：核心护盾（core）——18×18 金色悬浮核心，上下轻浮；用 hp/maxHp 画剩余量（底部小格），
+// 受击 flashT 按 0.12s 叠一层白（与分身同口径）。x 视作中心（引擎取 20%/80% 列中心），y 视作顶边。
+function _hzCore(h,tick,ox,oy){
+  const W=Math.max(8,+h.w||18),H=Math.max(8,+h.h||18);
+  const x=px(h.x-ox),y=px(h.y-oy),bob=Math.round(Math.sin(tick*0.12)*2),cy=y+H/2+bob;
+  ctx.globalAlpha=0.18;ctx.fillStyle='#f8d048';
+  ctx.beginPath();ctx.arc(x,cy,W*0.75,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;ctx.fillStyle='#a87810';
+  ctx.beginPath();ctx.moveTo(x,cy-7);ctx.lineTo(x+7,cy);ctx.lineTo(x,cy+7);ctx.lineTo(x-7,cy);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#f8d048';
+  ctx.beginPath();ctx.moveTo(x,cy-4.5);ctx.lineTo(x+4.5,cy);ctx.lineTo(x,cy+4.5);ctx.lineTo(x-4.5,cy);ctx.closePath();ctx.fill();
+  ctx.fillStyle='#fff6c0';ctx.fillRect(x-1,cy-1,3,3);
+  const mx=+h.maxHp||0,hp=clamp(+h.hp||0,0,mx||99);
+  if(mx>0){                                                                   // 剩余量：maxHp 枚 2×2 小格
+    const pw=Math.min(2,Math.floor((W-2)/Math.max(1,mx)));
+    for(let i=0;i<mx;i++){
+      ctx.fillStyle=i<hp?'#ffe070':'#5a4410';
+      ctx.fillRect(x-Math.floor(mx*(pw+1)/2)+i*(pw+1),y+H+3,pw,2);
+    }
+  }
+  const ft=+h.flashT||0;
+  if(ft>0){                                                                   // 受击闪白
+    ctx.globalAlpha=clamp(ft/0.12,0,1)*0.8;ctx.fillStyle='#ffffff';
+    ctx.beginPath();ctx.moveTo(x,cy-7);ctx.lineTo(x+7,cy);ctx.lineTo(x,cy+7);ctx.lineTo(x-7,cy);ctx.closePath();ctx.fill();
+    ctx.globalAlpha=1;
+  }
+}
+
+// v12 §任务5④：quellBlast（可选 hazard）——存在才画，全屏红闪（世界空间下用 cam 反推视口矩形）。
+// 时间口径：h.t 已存活秒数 / h.life 总时长；字段缺失按 0.35s、alpha .42 的短闪兜底，不抛异常。
+function _hzQuellBlast(h,tick){
+  const life=+h.life||0.35,t=+h.t||0,a=clamp(1-t/life,0,1)*0.42;
+  if(a<=0)return;
+  const cam=game.cam||{x:0,y:0};
+  ctx.globalAlpha=a;ctx.fillStyle='#f85030';
+  ctx.fillRect(px(cam.x)-8,px(cam.y)-8,VIEW_W+16,VIEW_H+16);
+  ctx.globalAlpha=1;
+}
+
+
 // v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
 // 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
 // 悬浮型中心对齐（'mid'）；alpha 由调用方给（含死亡渐隐/幽灵 0.78）。BAL 缺省回退 1.75。
@@ -2007,16 +2125,18 @@ function tintOf(img,color){
 
 // v7 §9.3：Boss 名/提示/刻度参数化（kind：0/1=星核巨兽、2=蛟龙·敖渊、3=幽冥判官；旧引擎无 kind → 0 零回归）。
 // BOSS_P2FRAC=P2 阶段刻度占条宽比例（=设计书 §6.4 的 50%/40%/40%）。
-const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜光·圣裁者'];
-const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决'];
+// v12：追加第 6 只「烈焰·牛魔王」（kind 6，L19）；上限随表扩到 5，否则 kind 6 会被夹回 4 顶冥古龙的名字。
+const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜光·圣裁者','烈焰·牛魔王'];
+const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决','末段·烈焰焚天'];
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
 // v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
 // （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
 // L16 显示 "undefined"。kind 缺省/0 → 回落 0（星核），与旧引擎零回归。
 // v7.9：表扩到 5 个（4=冥古龙、5=曜光·圣裁者），仍按 kind 1 基换算——上限随之 2→4，
 // 否则 kind 4/5 会被夹到 2 取到判官的名字（新 Boss 顶个旧名字，比没名字更误导）。
-const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(4,n-1):0;};
-const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5];
+// v12：上限 4→5（6=烈焰·牛魔王），三张表（名字/阶段提示/刻度比例）同步 6 项，避免暂停提示卡出现 undefined。
+const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(5,n-1):0;};
+const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5,0.5];
 // v7.9：Boss 三段血进度**唯一口径**。HUD 三段条、条上方剩余段方块、血条悬停提示卡三处全部从这里取数，
 // 禁止各处再自算一遍（旧版 bar 用 hp/maxHp、提示卡另说一套，三段化后必然漂移）。
 // bandMax 缺失（引擎三段血未合入 / 旧存档回放）→ seg=false，调用方回落旧单条血逻辑，保证不崩。
@@ -2038,6 +2158,13 @@ function _bossTickXs(b){
   const tot=+b.maxHp||0,bm=+b.bandMax>0?+b.bandMax:tot/3;
   if(!(tot>0&&bm>0))return[x0+inner/3,x0+inner*2/3];
   return[x0+inner*clamp(bm/tot,0,1),x0+inner*clamp(2*bm/tot,0,1)];
+}
+// v12：UI 侧只读引擎平衡表（预警尺寸要跟参数走，不能写死 46/12/0.9）。
+// kind 1 的键在 BAL.boss（历史命名），kind≥2 是 BAL.boss2..boss6；表缺失/引擎未合入 → null，调用方逐个回落默认值。
+function _bossCfg(b){
+  if(typeof BAL==='undefined'||!BAL||!b)return null;
+  const k=(+b.kind|0)||1;
+  return BAL[k===1?'boss':('boss'+k)]||null;
 }
 // v10 §任务2.1：Boss 新招式前摇特效统一入口（renderBoss 内、世界坐标）。
 // 旧代码的 windup 只有姿态偏移（dy/ad/jaw），玩家读不出「下一招是什么」；v10 新招判定更狠，
@@ -2096,6 +2223,106 @@ function renderBossWindupFx(b,bimg,bx,by){
       }
       ctx.globalAlpha=1;break;
     }
+    // v12 §任务3：五种新交互类型的专属预警——图形本身就要说清「该打断 / 该绕开 / 该跳 / 该离圈 / 该转火」。
+    // 所有尺寸优先读平衡表，读不到分别回落 46 / 0.9；hazards 缺失时每招仍保留自己的本体预警（绝不白板）。
+    case 'quell':{                                   // 蓄力全屏：头顶聚能球随前摇长大；ward 已生成则同步预演结界圈
+      const oy0=top-30,r=3+k*7;
+      ctx.globalAlpha=0.25+0.25*k;ctx.fillStyle='#f8d048';
+      ctx.beginPath();ctx.arc(px(cx),px(oy0),r+5,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.55+0.45*k;ctx.fillStyle='#f8a030';
+      ctx.beginPath();ctx.arc(px(cx),px(oy0),r,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;ctx.fillStyle='#fff6c0';
+      ctx.beginPath();ctx.arc(px(cx)-1,px(oy0)-1,Math.max(1,r*0.45),0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#ffe080';                                // 4 枚向心聚能光点：2×2 硬边，1× 下也读得出「在聚气」
+      for(let i=0;i<4;i++){
+        const a=(+b.t||0)*3+i*Math.PI/2,rr0=r+4+(1-k)*14;   // 半径随 k 收向球面＝「在聚气」
+        ctx.globalAlpha=0.5+0.5*k;
+        ctx.fillRect(px(cx+Math.cos(a)*rr0)-1,px(oy0+Math.sin(a)*rr0)-1,2,2);
+      }
+      ctx.globalAlpha=1;
+      for(const hz of game.hazards||[]){              // 圈还没生成（windup 期通常如此）→ 只留聚能球
+        if(!hz||hz.kind!=='ward')continue;
+        const wx=px(hz.x),wy=px(hz.y),wr=Math.max(8,+hz.r||22);
+        ctx.globalAlpha=0.25+0.35*k;ctx.strokeStyle='#f8d048';ctx.lineWidth=1.5;
+        if(ctx.setLineDash)ctx.setLineDash([4,3]);
+        ctx.beginPath();ctx.arc(wx,wy,wr,0,Math.PI*2);ctx.stroke();
+        if(ctx.setLineDash)ctx.setLineDash([]);
+        ctx.globalAlpha=0.06+0.10*k;ctx.fillStyle='#f8d048';
+        ctx.beginPath();ctx.arc(wx,wy,wr,0,Math.PI*2);ctx.fill();
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'grab':{                                    // 抓取：面向侧红爪扇 + reach×h 半透范围框（站进去=被摔）
+      const T=_bossCfg(b),reach=Math.max(8,+((T&&T.grab&&T.grab.reach)||46));
+      const fx=b.face>0?b.x+b.w:b.x,dir=b.face>0?1:-1,rx0=b.face>0?fx:fx-reach;
+      ctx.globalAlpha=0.08+0.14*k;ctx.fillStyle='#f84848';
+      ctx.fillRect(px(rx0),px(top),reach,b.h);
+      ctx.globalAlpha=0.45+0.5*k;ctx.strokeStyle='#f84848';ctx.lineWidth=1;
+      ctx.strokeRect(px(rx0)+0.5,px(top)+0.5,reach-1,b.h-1);
+      // 三根爪尖：从手部向外张开的像素三角，k 越大越长越亮
+      const hy=top+b.h*0.42,len=5+k*8;
+      ctx.globalAlpha=0.55+0.45*k;ctx.fillStyle='#ff8080';
+      for(let i=0;i<3;i++){
+        const yy=hy+(i-1)*7;
+        ctx.beginPath();ctx.moveTo(px(fx),px(yy)-3);
+        ctx.lineTo(px(fx+dir*len),px(yy));
+        ctx.lineTo(px(fx),px(yy)+3);ctx.closePath();ctx.fill();
+      }
+      // v12 实机：光靠红框读不出「这是抓取不是普通攻击」，框顶挂一个「抓」字（框内居中、不挡本体）
+      {
+        const bx0=px(b.face>0?b.x+b.w:b.x),bw2=reach,bh2=b.h;
+        const cx2=bx0+(b.face>0?bw2/2:-bw2/2),ty2=px(top)-13;
+        const w2=Math.ceil(_textW('抓',8))+6;
+        _panel(cx2-w2/2,ty2,w2,11,{cut:2,alpha:0.8});
+        drawCNText('抓',cx2,ty2+1,8,'#ff8080','center');
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'quake':{                                   // 劈地：举斧过顶（随 k 抬起）+ 地面横向蓄势线 + 朝向箭头
+      const gy=px(top+b.h),hx=px(cx),lift=Math.round(6+k*10);
+      ctx.fillStyle='#6a4428';ctx.fillRect(hx-1,px(top)-lift,2,15);       // 斧柄
+      ctx.fillStyle='#c8d0e0';                                            // 斧刃（梯形）
+      ctx.beginPath();ctx.moveTo(hx-9,px(top)-lift);ctx.lineTo(hx-3,px(top)-lift-6);
+      ctx.lineTo(hx-3,px(top)-lift+5);ctx.lineTo(hx-9,px(top)-lift+3);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#f0f6ff';ctx.fillRect(hx-8,px(top)-lift-1,5,2);
+      const dir=b.face>0?1:-1;
+      ctx.globalAlpha=0.45+0.5*k;ctx.fillStyle='#f8a030';
+      ctx.fillRect(px(cx)-26,gy-1,52,2);                                  // 蓄势线（贴地）
+      ctx.fillStyle='#ffe0a0';ctx.fillRect(px(cx)-18,gy-2,36,1);
+      for(let i=0;i<3;i++){                                               // 三组方向箭头：波往哪推一眼看出
+        const ax=px(cx)+dir*(20+i*5);
+        ctx.fillRect(ax-dir*3,gy-3,3,1);ctx.fillRect(ax-dir*3,gy+2,3,1);
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'pillar':{                                  // 火柱：脚下 3 个红圈按 warn 时长逐一亮起（第三个亮=马上起柱）
+      const T=_bossCfg(b),wt=+((T&&T.pillar&&T.pillar.warn)||0.9);
+      const kp=clamp((+b.t||0)/wt,0,1),gy=px(top+b.h);
+      for(let i=0;i<3;i++){
+        const lit=clamp((kp-(i*0.28))/0.16,0,1);      // 依次点火：0 / 0.28 / 0.56 起亮
+        const rr=5+lit*2.5,cxx=px(cx+(i-1)*22);
+        ctx.globalAlpha=0.25+0.6*lit;
+        ctx.strokeStyle=lit>0.5?'#ff7050':'#f84848';ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.arc(cxx,gy-2,rr,0,Math.PI*2);ctx.stroke();
+        if(lit>0){
+          ctx.globalAlpha=0.10+0.16*lit;ctx.fillStyle='#f84848';ctx.fill();
+          ctx.globalAlpha=0.7;ctx.fillStyle='#ffd0c0';ctx.fillRect(cxx-1,gy-3,2,2);
+        }
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'core':{                                    // 核心护盾：胸口两侧悬起两枚金色核心虚影（该转火，不该继续砸 Boss）
+      const cy0=top+b.h*0.40;
+      for(let i=0;i<2;i++){
+        const ox0=(i?1:-1)*(16+8*k),oy0=cy0+Math.sin((+b.t||0)*8+i*3)*2;
+        ctx.globalAlpha=0.18+0.22*k;ctx.fillStyle='#f8d048';
+        ctx.beginPath();ctx.arc(px(cx+ox0),px(oy0),6,0,Math.PI*2);ctx.fill();
+        ctx.globalAlpha=0.55+0.45*k;ctx.fillStyle='#c89018';
+        ctx.fillRect(px(cx+ox0)-3,px(oy0)-3,6,6);
+        ctx.fillStyle='#fff6c0';ctx.fillRect(px(cx+ox0)-1,px(oy0)-1,3,3);
+      }
+      ctx.globalAlpha=1;break;
+    }
   }
 }
 
@@ -2106,6 +2333,45 @@ function renderBossTags(b,tick){
   if(!b)return;
   const cx=px(b.x+b.w/2);
   let ty=px(b.y)-15;
+  // v12 §任务6：五种新交互的头顶读数（全部缺失守卫；旧引擎没有这些字段时本段整体空转）。
+  // ① 多段连撞：还要撞几段 → 「撞 N/M」（M 缺省只画 N），橙字 + 呼吸橙边
+  if(b.state==='chargeRun'&&((b.chargeN|0)>0)){
+    const n=b.chargeN|0,m=(b.chargeMax|0)||(((_bossCfg(b)||{}).charge||{}).hits|0);  // v12：hits 读平衡表（引擎不另发字段）
+    const txt=m>0?(n+'/'+m):(''+n);
+    const w=Math.ceil(_textW('撞',9))+8+Math.max(5,txt.length*4);
+    _panel(cx-w/2,ty,w,13,{cut:2,alpha:0.82});
+    drawCNText('撞',cx-w/2+5,ty+2,9,'#f8a030');
+    drawPixelText(txt,cx+w/2-5,ty+4,1,'#f8d048','right');
+    ctx.globalAlpha=0.45+0.45*Math.abs(Math.sin(tick*0.35));
+    ctx.strokeStyle='#f8a030';ctx.lineWidth=1;
+    ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
+    ty-=15;
+  }
+  // ② 蓄力全屏：打断进度条（clamp(quellDmg/breakDmg)，breakDmg 读不到按 12）；满值白闪 = 再一下就能断
+  if(b.state==='quellCast'){
+    const T=_bossCfg(b),bd=+((T&&T.quell&&T.quell.breakDmg)||12)||12;
+    const p=clamp((+b.quellDmg||0)/bd,0,1),w=46;
+    _panel(cx-w/2,ty,w,13,{cut:2,alpha:0.84});
+    drawCNText('蓄',cx-w/2+5,ty+2,9,'#f8d048');
+    ctx.fillStyle='#2a1408';ctx.fillRect(cx-w/2+14,ty+4,28,5);
+    ctx.fillStyle=p>=1?'#ffffff':(p>0.66?'#ff7050':'#f8a030');
+    ctx.fillRect(cx-w/2+14,ty+4,Math.round(28*p),5);
+    if(p>=1){                                            // 满值白闪：只闪框与条，不动整屏（避免和 quellFlash 撞）
+      ctx.globalAlpha=0.5+0.5*Math.abs(Math.sin(tick*0.5));
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1;
+      ctx.strokeRect(cx-w/2+13.5,ty+3.5,29,6);ctx.globalAlpha=1;
+    }
+    ty-=15;
+  }
+  // ③ 召唤回血：绿色「回」呼吸（低成本读数；血条高光由血条段自己判断）
+  if((b.leechOn||0)>0){
+    const a=clamp(+b.leechOn||0,0,1);
+    ctx.globalAlpha=0.55+0.45*Math.abs(Math.sin(tick*0.18))*a;
+    _panel(cx-8,ty,16,13,{cut:2,alpha:0.7});
+    drawCNText('回',cx,ty+2,9,'#70f090','center');
+    ctx.globalAlpha=1;
+    ty-=15;
+  }
   if((b.comboN|0)>=1){
     // 中文走 drawCNText、数字走 drawPixelText（契约）：面板里是「连」+ 剩余招数（像素字）。
     const n=((b.comboQ&&b.comboQ.length)||1);
@@ -2142,8 +2408,10 @@ function renderBoss(tick){
   // v7.9：部件表扩到 5 个（4=冥古龙 64×48、5=曜光·圣裁者 44×52）。美术并发交付，缺 boss4/boss5 时
   // 逐档向前回落（缺自己→上一档），**不允许整块 return**：旧写法 !P 直接返回会让新 Boss 整只隐形，
   // 玩家只能看见血条在掉——宁可先借上一只的贴图，也必须"Boss 一定看得见"。
+  // v12：扩到 6 个（6=烈焰·牛魔王 56×48，美术并行交付中）——缺 boss6 → 借 boss4 → boss3，绝不隐形。
   const _bi=_bossIdx(b.kind);
-  const P=[SPR.boss,SPR.boss2,SPR.boss3,SPR.boss4||SPR.boss3,SPR.boss5||SPR.boss4||SPR.boss3][_bi];
+  const P=[SPR.boss,SPR.boss2,SPR.boss3,SPR.boss4||SPR.boss3,SPR.boss5||SPR.boss4||SPR.boss3,
+           SPR.boss6||SPR.boss4||SPR.boss3][_bi];
   if(!P)return; // 连回落档都没有（art 全缺）→ 整块不画（既有兜底保留）
   if(b.state==='blinkCast'&&b.hidden)return; // v7 §9.3：blink 隐身期整帧跳过渲染（免伤免接触由引擎管）
   const p=game.player,R=b.phase===2;                 // 换装组选择
@@ -2154,6 +2422,16 @@ function renderBoss(tick){
     ctx.strokeStyle='#f86030';
     ctx.globalAlpha=clamp(.6-.5*b.t,0,1);
     ctx.beginPath();ctx.arc(b.x+b.w/2,b.y+b.h/2,b.t*90,0,Math.PI*2);ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+  // v12：核心护盾期给本体套一层青色护罩——玩家打上去「没伤害」必须能立刻看出原因，
+  // 否则会以为是自己没打中（实机截图里本体和常态几乎一样）。
+  if(b.coreOn){
+    const bcx2=b.x+b.w/2,bcy2=b.y+b.h/2,rx2=b.w/2+7,ry2=b.h/2+6;
+    ctx.globalAlpha=0.14+0.05*Math.sin(tick*0.22);ctx.fillStyle='#8ad8f8';
+    ctx.beginPath();ctx.ellipse(bcx2,bcy2,rx2,ry2,0,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=0.55+0.2*Math.sin(tick*0.22);ctx.strokeStyle='#bfeaff';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.ellipse(bcx2,bcy2,rx2,ry2,0,0,Math.PI*2);ctx.stroke();
     ctx.globalAlpha=1;
   }
   let dy=0,ad=14,jaw=0,eye='eye';                    // 默认 idle 行
@@ -2181,6 +2459,12 @@ function renderBoss(tick){
     case 'homingCast': ad=8;jaw=1;eye='rage';break;                       // 聚球：收臂于胸
     case 'cloneCast': ad=12;jaw=1;eye='rage';break;                       // 分裂：半张臂
     case 'pullCast': ad=2;jaw=1;eye='rage';break;                         // 吸附：前伸张手
+    // v12 §任务4：五种新交互的施法姿态（旧引擎不会进入这些 state，纯增量）
+    case 'quellCast': dy=-2;ad=4;jaw=1;eye='rage';break;                   // 蓄力：微仰、双臂上抬
+    case 'grabCast': dy=1;ad=0;jaw=1;eye='rage';break;                     // 抓取：前扑、手臂抬到最高
+    case 'quakeCast': dy=3;ad=18;jaw=1;eye='rage';break;                   // 劈地：下沉、双臂下垂抡斧
+    case 'pillarCast': ad=8;jaw=1;eye='rage';break;                        // 火柱：半收臂踏地
+    case 'coreCast': dy=-3;ad=6;jaw=1;eye='rage';break;                    // 核心：后仰张臂召唤
   }
   const baseA=(b.state==='dying'&&(tick%8<4))?0.5:1; // dying：(tick%8<4) 整体 alpha .5
   ctx.globalAlpha=baseA;
@@ -2203,7 +2487,8 @@ function renderBoss(tick){
   }
   ctx.globalAlpha=baseA;
   if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
-  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White,SPR.boss4White||SPR.boss3White,SPR.boss5White||SPR.boss4White||SPR.boss3White][_bi]; // v7.9：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
+  const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White,SPR.boss4White||SPR.boss3White,SPR.boss5White||SPR.boss4White||SPR.boss3White,
+            SPR.boss6White||SPR.boss4White||SPR.boss3White][_bi]; // v12：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
   if(b.flashT>0&&PW){                                         // 白闪：同偏移再画一遍
     ctx.globalAlpha=baseA*clamp(b.flashT/0.12,0,1);
     ctx.drawImage(PW.body,px(bdx),px(bdy+dy));
@@ -2580,7 +2865,12 @@ function renderHUD(){
   // v5 §A-1/§E：顶栏换肤——深蓝半透底+下缘 1px 金细线；文字色按 §5.5 色系
   ctx.fillStyle='rgba(10,18,42,0.62)';ctx.fillRect(0,0,VIEW_W,16);
   ctx.fillStyle='#f0c860';ctx.fillRect(0,15,VIEW_W,1);
+  // v12：长关卡名（19 · BOSS·火焰山·牛魔王 ≈ 150px）会压到 x=100 的金币图标上，
+  // 实机截图里是「文字末尾和金币叠成一坨」。顶栏文字区固定 0..96：超长直接裁掉，
+  // 完整名字在选关屏与 Boss 登场横幅里都有，这里不需要重复。
+  ctx.save();ctx.beginPath();ctx.rect(0,0,96,16);ctx.clip();
   drawCNText(L.meta.name,5,3,10,'#f0f4ff');
+  ctx.restore();
   // 金币
   ctx.drawImage(SPR.coin[0],100,4);
   drawPixelText(game.coins+'/'+L.totalCoin,111,5,1,'#f8d048');

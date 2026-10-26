@@ -1,5 +1,5 @@
 // tools/_v77_skins_art.js —— v7.7 换色皮肤系统自检（node tools/_v77_skins_art.js 直跑）
-// 覆盖四件事：① 17 套帧键集合 == 现有 SPR.hero* 键集合（逐 id 报缺键）；② 帧都是有效 canvas；
+// 覆盖四件事：① 20 套帧键集合 == 现有 SPR.hero* 键集合（逐 id 报缺键）；② 帧都是有效 canvas；
 // ③ 惰性生成/缓存/未知 id 回落；④ 色彩审计（k 非纯黑、B<b<W、o<s<y、两两色相角差 ≥12°）
 // ⑤ buildSprites 的 v7.7 额外耗时（对比「去掉 getHeroSkin('blue') 那一行」的同源构建）。
 'use strict';
@@ -60,9 +60,9 @@ const heroKeys = Object.keys(A.SPR).filter(k => /^hero[A-Z]/.test(k));
 const want = heroKeys.map(k => k[4].toLowerCase() + k.slice(5)).sort();
 console.log('基线 SPR.hero* 键 ' + heroKeys.length + ' 个 → 皮肤帧键集合 ' + want.length + ' 个: ' + want.join(', '));
 
-/* ---------- ② 19 套帧完整性 + 有效 canvas ---------- */
+/* ---------- ② 20 套帧完整性 + 有效 canvas ---------- */
 const SKINS = A.HERO_SKINS;
-if (!Array.isArray(SKINS) || SKINS.length !== 19) fails.push('HERO_SKINS 应为 19 项，实为 ' + (SKINS && SKINS.length));
+if (!Array.isArray(SKINS) || SKINS.length !== 20) fails.push('HERO_SKINS 应为 20 项，实为 ' + (SKINS && SKINS.length));
 // 主角网格用到的全部字符（缺任一调色板键 → _makeSprite 静默跳过该像素 → 帧上出现「洞」）
 const usedChars = {};
 for (const gname of Object.keys(A.GRIDS)) {
@@ -112,9 +112,9 @@ if (blue1.idle1 !== A.SPR.heroIdle1) fails.push("blue 未复用 SPR.heroIdle1（
 if (blue1.attackGold !== A.SPR.heroAttackGold) fails.push('blue 未复用 SPR.heroAttackGold');
 const unk = A.getHeroSkin('不存在的id');
 if (unk !== blue1) fails.push("未知 id 未回落到 blue");
-// 其余 18 套首次取用时才生成（此刻应已全部在缓存里）
+// 其余 19 套首次取用时才生成（此刻应已全部在缓存里）
 const lazyN = Object.keys(A.SPR.skins).length;
-if (lazyN !== 19) fails.push('SPR.skins 缓存数应为 19，实为 ' + lazyN);
+if (lazyN !== 20) fails.push('SPR.skins 缓存数应为 20，实为 ' + lazyN);
 console.log('惰性/缓存: blue 复用既有帧=' + (blue1.idle1 === A.SPR.heroIdle1) + '，同 id 同对象=' + (blue1 === blue2) + '，未知 id 回落 blue=' + (unk === blue1));
 
 /* ---------- ④ 色彩审计 ---------- */
@@ -167,7 +167,7 @@ for (let i = 0; i < 5; i++) {
   tBuildNoPre = Math.min(tBuildNoPre, timeBuild(noPre));
 }
 const tDelta = tBuild - tBuildNoPre;
-// 单套皮肤惰性生成成本（18 套平均）：全新沙箱里 buildSprites 后逐套首取
+// 单套皮肤惰性生成成本（19 套平均）：全新沙箱里 buildSprites 后逐套首取
 const C = sandbox(src); C.buildSprites();
 const tA = process.hrtime.bigint();
 for (const sk of SKINS) if (sk.id !== 'blue') C.getHeroSkin(sk.id);
@@ -175,7 +175,7 @@ const tB = process.hrtime.bigint();
 const tLazyAll = Number(tB - tA) / 1e6;
 console.log('\n耗时（canvas 桩环境，交替 5 轮取最小）：buildSprites 含预生成 ' + tBuild.toFixed(2) + 'ms / 不含 ' + tBuildNoPre.toFixed(2)
   + 'ms → v7.7 启动增量 ' + (tDelta >= 0 ? '+' : '') + tDelta.toFixed(2) + 'ms（阈值 <30ms；负值=纯噪声，即预生成 blue 不画像素）');
-console.log('惰性成本参考：首次取 16 套皮肤 ' + tLazyAll.toFixed(2) + 'ms（均摊 ' + (tLazyAll / 16).toFixed(2) + 'ms/套，只在用到时才付）');
+console.log('惰性成本参考：首次取 19 套皮肤 ' + tLazyAll.toFixed(2) + 'ms（均摊 ' + (tLazyAll / 19).toFixed(2) + 'ms/套，只在用到时才付）');
 if (tDelta >= 30) fails.push('buildSprites 的 v7.7 启动增量 ≥30ms（' + tDelta.toFixed(2) + 'ms）');
 
 /* ---------- 汇总 ---------- */
@@ -184,4 +184,4 @@ if (fails.length) {
   for (const f of fails) console.error('  - ' + f);
   process.exit(1);
 }
-console.log('\n[PASS] 19 套皮肤：帧键集合完整、帧有效且冻结、惰性缓存与回落正确、色彩审计全部通过');
+console.log('\n[PASS] 20 套皮肤：帧键集合完整、帧有效且冻结、惰性缓存与回落正确、色彩审计全部通过');

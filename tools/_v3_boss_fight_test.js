@@ -17,12 +17,13 @@ let g = sb.game;
 g.state = 'play';
 g.player.x = g.boss.x - 140; // 进入激活半径 176px（Boss 中心 840，玩家中心 ≈ 840-135）
 const seen = new Set();
-let nanHit = false;
+let nanHit = false, bossHurt = false;   // v12：死亡复活会把段回满，必须逐帧记录「掉过血」
 for (let f = 0; f < 1800; f++) {
   if (f % 21 === 0) g.input.attackHit = 1;
   g.input.right = (f % 120 < 60) ? 1 : 0;
   sb.updateWorld(1 / 60);
   seen.add(g.boss.state);
+  if (g.boss.hpTotal < g.boss.maxHp) bossHurt = true;
   if (!Number.isFinite(g.player.x) || !Number.isFinite(g.player.y) || !Number.isFinite(g.player.hp) ||
       !Number.isFinite(g.boss.x) || !Number.isFinite(g.boss.y) || !Number.isFinite(g.boss.hp)) { nanHit = true; break; }
 }
@@ -32,7 +33,7 @@ console.log('F.4: states=[' + Array.from(seen).join(',') + '] boss.hp=' + g.boss
 if (nanHit) fail('出现 NaN');
 if (!seen.has('idle')) fail('boss.state 未经历 idle');
 if (!seen.has('windup')) fail('boss.state 未经历 windup');
-if (!(g.boss.hp < 60)) fail('boss.hp 未受伤（仍 60）');
+if (!bossHurt) fail('整场 1800 帧内 Boss 一次血都没掉（hpTotal 恒 = ' + g.boss.maxHp + '）');
 if (g.deaths < 0) fail('deaths 异常');
 
 /* ---------------- F.5 技能冒烟 ---------------- */
@@ -62,16 +63,16 @@ if (!(g.boss.hp < hpBefore)) fail('星陨未命中 Boss（hp 未下降）');
 /* O 流星连斩：注入连击 8 → 白屏 + 清弹 + 消耗连击 */
 let sawFlash = false, bulletsCleared = false;
 for (let f = 0; f < 600 && !sawFlash; f++) {
-  g.combo = 8; // 注入连斩充能门槛（设计 §4 修正口径）
+  if (g.ultCharge < 100) g.ultCharge = 100; // v7.1：O 已改能量制（combo≥8 的门槛废除）
   if (g.skills.o <= 0) g.input.skillOHit = 1;
   sb.updateWorld(1 / 60);
   if (g.flashT > 0) { sawFlash = true; bulletsCleared = (g.bullets.length === 0); }
 }
 console.log('F.5-O: flashT>0=' + sawFlash + ' bullets清空=' + bulletsCleared +
-  ' combo_after=' + g.combo + ' skills.o=' + g.skills.o.toFixed(1));
+  ' ultCharge=' + g.ultCharge + ' skills.o=' + g.skills.o.toFixed(1));
 if (!sawFlash) fail('连斩白屏未出现（game.flashT 恒 0）');
 if (!bulletsCleared) fail('连斩未清空弹幕');
-if (g.combo !== 0) fail('连击未消耗（combo≠0）');
+// 能量消耗不能用终值断言：连斩本身每命中一次就回 10 点，放完立刻又被自己打满；CD 置位才是释放证据
 if (g.skills.o <= 0) fail('O CD 未置位');
 
 /* I 护盾冒烟（补充）：护盾期 Boss 接触不掉血 */

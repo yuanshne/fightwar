@@ -531,3 +531,43 @@ x 精英·枪虾王(放大枪虾,必掉装备)  z 精英·幽灵王(放大幽灵
   钳到 2 就把面板顶到 HUD（占 0~30）上，三行字只剩半截。
 - 进关提示条**必须两行**：单行 35+ 字约 380px，实测左右两端被 384 画布裁掉。
   位置在天空区（`VIEW_H-140`），贴底画会压在土块纹理上读不出来。
+
+## v12 Boss 交互七类型 + L19 火焰山（追加，2026-10-26 · 集成队录入）
+
+### 为什么要做
+v10 的 8~10 招虽然多，**应对动作只有一种**：看预警 → 走开。打两遍就能背板，玩家原话「boss 没啥意思」。
+造梦西游的招式之所以耐打，是**每招要求不同的正确动作**。新增的是"动作类型"，不是更多红圈。
+
+### 七种类型（状态名/字段名已冻结，改名前先改 spec + UI 守卫）
+| 类型 | 引擎状态 | 关键字段 | 正确动作 |
+|---|---|---|---|
+| 多段连撞 | `chargeRun` | `b.chargeN`、`T.charge.hits` | 往场地中间绕（撞墙/跑满行程都会反弹续冲） |
+| 召唤回血 | `summonCast` | 召唤体 `leech:true`、`T.summon.leech/leechCap`、`b.leechOn` | 先清小怪 |
+| 蓄力全屏 | `quellCast` | `T.quell{dur,warn,r,n,breakDmg,dmg}`、`b.quellDmg/quellDur/quellFlash`、hazard `ward` | 打断（伤害累计 ≥ breakDmg）或站进结界圈 |
+| 抓取摔投 | `grabCast` | `T.grab{reach,dmg}` | 不站正前方 46px |
+| 劈地波 | `quakeCast` | `T.quake{w14,h26,...}`、`wave.tall=true` | 跳（26 < 单跳 53） |
+| 火柱 | `pillarCast` | `T.pillar{n,warn,w,h,life,gap,dmg}`、hazard `pillar` | 离红圈，绕开已升起的柱 |
+| 核心护盾 | `coreCast` | `T.core{n,hp,life,r}`、`b.coreOn`、hazard `core` | 转火打核心（本体免伤） |
+
+### 硬约束
+1. **每招可躲，且必须有脚本断言**（`tools/_v12_boss_test.js` 45 条）：抓取背后不中、劈地起跳不中、
+   结界圈内 0 伤 / 圈外 2 伤、打断转破绽、核心破光转 2s 破绽。改判定后这些断言必须仍绿。
+2. **伤害上限 2**：只有 `grab`/`quell` 是 2（长前摇 0.75~0.9s + 专属预警），其余 1。禁秒杀。
+3. **回血不跨段**：`hpTotal` 封顶 `(3-bandBreak)*bandMax`；否则三段血语义崩（玩家会把回血当"打不死"）。
+4. **每一招都要补 `windup`/`recover` 键**；参数对象允许缺表但有兜底（`T.core || BAL.boss4.core`），
+   这条是实机截图踩出来的：boss6 没配 `quell/core`，一旦进对应状态直接抛异常、主循环报错。
+5. **新 hazard 走同一个 `game.hazards`**，跨段/真死/接力/respawn 五处清场自动覆盖。
+   核心额外兜底：`hp<=0` 在 hazard 更新里统一收尸并调 `_engCoreBreakCheck()`，
+   否则 0 血核心会被 `coreCast` 的 `coreAlive` 当成还活着 → Boss 永久免伤。
+
+### 站位（实机改过两次，别再改回去）
+- `ward` 结界：**以玩家为基准左右各 120px**（原来放场地 25%/75% 列，距 576px，
+  相机跟玩家不跟 Boss，两个安全区全在镜头外 = 这招只能靠打断）。
+- `core` 核心：**Boss 两侧 ±150px**（原来放场地 20%/80% 列，同样在镜头外，玩家看不到打哪里）。
+- 两者都必须"同屏可见 + 需要迈步/跳起"，不允许白送原地安全区。
+
+### L19 与 UI
+- `meta.boss` 值域扩到 `[true,2,3,4,5,6]`（`levels.js` 白名单 + `gate.js` kind 判断同步）。
+- `_bossIdx` 上限 4→5；`BOSS_NAME/BOSS_P2TIP/BOSS_P2FRAC` 与部件表、白剪影表同步加第 6 项并保留回落链。
+- 顶栏关卡名**只放得下 96px**（`ctx.clip`）：长名字会和 x=100 的金币图标叠成一坨，L19 名已缩短为「19 · 火焰山」。
+- 核心护盾期本体必须套青色护罩（`b.coreOn`）：打上去没伤害但不给视觉解释，玩家会以为是自己没打中。
