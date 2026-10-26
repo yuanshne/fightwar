@@ -502,3 +502,32 @@ x 精英·枪虾王(放大枪虾,必掉装备)  z 精英·幽灵王(放大幽灵
 - `SPR.spike`：4 帧 × 20×24，UI 按当前高度纵向压缩（底边对齐），所以必须画成"从下往上长"。
 - `SPR.bossGhost`：52×48 单张画布，半透明紫色能量体（UI 再叠 `alpha 0.55`）。
 - 两者缺失时 UI 走程序化兜底，**不许抛异常**（`_v10_ui.js` 有缺失路径断言）。
+
+## v11 终点封印（追加，2026-10-26 · 集成队录入）
+
+### 规则
+- 小关终点有封印，三条路**任选其一**解除：击败 60% 敌人 / 收集 40% 金币（**按枚数**）/ 解开神龛。
+- Boss 关豁免：`seal.open = true, via = 'boss'`。
+- 死亡 ≥5 次后门槛各降 20%，只降一次（`relaxed` 守卫）。封印是引导，不是惩罚。
+- **封印不加物理碰撞**，只拦 `levelClear()`。给封印加实心会让 `reach` 从 27/27 直接归零 —— 这是红线。
+
+### 数据（`game.seal`，`loadLevel` 初始化）
+```js
+{ enemyTotal, enemyKilled, enemyNeed,    // 战斗线
+  coinTotal, coinGot, coinNeed,          // 探索线（枚数口径）
+  hasShrine, shrineOk,                   // 解谜线
+  open, via, blockT, relaxed }
+```
+- `enemyKilled` / `coinGot` **每帧从实体重算**（`_engSealTick`），不要直接改这两个字段做测试——
+  下一帧就被覆盖。测试要改真实实体（`e.dead=1` / `c.got=true`）。
+- 金币用 `L.coins.filter(c=>c.got).length`，**不能用 `game.coins`**（跨关累积，`loadLevel(idx,true)` 不清零）。
+- `coinTotal` 与 HUD 的 `L.totalCoin` **口径不同**：面板按枚数，HUD 按面值（宝石 5、木箱含 1）。
+  所以面板金币行必须带「枚」后缀，否则两个分母并排会让玩家以为数据错乱。
+- 跨关谜题状态：ui 在 `startLevel` 把 `progress.puzzles[idx]` 回填进 `game.solvedPuzzles`，
+  engine 只读后者，不碰 localStorage。
+
+### 渲染约束（都是实机截图踩出来的）
+- 条件面板 `sy` 下限 **34**（不是 2）：终点旗贴地面时 `g.y-44-ph` 常算出 5~15，
+  钳到 2 就把面板顶到 HUD（占 0~30）上，三行字只剩半截。
+- 进关提示条**必须两行**：单行 35+ 字约 380px，实测左右两端被 384 画布裁掉。
+  位置在天空区（`VIEW_H-140`），贴底画会压在土块纹理上读不出来。

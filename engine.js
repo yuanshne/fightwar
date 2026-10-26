@@ -150,6 +150,14 @@
        第二招前摇 -20%；连段收尾强制 0.9s 大破绽（stagger 受击 ×1.5），单招 30% 概率 0.6s 小破绽；
      - 选招轮转修复：旧写法先 filter lastPattern 再取模，池长 4/5 抖动导致某些招永远轮不到；
        改为在池上按位递增、撞到上一招才顺延（每轮覆盖池内全部招式）。
+   v11 增量（玩家反馈：「小关可以什么都不干直接位移到最后，没啥体验」）：
+     - 终点「封印」：碰旗不再直接过关，需三条路任选其一解锁——战斗（击败本关 60% 敌人）/
+       金币（拾取本关 40% 金币实体）/ 解谜（解开本关神龛）；任一条达成即放行，
+       保证任何玩家都能用自己擅长的方式推进，绝不卡关。Boss 关豁免（Boss 本身就是目标）。
+     - 封印**不参与物理**：只拦 levelClear()，玩家矩形照样能走进终点区域（只轻推 vx 弹回），
+       否则 tools/reach.js 的「玩家矩形物理命中终点」可达性门禁会 27/27 全红。
+     - Level 构造统计 enemyTotal（Boss 召唤体不计，见 _engBossSummon 的 e.summoned）；
+       game.seal 在 loadLevel 初始化，计数每帧从实体重算（respawn 复活敌人后进度自动回落）。
    硬性约束（契约第 0 节）：
      - 普通 script 文件：无 import/export；顶层只做声明，
        顶层零 DOM / 零音频 / 零键盘（node 门禁会在无 DOM 环境执行本文件）；
@@ -734,6 +742,9 @@ class Level {
     }
 
     this.totalCoin = this.coins.reduce((a, c) => a + (c.key ? 0 : (c.gem ? 5 : 1)), 0) + brickN; // 木箱内含金币一并计入
+    // v11：终点封印的分母——实体提取结束后的敌人数快照（Boss 召唤体是运行时 push 进 L.enemies 的，
+    // 构造期不在数组里，天然不计入；_engSealTick 里再按 e.summoned 兜一层，逻辑干净）。
+    this.enemyTotal = this.enemies.length;
     this.par = meta.par;
   }
 
@@ -806,6 +817,9 @@ const game = {
   puzzleActive: false,   // 谜题覆盖层打开中——updateWorld 顶部直接 return（同 paused 冻结语义，不改 paused）
   puzzleNear: -1,        // 玩家靠近的神龛 idx（1~6），不靠近=-1（每步刷新；ui 据此提示/消费开龛键）
   solvedPuzzles: {},     // 已解神龛表 {"1":true,...}（loadLevel 重置；ui 从 localStorage 注入已解状态）
+  // v11：终点封印状态（loadLevel 初始化；updateWorld ④′ 每帧刷新计数与 open 位，读侧全部守卫）。
+  // 字段见 _engSealInit / _engSealTick；ui 只读（blockT>0 时做终点闪烁提示）。
+  seal: null,
   // v5（工单 §D/§E）：演出设施 + O 技能状态机。floats/fxParts/scars 引擎只 push（带容量守卫），
   // ui 每步推进+修剪（hit-stop/ult 冻结期间照常推进）——引擎任何地方不得 filter/splice 这三者。
   floats: [],            // 浮动文字（伤害/金币/COMBO/KO/GUARD，≤40）
@@ -908,6 +922,8 @@ function loadLevel(idx, keepStats) {
   // v4：谜题状态复位——覆盖层强制关闭 / 接近清空 / 已解表清空（工单 4：
   // solvedPuzzles={} 在 loadLevel 重置；已解状态由 ui 在 startLevel 后从 localStorage 注入）
   game.puzzleActive = false; game.puzzleNear = -1; game.solvedPuzzles = {};
+  // v11：终点封印随换关重建（Boss 关直接 open；enemyNeed/coinNeed 由本关实体数算）
+  game.seal = _engSealInit(L);
   // v5 §D/§E：演出设施复位（floats/fxParts/scars 清空重开）+ 震屏槽 + O 技能状态机
   game.floats = []; game.fxParts = []; game.scars = [];
   game.shakePend = null;
@@ -1006,6 +1022,75 @@ function levelClear() {
     }
   }
   // 星级/解锁/存档由 ui 层负责，engine 不碰 localStorage
+}
+
+/* ==================== v11：终点封印（内部） ====================
+   玩家反馈：「小关可以什么都不干直接位移到最后」——v7.9 把谜题门拆掉后，终点判定退化成
+   「碰到旗就过关」，敌人/金币/神龛全部变成可跳过的装饰。这里补一层「封印」，但**不做单条件**：
+   单条件必然卡人（某个金币在难跳支线、某个敌人藏在死角），所以三条路任选其一，玩家爱打就打、
+   爱捡就捡、爱解谜就解谜：
+     战斗线 enemyKilled ≥ 60% 敌人 / 探索线 coinGot ≥ 40% 金币实体 / 解谜线 本关神龛已解。
+   Boss 关豁免（open=true, via='boss'）：Boss 本身就是目标，不需要额外条件。
+   **计数口径**：
+     - 敌人：L.enemies 里 dead>0 且非 Boss 召唤体（e.summoned）的个数；
+     - 金币：L.coins 里 got 的实体个数——**绝不能用 game.coins**，它跨关累积
+       （loadLevel(idx,true) 不清零），带着上一关的余额进来会直接白给；
+       也不用 totalCoin（含宝石面值 5 与木箱内含），否则 coinNeed 与实际进度对不上；
+     - 谜题：game.solvedPuzzles[L.shrines[0].idx]（ui 把 localStorage 同步进该字段，engine 不读存档）。
+   每帧从实体重算而不是累加：respawn 会把敌人复活（dead 归 0），累加器会把「复活后再杀一次」
+   重复计数，重算则天然与画面一致。 */
+function _engSealInit(L) { // 内部：封印状态初值（loadLevel 调用）
+  const et = L.enemyTotal || 0, ct = L.coins.length;
+  const boss = !!(L.meta && L.meta.boss); // v11：Boss 关豁免
+  return {
+    enemyTotal: et,
+    enemyKilled: 0,
+    enemyNeed: Math.max(1, Math.ceil(et * 0.60)),  // v11：战斗线 60%（最低 1，空关不卡）
+    coinTotal: ct,
+    coinGot: 0,
+    coinNeed: Math.max(1, Math.ceil(ct * 0.40)),   // v11：探索线 40%（口径=金币实体个数）
+    hasShrine: L.shrines.length > 0,
+    shrineOk: false,
+    open: boss,
+    via: boss ? 'boss' : null,   // 'battle' | 'coin' | 'puzzle' | 'boss' | null
+    blockT: 0,                   // 被封印弹回的提示计时（ui 读它做终点闪烁）
+    relaxed: false               // v11 防卡关兜底：只降一次
+  };
+}
+
+function _engSealTick(dt) { // 内部：每帧刷新封印计数/开放位 + 防卡关兜底（updateWorld ④′ 调用）
+  const s = game.seal, L = game.level, p = game.player;
+  if (!s || !L) return;
+  if (s.blockT > 0) s.blockT = Math.max(0, s.blockT - dt); // 弹回提示计时递减
+  /* v11 防卡关兜底：本关死满 5 次说明「这条线他真打不过」——两条硬指标各降 20%（只降一次）。
+     封印是引导玩家体验内容，不是惩罚玩家；继续卡只会劝退。 */
+  if (!s.relaxed && game.deaths >= 5) {
+    s.relaxed = true;
+    s.enemyNeed = Math.max(1, Math.floor(s.enemyNeed * 0.8));
+    s.coinNeed = Math.max(1, Math.floor(s.coinNeed * 0.8));
+    if (p) _engFloat(p.x + 5, p.y - 14, '封印松动', '#b060f0', 1);
+    game.sfxQueue.push('puzzle');
+  }
+  if (s.open) return; // 已解：不再重算（解开的封印不会因为死亡复活而重新锁上）
+  let ek = 0;
+  for (const e of L.enemies) if (e.dead > 0 && !e.summoned) ek++; // Boss 召唤体不计入战斗线
+  s.enemyKilled = ek;
+  let cg = 0;
+  for (const c of L.coins) if (c.got) cg++;
+  s.coinGot = cg;
+  // 谜题线：ui 在 loadLevel 之后才把存档注入 solvedPuzzles，所以必须每帧读、不能在 init 里定死
+  s.shrineOk = !!(s.hasShrine && game.solvedPuzzles && game.solvedPuzzles[L.shrines[0].idx]);
+  if (s.enemyKilled >= s.enemyNeed) { s.open = true; s.via = 'battle'; }
+  else if (s.coinGot >= s.coinNeed) { s.open = true; s.via = 'coin'; }
+  else if (s.shrineOk) { s.open = true; s.via = 'puzzle'; }
+  if (s.open) { // 解除特效：金色粒子一圈 + 轻震屏 + 浮字（终点可能在屏幕外，所以落在玩家身上）
+    if (p) {
+      _engAddParts(p.x + 5, p.y + 7, 18, '#f8d048', 120, 90);
+      _engFloat(p.x + 5, p.y - 16, '封印解除', '#f8d048', 1);
+    }
+    _engShake(3, 0);
+    game.sfxQueue.push('door'); // 用「开门」音：封印=一道门；'clear' 是通关号角，会误导玩家
+  }
 }
 
 /* ==================== v4：谜题神龛结算（新契约导出，见 CONTRACT 附记） ==================== */
@@ -1307,6 +1392,7 @@ function _engBossSummon(T) { // 内部：v7 §6.2 参数化召唤（type/n/off �
     const e = _engMkEnemy(S.type, b.x + b.w / 2 + S.off[i] - 8, b.y + b.h - 16, false);
     e.hp *= _engBossMinionHpMul; // v10：倍率已改 1（基础血 ×3 后不再叠加 Boss 关加成）；保留调用点作为未来挂点
     e.vx = _engSign(S.off[i]) * Math.abs(e.vx || BAL.enemy[S.type].spd || 0) || _engSign(S.off[i]) * 28;
+    e.summoned = true; // v11：召唤体不计入终点封印的战斗线（enemyTotal 是构造期快照，逻辑对齐）
     L.enemies.push(e);
   }
 }
@@ -2759,10 +2845,27 @@ function updateWorld(dt) {
     }
   }
 
+  /* ④′ v11：终点封印刷新（三条路任选其一；Boss 关 loadLevel 时已 open）。
+        放在终点判定之前，保证「本帧刚好达成条件 → 本帧就能过关」。 */
+  _engSealTick(dt);
+
   /* ⑤ 终点判定（v7.9：谜题不再是通关前置——玩家明确要求「数独/数织别强制做」。
         神龛降级为可选支线：解开必掉 1 件当档装备（见 puzzleSolved），不解也能直接通关。
-        旧的 v7.3 谜题门（未解神龛 → 终点不通关 + 每 2.5s 引导浮字）整段移除。） */
-  if (!p.dead && L.goal && _engAabb(p, L.goal)) { levelClear(); return; }
+        旧的 v7.3 谜题门（未解神龛 → 终点不通关 + 每 2.5s 引导浮字）整段移除。）
+        v11：改由「封印」把关——碰旗先看 game.seal.open，未解只轻推弹回 + 提示。
+        **这里只改速度、不改坐标、不加实心碰撞**：tools/reach.js 的可达性门禁判的是
+        「玩家矩形物理命中终点矩形」，给封印加碰撞会让 27/27 全红（硬要求）。 */
+  if (!p.dead && L.goal && _engAabb(p, L.goal)) {
+    const s = game.seal;
+    if (!s || s.open) { levelClear(); return; }
+    if (s.blockT <= 0) { // 0.9s 节流：站在旗里也不会每帧被推
+      p.vx = (p.x + p.w / 2 < L.goal.x + L.goal.w / 2 ? -1 : 1) * 140;
+      s.blockT = 0.9;
+      game.sfxQueue.push('clank'); // 撞在封印上的金属闷响（既有音效名，engine 只入队）
+      _engAddParts(L.goal.x + 8, L.goal.y + 16, 6, '#b060f0', 70, 120);
+      _engFloat(L.goal.x + 8, L.goal.y - 6, '封印中', '#b060f0', 1);
+    }
+  }
 
   /* ⑥ 移动平台：先动并记录本帧 dx,dy；水平推挤，推入实心则死亡（契约算法 3） */
   for (const pl of L.plats) {

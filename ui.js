@@ -952,6 +952,19 @@ function startLevel(idx){
   fallT=0;fallToastT=0;
   // v4 §界面⑥：engine loadLevel 清空 solvedPuzzles 后，由 ui 从本地存档回填已解神龛
   game.solvedPuzzles=Object.assign({},progress.puzzles||{});
+  // v11 §任务5：封印的谜题线由引擎读 game.solvedPuzzles[神龛idx] 判定，而玩家的解谜记录在
+  // localStorage（progress.puzzles）。上面那行是整体回填，这里再按「本关神龛」逐座显式兜一次：
+  // 重玩同一关时若引擎在 loadLevel 里重建过 solvedPuzzles，本关谜题会被判成未解 →
+  // 封印只剩打怪/捡钱两条路（上一轮解过的玩家被迫重做），体验割裂。幂等，不写存档。
+  if(game.level&&game.level.shrines)for(const sh of game.level.shrines)
+    if(progress.puzzles&&progress.puzzles[sh.idx]){
+      game.solvedPuzzles=game.solvedPuzzles||{};
+      game.solvedPuzzles[sh.idx]=true;
+    }
+  // v11 §任务1：封印本地计时复位——重进关卡不残留上一局的碎裂动画/进关提示；
+  // _sealWasOpen 初值取当前 open（进关时若已解，不补播一次碎裂）。
+  sealOpenT=-1;_sealWasOpen=!!(game.seal&&game.seal.open);_sealLastTick=-1;
+  sealHintT=0;sealHintArmed=false;
   // v7.4 护栏③：谜题数据不可玩的神龛按「已解」处理（只在本次会话生效，不写存档、不发奖）——
   // 否则 v7.3 谜题门会要求玩家解一道根本不存在的题，整关永久锁死。
   for(const sh of (game.level.shrines||[]))
@@ -1015,6 +1028,7 @@ function renderL1SkyHint(){
   if(uiState!=='play')return;                 // 只在 play 态画（结算/选关等界面有自己的面板）
   if(game.levelIdx!==0)return;                // 仅 L1 常驻；其余关卡保持 3 秒底部条（原行为不变）
   const L=game.level;if(!L)return;
+  if(_sealPanelNear())return;                 // v11：跑到终点附近时让位给封印条件面板（同区域会叠字）
   ctx.save();
   // v8.0 修「太淡」：透明度按实机目检上调 行1 0.40→0.58 / 行2 0.36→0.50 / 行3 0.42→0.62，
   // 每行先投影后正色（投影不改变 x/y 布局，三条文案坐标与宽度断言全部不变）。
@@ -1123,6 +1137,7 @@ function render(){
     renderDecor(L,tick);
     renderTiles(L,tick);
     renderShrines(L,tick); // v4 §界面④：谜题神龛（未解=暗色石碑+?，已解=点亮+顶部谜底缩略图）
+    renderSeal(L,tick);    // v11 §任务1/§任务2：终点封印光罩 + 条件面板（在旗之前画，旗压在光罩上透出来）
     renderEntities(L,tick);
     renderBoss(tick); // v3 §B1：Boss 部件装配（renderEntities 后、renderPlayer 前）
     // v10 §任务1/§任务4：五种 Boss 危险物（世界坐标，实体层之上、renderParts 之前）。
@@ -1163,9 +1178,29 @@ function render(){
       drawCNText(L.meta.hint,VIEW_W/2,VIEW_H-41,11,'#ffffff','center');
       // v6 §F.3：本关有未解神龛时 hint 条上方追加指引行（ui 本地判断，不动 levels.js hint 文本；
       // 设计书 §5.3 超集口径：任何有未解神龛的关卡都提示，含 L8/L9/L10）
-      if(L.shrines&&L.shrines.length&&L.shrines[0]&&!isPuzzleSolved(L.shrines[0].idx))
+      // v11：封印提示占用同一行（两者都提神龛，同屏叠字最糊）——封印提示在场时让位 2 秒
+      if(L.shrines&&L.shrines.length&&L.shrines[0]&&!isPuzzleSolved(L.shrines[0].idx)&&sealHintT<=0)
         drawCNText('本关藏有谜题神龛 · 寻找金色光柱',VIEW_W/2,VIEW_H-58,9,'#f8d048','center');
       ctx.globalAlpha=1;
+    }
+    // v11 §任务3：进关 2 秒封印提示条（不选常驻 HUD 进度条的理由见交付报告：顶部 16~26 已被心形/
+    // 金币/神龛徽记占满，128~302 的细条会横穿神龛徽记行，且三段色块说不出「要几个」；提示条能一次把
+    // 三条线连同数字讲清，正好覆盖「一进关就知道有目标」）。数字直接写在句子里，与 renderClear 同口径。
+    if(sealHintT>0&&uiState==='play'&&game.seal&&game.seal.open===false){
+      const stxt=_sealHintText(game.seal);
+      if(stxt){
+        ctx.globalAlpha=Math.min(1,sealHintT);   // 尾 1 秒渐隐
+        // v11 修：两行排版（标题 + 明细）。面板宽取两行里较宽的那行 +16 内边距，仍夹在视口内。
+        const hw=Math.min(VIEW_W-8,Math.max(Math.ceil(_textW(stxt[0],9)),Math.ceil(_textW(stxt[1],9)))+16);
+        const hx=px((VIEW_W-hw)/2);
+        // v11 修：位置从 VIEW_H-84 抬到 VIEW_H-140。原来贴底画，正好落在地面瓦片带上——
+        // 紫色半透明面板叠在棕色土块纹理上，9px 淡紫字实机几乎读不出来（截图确认）。
+        // 抬进天空区后与地面完全分离；L1 的常驻背景提示占 y=42~82，本面板 84~110 不重叠。
+        _sealPanelBg(hx,VIEW_H-140,px(hw),26,false);
+        drawCNText(stxt[0],VIEW_W/2,VIEW_H-137,9,'#f0e6ff','center');
+        drawCNText(stxt[1],VIEW_W/2,VIEW_H-126,9,'#d8c4f8','center');
+        ctx.globalAlpha=1;
+      }
     }
     if(GOD)drawPixelText('GOD MODE',VIEW_W/2,VIEW_H-16,1,'#f8d020','center');
     if(game.paused)renderPause();
@@ -3064,10 +3099,16 @@ function renderClear(tick){
       drawCNText('获得新衣 · '+nm,VIEW_W/2,116,11,'#f8d048','center');
       drawPixelText('NEW',VIEW_W/2+_textW('获得新衣 · '+nm,11)/2+6,119,1,'#fff8c8');
     }else drawCNText('衣橱 · 已解锁 '+skinOwned()+'/'+SKIN_MAX,VIEW_W/2,116,11,'#a8b4d8','center');
+    // v11 §任务4：封印解除方式——放在现有结算信息的最后一行（衣橱行 116）下方，9px 金色；
+    // via 为 boss/null/缺失时不画（Boss 关豁免封印，不该出现「封印解除」字样）。
+    const via=game.seal?game.seal.via:null;
+    const viaTxt=via==='battle'?'封印解除：武力':via==='coin'?'封印解除：探索'
+      :via==='puzzle'?'封印解除：智慧':'';
+    if(viaTxt)drawCNText(viaTxt,VIEW_W/2,128,9,'#f8d048','center');
     if(clearShown>1){
       const blink=tick%50<32;
       if(blink)drawCNText(game.levelIdx<ALL_LEVELS.length-1?'回车 · 下一关　Esc · 选关':'回车 · 通关结算',
-        VIEW_W/2,138,11,'#ffffff','center');
+        VIEW_W/2,viaTxt?140:138,11,'#ffffff','center'); // v11：封印行占位时提示下移 2px 防叠字
     }
   }
 }
@@ -3389,6 +3430,170 @@ function renderShrines(L,tick){
     if(solved)drawShrineThumb(s,tick); // 已解：顶部展示谜底缩略图
   }
 }
+/* ==================== v11 §任务1/§任务2：终点封印（光罩 + 条件面板） ====================
+ * 引擎侧产出 game.seal（只读契约：enemyTotal/enemyKilled/enemyNeed、coinTotal/coinGot/coinNeed、
+ * hasShrine/shrineOk、open、via、blockT、relaxed）。本段**只读不写**；seal 缺失（引擎未合入）时
+ * 全部渲染安全跳过——不抛异常、零绘制。用户反馈「小关可以什么都不干直接位移到最后」：规则的价值
+ * 一半在「封住了」，另一半在「跑到终点之前就知道要做什么」，所以光罩（阻挡感）与条件面板（目标感）同做。 */
+let sealOpenT=-1;          // 碎裂动画计时 0..0.4s；-1=不播（只由 open 的 false→true 跳变启动，不每帧重播）
+let _sealWasOpen=false;    // 上一帧 open 值（跳变检测）
+let _sealLastTick=-1;      // 上一帧 game.tick：render 侧按帧差推进动画（step 未跑/多次 render 时退化为 1/60）
+let sealHintT=0;           // 进关封印提示剩余秒数（2.0 起倒计时）
+let sealHintArmed=false;   // 本关提示是否已触发（seal 可能首帧 updateWorld 才由引擎建出，故不在 startLevel 判定）
+// 12 片碎片：相对终点的偏移 + 抛射速度 + 尺寸（确定性表——Math.random 会让同一帧的碎片逐帧跳位）
+const SEAL_SHARDS=[[2,2,-1.9,-2.4,2],[6,1,-1.1,-2.8,3],[10,3,-0.4,-2.2,2],[14,2,0.6,-2.6,2],
+  [3,8,-2.2,-1.2,3],[8,10,-0.8,-1.6,2],[12,9,0.4,-1.4,3],[16,11,1.4,-1.8,2],
+  [1,16,-1.6,-0.4,2],[6,18,-0.6,-0.2,3],[11,19,0.5,-0.6,2],[15,22,1.5,0.2,2]];
+function _sealSync(){ // 每帧同步：返回 seal（缺失→null）；维护 open 跳变与碎裂计时
+  const s=game.seal;
+  const dt=_sealLastTick>=0?Math.min(0.05,(game.tick-_sealLastTick)/60):0;
+  _sealLastTick=game.tick;
+  if(!s){_sealWasOpen=false;sealOpenT=-1;return null;}   // 引擎未合入：什么都不做（零绘制）
+  if(s.open){
+    if(!_sealWasOpen)sealOpenT=0;                        // false→true 的那一帧起播，只播这一次
+    _sealWasOpen=true;
+    if(sealOpenT>=0){sealOpenT+=(dt>0?dt:1/60);if(sealOpenT>0.4)sealOpenT=-1;}
+  }else{
+    _sealWasOpen=false;sealOpenT=-1;
+  }
+  return s;
+}
+function _sealPanelBg(x,y,w,h,red){ // 切角面板（照抄 _panel 的双线描边，底色换深紫/暗红——封印的视觉语言）
+  _panelPath(x,y,w,h,4);
+  ctx.fillStyle=red?'rgba(58,14,30,0.88)':'rgba(30,14,58,0.88)';ctx.fill();
+  ctx.strokeStyle=red?'#f85060':'#b88cff';ctx.lineWidth=1;ctx.stroke();
+  ctx.save();_panelPath(x,y,w,h,4);ctx.clip();
+  ctx.strokeStyle='rgba(206,170,255,0.35)';ctx.strokeRect(x+1.5,y+1.5,w-3,h-3);ctx.restore();
+}
+function _sealLock(lx,ly,col,a){ // 8×8 锁形：方形锁体 + 半圆锁梁（程序化，不依赖字体/素材）
+  ctx.save();ctx.globalAlpha=a;
+  ctx.strokeStyle=col;ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(lx+4,ly+3,2.2,Math.PI,0);ctx.stroke();   // 锁梁（上半圆）
+  ctx.fillStyle=col;ctx.fillRect(lx+1,ly+3,6,5);                   // 锁体 6×5
+  ctx.fillStyle='rgba(24,8,48,0.9)';ctx.fillRect(lx+3,ly+4,2,3);   // 锁孔
+  ctx.restore();
+}
+function _sealCheck(x,y,col){ // 程序化 ✓（7×7 阶梯、双像素厚；不用字体字形——像素字体里没有 ✓）
+  ctx.fillStyle=col;
+  const P=[[0,3],[1,4],[2,5],[3,4],[4,3],[5,2],[6,1]];
+  for(const p of P){ctx.fillRect(x+p[0],y+p[1],1,1);ctx.fillRect(x+p[0],y+p[1]+1,1,1);}
+}
+function _sealIcon(kind,x,y,col){ // 行首小图标 7×7：剑（战斗）/ 圆环（金币）/ ?（谜题）
+  ctx.fillStyle=col;
+  if(kind==='battle'){
+    ctx.fillRect(x+3,y,1,5);ctx.fillRect(x+2,y+5,3,1);ctx.fillRect(x+3,y+6,1,1); // 剑身+护手+柄
+    ctx.fillRect(x+1,y+2,1,1);ctx.fillRect(x+5,y+2,1,1);                        // 十字护手两翼
+  }else if(kind==='coin'){
+    ctx.strokeStyle=col;ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(x+3.5,y+3.5,2.5,0,Math.PI*2);ctx.stroke();
+    ctx.fillRect(x+3,y+3,1,1);
+  }else drawPixelText('?',x+1,y+1,1,col);
+}
+function _sealWall(g,tick,s){ // 任务1 主体：18×32 半透明紫墙 + 流动纹路 + 上下亮条 + 锁 + 弹回红闪
+  const blk=(s.blockT||0)>0;
+  const wx=px(g.x-1),wy=px(g.y),ww=18,wh=g.h||32;
+  const cx=wx+ww/2,cy=wy+wh/2;
+  const breath=0.55+0.10*Math.sin(tick*0.06);   // 0.45~0.65 呼吸（alpha 烘焙在 globalAlpha 上）
+  ctx.save();
+  ctx.globalAlpha=breath;
+  ctx.fillStyle=blk?'#c82846':'#5a2ec8';        // 主体：紫色能量墙；被弹回时整面转红
+  ctx.fillRect(wx,wy,ww,wh);
+  for(let y=0;y<wh;y+=2){                       // 内部纹路：sin(tick*0.08+y) 调制亮度 → 缓慢上下流动
+    const k=0.5+0.5*Math.sin(tick*0.08+y*0.55);
+    ctx.fillStyle=blk?'rgba(255,150,160,'+(0.10+0.32*k).toFixed(3)+')'
+      :'rgba(206,170,255,'+(0.10+0.32*k).toFixed(3)+')';
+    ctx.fillRect(wx+1,wy+y,ww-2,1);
+  }
+  ctx.globalAlpha=1;
+  ctx.fillStyle=blk?'#ff7080':'#c890ff';        // 上下各一道 2px 亮紫横条
+  ctx.fillRect(wx,wy,ww,2);ctx.fillRect(wx,wy+wh-2,ww,2);
+  _sealLock(cx-4,cy-4,blk?'#ffd0d6':'#efe0ff',0.95);
+  if(blk){                                      // 被弹回：整面红闪 + 一圈外扩红色冲击环
+    const f=0.35*(0.5+0.5*Math.abs(Math.sin(tick*0.5)));
+    ctx.fillStyle='rgba(255,70,90,'+f.toFixed(3)+')';ctx.fillRect(wx,wy,ww,wh);
+    const k2=clamp(1-(s.blockT/0.9),0,1);   // 0.9s = 引擎 blockT 初值：环从 r8 扩到 r28 正好走完
+    ctx.globalAlpha=(1-k2)*0.85;ctx.strokeStyle='#ff4a5a';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(cx,cy,8+k2*20,0,Math.PI*2);ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+function _sealShatter(g){ // 任务1 解除瞬间：0.4s 碎片四散 + 快速淡出（open 由 false→true 才播一次）
+  const p=clamp(sealOpenT/0.4,0,1),k=1-Math.pow(1-p,2);   // 缓出：先快后慢
+  const wx=g.x-1,wy=g.y;
+  ctx.save();
+  if(p<0.25){ctx.globalAlpha=(0.25-p)*2.4;ctx.fillStyle='#f0e0ff';ctx.fillRect(wx-2,wy-2,22,(g.h||32)+4);}
+  ctx.globalAlpha=1-p;
+  for(const f of SEAL_SHARDS){
+    ctx.fillStyle=f[4]>2?'#d8b0ff':'#8a4ae0';
+    ctx.fillRect(px(wx+f[0]+f[2]*k*14),px(wy+f[1]+f[3]*k*14+f[4]*k*k*2),f[4],f[4]);
+  }
+  ctx.restore();
+}
+function _sealHintText(s){ // 进关提示文案（三条线全列 + 「任选其一」；门槛为 0 的线不列）
+  const parts=[];
+  if((s.enemyNeed|0)>0)parts.push('击败 '+s.enemyNeed+' 只敌人');
+  if((s.coinNeed|0)>0)parts.push('收集 '+s.coinNeed+' 枚金币');
+  if(s.hasShrine)parts.push('解开神龛');
+  // v11 修：返回 [标题, 明细] 两段而不是一整句。原先拼成单行 35+ 字（约 380px）远超 384 画布，
+  // 实机截图里左右两端被屏幕裁掉、正好吃掉「本关」和「一」——文案再对也白搭。拆两行后
+  // 每行 ≤20 字（≤200px），面板宽按较长那行算，两端各留 8px 也不会出屏。
+  if(!parts.length)return null;
+  return ['本关终点已封印 · 任选其一解除', parts.join(' / ')];
+}
+function _sealPanelNear(){ // 内部：条件面板此刻是否会显示（供 L1 天空提示让位——两者在终点附近会叠字）
+  const s=game.seal;if(!s||s.open)return false;
+  const g=game.level&&game.level.goal,p=game.player;
+  if(!g||!p||p.dead)return false;
+  return Math.abs((p.x+p.w/2)-(g.x+(g.w||16)/2))<96;
+}
+function _sealPanel(g,tick,s){ // 任务2：终点上方条件面板（靠近 96px 才出；三条线同列让玩家自己选）
+  if(uiState!=='play')return;
+  const p=game.player;
+  if(!p||p.dead)return;
+  const gcx=g.x+(g.w||16)/2;
+  if(Math.abs((p.x+p.w/2)-gcx)>=96)return;      // 水平距离 <96px 才提示
+  const blk=(s.blockT||0)>0;
+  const need=s.enemyNeed|0,kill=s.enemyKilled|0,cn2=s.coinNeed|0,cg=s.coinGot|0;
+  const rows=[{k:'battle',cn:'击败',val:kill+'/'+need,ok:kill>=need},
+    {k:'coin',cn:'金币',val:cg+'/'+cn2,ok:cg>=cn2}];
+  if(s.hasShrine)rows.push({k:'puzzle',cn:'谜题',val:s.shrineOk?'已解':'未解',ok:!!s.shrineOk});
+  const blockLine='封印未解 · 完成任意一项即可';
+  const pw=Math.max(96,blk?Math.ceil(_textW(blockLine,9))+12:0);   // 弹回提示行比三行宽 → 面板临时加宽
+  const ph=8+rows.length*11+(blk?12:0);
+  const cam=game.cam||{x:0,y:0};
+  let sx=Math.round(gcx-pw/2-cam.x);            // 先换算屏幕坐标再钳制：终点贴左/贴右都不出屏
+  sx=clamp(sx,2,Math.max(2,VIEW_W-pw-2));
+  let sy=Math.round(g.y-44-ph-cam.y);           // 面板底边距终点顶 44px（工单 40~60 区间内）
+  // v11 修：下限 2→34。终点旗贴地面时 g.y 已经很靠下，减去 44+ph 后常算出 5~15 这种值，
+  // 被钳到 2 就等于把面板顶到屏幕最上沿，直接压在心形/金币 HUD（占 0~30）上——实机截图里
+  // 三行文字只剩下半截。HUD 底边 30，留 4px 呼吸 → 面板顶不得高于 34。
+  sy=clamp(sy,34,Math.max(34,VIEW_H-ph-2));
+  const jit=blk?Math.round(Math.sin(tick*1.15)*2):0;               // 被弹回：整块抖 2px
+  const dx=sx+cam.x+jit,dy=sy+cam.y+jit;        // 换回世界坐标（renderSeal 在 translate(-cam) 世界空间内）
+  _sealPanelBg(dx,dy,pw,ph,blk);
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i],ry=dy+6+i*11;
+    if(r.ok)_sealCheck(dx+5,ry,'#f8d048');                            // 达成：行首金色 ✓
+    else _sealIcon(r.k,dx+5,ry,blk?'#e08a96':'#9a8ac8');
+    drawCNText(r.cn,dx+16,ry,9,r.ok?'#f8d048':(blk?'#ffc8d0':'#cfd2e2'));
+    // 数值右对齐到面板内缘：三行读起来是「图标 + 名称 …… 进度」两列，比紧跟名称更好扫
+    if(r.k==='puzzle')drawCNText(r.val,dx+pw-8,ry,9,r.ok?'#f8d048':(blk?'#ffc8d0':'#a8a8bc'),'right');
+    // v11 修：金币行加「枚」后缀。面板按**金币实体个数**计（引擎口径：宝石算 1 枚、木箱不计），
+    // 而顶部 HUD 的 0/42 是按**面值**计（宝石 5、木箱含 1）—— 两个分母并排出现时玩家会以为数据错乱。
+    // 标上「枚」字明确是"个数"，HUD 那个不带单位的仍是面值。
+    else if(r.k==='coin')drawCNText(r.val+' 枚',dx+pw-8,ry,9,r.ok?'#f8d048':(blk?'#ffc8d0':'#cfd2e2'),'right');
+    else drawPixelText(r.val,dx+pw-8,ry+2,1,r.ok?'#f8d048':(blk?'#ffc8d0':'#cfd2e2'),'right');
+  }
+  if(blk)drawCNText(blockLine,dx+pw/2,dy+6+rows.length*11+1,9,'#ffb0ba','center');
+}
+function renderSeal(L,tick){ // 调用点：renderShrines 之后、renderEntities 之前（终点旗由后者画 → 压在光罩上透出来）
+  const s=_sealSync();
+  if(!s||!L||!L.goal)return;
+  if(s.open!==true)_sealWall(L.goal,tick,s);     // 未解：光罩（含弹回红闪）
+  if(sealOpenT>=0)_sealShatter(L.goal);          // 解除瞬间：碎片（0.4s 后自动停）
+  if(s.open!==true)_sealPanel(L.goal,tick,s);    // 条件面板（解除了就不再提示）
+}
 function drawSteleFallback(x,y,solved,tick){ // 内部：程序化石碑（16×24，暗青石 vs 点亮金纹）
   ctx.fillStyle=solved?'#465064':'#2c3440';ctx.fillRect(x+2,y+2,12,22); // 碑身
   ctx.fillStyle=solved?'#5a6478':'#3c4652';ctx.fillRect(x+1,y,14,4);   // 顶帽
@@ -3591,6 +3796,10 @@ function step(dt){
   fade=clamp(fade+fadeDir*dt*3,0,1);
   hintT-=dt;
   oHintT-=dt;fallToastT-=dt; // v6 §D/§E：提示计时（渲染按 uiState==='play' 门控）
+  // v11 §任务3：进关封印提示——seal 可能由引擎在首帧 updateWorld 才建出（loadLevel 里未必有），
+  // 所以不放在 startLevel 判定，这里用上升沿一次性触发 2 秒（每关只触发一次，解除后不再弹）。
+  sealHintT-=dt;
+  if(uiState==='play'&&!sealHintArmed&&game.seal&&game.seal.open===false){sealHintArmed=true;sealHintT=2.0;}
   for(let i=_bagFloats.length-1;i>=0;i--){_bagFloats[i].t+=dt;if(_bagFloats[i].t>=2)_bagFloats.splice(i,1);} // v6 波2 §B
   if(game.shake>0)game.shake=Math.max(0,game.shake-dt*18);
 
