@@ -1237,6 +1237,7 @@ function drawParallax(bg,camX,camY){
 
 function renderDecor(L,tick){
   for(const d of L.decor){
+    if(d.got||d.dead)continue;   // v17：已捡（水晶）/已碎（石桶瓮骨）的装饰不再画——交互后要消失
     const img=themeArt.decor[d.type];
     if(!img)continue;
     if(Array.isArray(img))ctx.drawImage(img[(tick*4|0)%img.length],px(d.x),px(d.y-img[0].height));

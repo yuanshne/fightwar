@@ -193,6 +193,29 @@ const _engDecorFallback = {       // 内部：THEMES 桩（门禁环境）无 de
   // v7 §5.7：sea/nether 两键兜底（美术队 THEMES 未合入时的门禁桩环境；decor 类型名=设计 §3.1/§3.2）
   sea: ['coral', 'shell', 'kelp'], nether: ['ghostflame', 'bone', 'skull']
 };
+/* v17 装饰交互表：有「可交互外观」的装饰给真实交互——玩家默认「长得像就能碰」，纯摆设=最差反馈。
+   唯一真值（reach/tools/_v17_decor_test 都从这里读）；w/h 必须与 art.js _buildDecor 的画布尺寸一致
+   （测试逐项比对 canvas 宽高，改 art 尺寸必须同步这里）。
+   cls 三类：
+     harm  长着危险脸（尖锥/明火/尖碎片）——触碰扣 1 心，走 _engHurtPlayer（吃无敌帧/护盾/击退）；
+     break 长着「能打碎」脸（石/桶/瓮/骨）——攻击打碎，+1 金币（直入 game.coins 不进 totalCoin，
+           口径同宝箱 chestGem：星级分母保持关卡构造期快照，详见 CONTRACT v17）；
+     pick  长着「能捡」脸（水晶与 '*' 宝石同族配色）——触碰收集 +1 金币。
+   其余装饰（草花蘑菇云齿轮珊瑚…）语义上明显无害，保持纯装饰——那不是「没交互」，是「本来就不该有」。 */
+const _ENG_DECOR_HIT = {
+  stalagmite:  { cls: 'harm', w: 11, h: 13 },  // 石笋：灰色尖锥，玩家眼里的「地刺」
+  flamepillar: { cls: 'harm', w: 9,  h: 12 },  // 火焰柱：两帧明火
+  ghostflame:  { cls: 'harm', w: 8,  h: 10 },  // 鬼火：幽冥绿火
+  obsidian:    { cls: 'harm', w: 9,  h: 11 },  // 黑曜石：带棱尖碎片
+  boulder:     { cls: 'break', w: 13, h: 10 }, // 圆石
+  barrel:      { cls: 'break', w: 14, h: 12 }, // 金属桶（警示带）
+  urn:         { cls: 'break', w: 10, h: 10 }, // 陶瓮
+  skull:       { cls: 'break', w: 10, h: 9 },  // 骷髅
+  ribcage:     { cls: 'break', w: 12, h: 5 },  // 肋骨
+  lavarock:    { cls: 'break', w: 13, h: 9 },  // 熔岩砾石
+  crystal:     { cls: 'pick', w: 9,  h: 13 },  // 水晶簇（两帧辉光）
+  crystalS:    { cls: 'pick', w: 8,  h: 9 },   // 小水晶（art 注释写 7×9，实测画布 8×9——以测试 T2 对表为准）
+};
 function _engClamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function _engSign(v) { return v < 0 ? -1 : v > 0 ? 1 : 0; }
 function _engAabb(a, b) { // a/b 均为 {x,y,w,h}
@@ -841,16 +864,35 @@ class Level {
     const rnd = _engMulberry(99 + idx * 17);
     const dset = (this.theme && this.theme.decor && this.theme.decor.length)
       ? this.theme.decor : (_engDecorFallback[meta.theme] || ['bush']);
+    // v17：交互装饰与关键实体隔离。尖刺压着出生点/弹簧/神龛=落地白给伤害（空转门禁也会红），
+    // 水晶压着宝箱/神龛=误导收集。冲突时直接不摆——视觉密度几乎不变，确定性不受影响。
+    // harm 在 Boss 关一律不摆：Boss 场地的躲避压力只应来自 Boss 招式，随机地火会把走位题变成抽签。
+    const _dhReserved = [];
+    const _dhPad = function (x, y, w, h, pad) {
+      _dhReserved.push({ x: x - pad, y: y - pad, w: w + pad * 2, h: h + pad * 2 });
+    };
+    _dhPad(this.spawn.x, this.spawn.y, 12, 14, 44);
+    if (this.goal) _dhPad(this.goal.x, this.goal.y, this.goal.w, this.goal.h, 44);
+    for (const e of [this.springs, this.checkpoints, this.shrines, this.cannons,
+      this.levers, this.portals, this.chests, this.lanterns]) {
+      for (const s of e) _dhPad(s.x, s.y, s.w || 16, s.h || 16, 20);
+    }
     for (let y = 1; y < this.h; y++) {
       for (let x = 0; x < this.w; x++) {
         if (this.tiles[y][x] === '#' && this.tiles[y - 1][x] === '.' && rnd() < 0.16) {
+          const type = dset[(rnd() * dset.length) | 0];
+          const hit = _ENG_DECOR_HIT[type];
+          // 候选占位 = 该砖顶面上一格（装饰立在地表之上）
+          if (hit && ((meta.boss && hit.cls === 'harm')
+            || _dhReserved.some(r => _engAabb(r, { x: x * _engTile, y: (y - 1) * _engTile, w: _engTile, h: _engTile })))) continue;
           this.decor.push({
             x: x * _engTile + (rnd() * 8 | 0), y: y * _engTile,
-            type: dset[(rnd() * dset.length) | 0], f: (rnd() * 2) | 0
+            type: type, f: (rnd() * 2) | 0
           });
         }
       }
     }
+    this.decorFx = this.decor.filter(function (d) { return !!_ENG_DECOR_HIT[d.type]; }); // v17：每帧交互扫描子集（数量远小于 decor 全集）
 
     this.totalCoin = this.coins.reduce((a, c) => a + (c.key ? 0 : (c.gem ? 5 : 1)), 0) + brickN; // 木箱内含金币一并计入
     // v11：终点封印的分母——实体提取结束后的敌人数快照（Boss 召唤体是运行时 push 进 L.enemies 的，
@@ -3188,6 +3230,22 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
       game.sfxQueue.push('break');
     }
   });
+  // v17：可碎装饰（石/桶/瓮/骨）——长得像箱子就该打得碎。奖励与木箱同口径：
+  // +1 金币直入 game.coins（不进 totalCoin：星级分母=构造期快照，同宝箱 chestGem 先例）、碎屑粒子、+1 连击。
+  for (const d of L.decorFx) {
+    if (d.dead || d.got) continue;
+    const H = _ENG_DECOR_HIT[d.type];
+    if (H.cls !== 'break') continue;
+    if (_engAabb(box, { x: d.x, y: d.y - H.h, w: H.w, h: H.h })) {
+      d.dead = true;
+      game.coins += BAL.econ.brick;
+      _engFloat(d.x + H.w / 2, d.y - H.h - 4, '+' + BAL.econ.brick, '#f8d048', 0);
+      _engShake(2, 0.05);
+      _engAddParts(d.x + H.w / 2, d.y - H.h / 2, 10, '#b8a888', 90, 300);
+      _engAddCombo();
+      game.sfxQueue.push('break');
+    }
+  }
 }
 
 /* ==================== 玩家物理（契约第 3 节算法 1/2/3/7） ==================== */
@@ -3590,6 +3648,25 @@ function updateWorld(dt) {
           _engFloat(c.x + 4, c.y - 4, '+' + BAL.econ.gem, '#f8d048', 0); }
         else { game.coins += BAL.econ.coin; game.sfxQueue.push('coin'); _engAddParts(c.x + 4, c.y + 4, 5, '#f8d020', 50, 100);
           _engFloat(c.x + 4, c.y - 4, '+' + BAL.econ.coin, '#f8d048', 0); }
+      }
+    }
+    /* ②′ v17 装饰交互：水晶可捡 / 尖刺火苗会烫。只扫 decorFx 子集（构造期筛好），
+          got/dead 状态留在装饰实体上——respawn 不重建 Level，与「碎砖保持已碎」同一口径。 */
+    for (const d of L.decorFx) {
+      if (d.got || d.dead) continue;
+      const H = _ENG_DECOR_HIT[d.type];
+      if (H.cls === 'pick') {
+        const r = { x: d.x, y: d.y - H.h, w: H.w, h: H.h };
+        if (_engAabb(p, r)) {
+          d.got = true;
+          game.coins += BAL.econ.coin; game.sfxQueue.push('coin');
+          _engAddParts(d.x + H.w / 2, d.y - H.h / 2, 8, '#48d8e8', 70, 160);
+          _engFloat(d.x + 2, d.y - H.h - 4, '+' + BAL.econ.coin, '#48d8e8', 0);
+        }
+      } else if (H.cls === 'harm') {
+        // 伤害盒四周内缩 2px：视觉宽≠判定宽，贴边擦过不扣、真踩上去才扣（平台游戏宽容度惯例）
+        const hb = { x: d.x + 2, y: d.y - H.h + 2, w: H.w - 4, h: H.h - 2 };
+        if (_engAabb(p, hb)) _engHurtPlayer(d.x + H.w / 2, 1);
       }
     }
   }

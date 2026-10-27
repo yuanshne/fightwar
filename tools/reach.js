@@ -33,7 +33,7 @@ function buildSandbox() {
   let body = read('levels.js');
   for (const f of ['chapter2.js', 'chapter3.js']) if (fs.existsSync(path.join(ROOT, f))) body += '\n' + read(f);
   body += '\n;aggregateLevels();\n' + read('engine.js')
-    + '\n;return {Level,ALL_LEVELS,game,loadLevel,updateWorld,PHY,BAL};';
+    + '\n;return {Level,ALL_LEVELS,game,loadLevel,updateWorld,PHY,BAL,_ENG_DECOR_HIT};';
   return new Function('THEMES', body)(themes);
 }
 
@@ -186,6 +186,10 @@ function makeCtx(sb) {
   // 清掉周期性障碍（可击杀/可躲避，不构成几何阻断）；尖刺是瓦片，保留真实伤害
   L.enemies.length = 0; L.saws.length = 0; L.cannons.length = 0; L.pends.length = 0;
   L.chests.length = 0;
+  // v17：交互装饰（尖刺/火/水晶/可碎物）同属「可躲避软层」——16px 随机散布、一步可跨、不构成
+  // 几何阻断，与敌人同类清理掉；瓦片尖刺保留（levels.js 数据契约、validateLevels 断言间距）。
+  for (let i = L.decor.length - 1; i >= 0; i--) if (sb._ENG_DECOR_HIT[L.decor[i].type]) L.decor.splice(i, 1);
+  L.decorFx.length = 0;
   g.bullets.length = 0; g.boss = null;
   p.hp = PROBE_HP; p.maxHp = PROBE_HP;
   g.state = 'play'; g.paused = false; g.puzzleActive = false; g.bagActive = false;
