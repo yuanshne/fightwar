@@ -27,7 +27,7 @@ with sync_playwright() as p:
     pg.on('pageerror', lambda e: errs.append(str(e)))
     pg.on('console', lambda m: errs.append('CONSOLE: ' + m.text) if m.type == 'error' else None)
 
-    # ---------- 1) 冲刺无敌帧 0.15s（v14：0.10 → 0.15） ----------
+    # ---------- 1) 冲刺无敌帧 0.20s（v14：0.10 → 0.15；v15：0.15 → 0.20） ----------
     pg.goto(BASE + '?level=1&god=1')
     pg.wait_for_timeout(900)
     d = pg.evaluate('''() => {
@@ -40,7 +40,7 @@ with sync_playwright() as p:
       return { inv0: +inv0.toFixed(3), blocked0: blocked, inv1: +inv1.toFixed(3), blocked1: blocked1,
                cfg: BAL.dash.inv };
     }''')
-    ck('冲刺起手给 0.15s 无敌', abs(d['inv0'] - 0.15) < 0.02, 'invT=' + str(d['inv0']))
+    ck('冲刺起手给 0.20s 无敌', abs(d['inv0'] - 0.20) < 0.02, 'invT=' + str(d['inv0']))
     ck('无敌窗口内伤害被吃掉', d['blocked0'] is True)
     ck('0.4s 后无敌已过期（不是全程无敌）', d['inv1'] <= 0 and d['blocked1'] is False,
        'invT=' + str(d['inv1']) + ' 仍被挡=' + str(d['blocked1']))
