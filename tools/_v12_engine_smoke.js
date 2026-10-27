@@ -69,11 +69,15 @@ console.log('[表] BAL.boss6 / 老五只新参数');
     'leech=' + B6.summon.leech + '%/s/只 cap=' + B6.summon.leechCap + '%');
   // v13：这里原来是整串内容快照，加一招必红。改成「集合断言」——顺序是平衡调整的自由度，
   // 覆盖率由 _engBossPick 的轮转算法保证（每个池长度周期内每招必出一次），不该被测试钉死。
-  const poolWant = ['charge', 'grab', 'pillar', 'summon', 'quake', 'bomb', 'leap'];
-  ok(poolWant.every(n => B6.poolNear.includes(n)) && B6.poolNear.length === poolWant.length,
-    'boss6 poolNear 七招齐全（v12 五招 + v13 bomb + 通用 leap）', B6.poolNear.join());
-  ok(B6.poolFar.join() === 'charge,quake,grab,pillar,summon', 'boss6 poolFar', B6.poolFar.join());
-  ok(B6.p2Add.join() === 'nova,dive', 'boss6 p2Add');
+  // v16：池子按 spec 2026-10-27-v16-boss-exclusive §二 重排（4 招牌 + barrage，charge 只归牛魔王），
+  //      期望值换成新规格的集合，仍然只验「该有的都在、池规模对得上」。
+  const poolNear6 = ['charge', 'bomb', 'pillar', 'grab', 'barrage'];
+  ok(B6.poolNear.length === poolNear6.length && poolNear6.every(n => B6.poolNear.includes(n)),
+    'boss6 poolNear = 4 招牌 + barrage（v16 独占矩阵）', B6.poolNear.join());
+  const poolFar6 = ['barrage', 'charge', 'bomb', 'pillar'];
+  ok(B6.poolFar.length === poolFar6.length && poolFar6.every(n => B6.poolFar.includes(n)),
+    'boss6 poolFar = barrage + 3 招牌', B6.poolFar.join());
+  ok(B6.p2Add.length === 1 && B6.p2Add[0] === 'nova', 'boss6 p2Add 只有 nova（dive 已退场）', B6.p2Add.join());
   ok(B6.drop1 === 'niu1' && B6.drop2 === 'niu2' && !!sb.BAL.gear.niu1 && !!sb.BAL.gear.niu2, 'boss6 掉落表 niu1/niu2（gear 权重存在）');
   ok(B6.contactDmg === 1, 'boss6 contactDmg=1');
   // 老五只
@@ -82,8 +86,13 @@ console.log('[表] BAL.boss6 / 老五只新参数');
   ok(sb.BAL.boss3.summon.leech === 0.5 && sb.BAL.boss3.quell.breakDmg === 12, 'boss3 quell / leech0.5');
   ok(sb.BAL.boss4.charge.hits === 3 && !!sb.BAL.boss4.core && sb.BAL.boss4.summon.leech === 0.4, 'boss4 charge.hits3 / core / leech0.4');
   ok(sb.BAL.boss5.summon.leech === 0.4 && !!sb.BAL.boss5.grab && !!sb.BAL.boss5.quell, 'boss5 grab+quell / leech0.4');
-  ok(sb.BAL.boss.poolNear.join() === 'charge,grab,leap,summon,meteor'
-    && sb.BAL.boss.poolFar.join() === 'barrage,charge,grab,leap,spike', 'boss1 用招池按 spec §二');
+  // v16：boss1 的池子同样按新规格（meteor/spike/summon/leap + barrage），只做集合比对
+  const near1 = ['meteor', 'spike', 'summon', 'leap', 'barrage'];
+  const far1 = ['barrage', 'meteor', 'spike'];
+  ok(sb.BAL.boss.poolNear.length === near1.length && near1.every(n => sb.BAL.boss.poolNear.includes(n))
+    && sb.BAL.boss.poolFar.length === far1.length && far1.every(n => sb.BAL.boss.poolFar.includes(n)),
+    'boss1 用招池按 spec §二（4 招牌 + barrage / 远距 barrage+2 招牌）',
+    sb.BAL.boss.poolNear.join() + ' | ' + sb.BAL.boss.poolFar.join());
   // 六张表 windup/recover 键完整（缺一项 _engBossDur 就是 undefined）
   const need = ['grab', 'quake', 'pillar', 'quell', 'core'];
   for (const [i, T] of [sb.BAL.boss, sb.BAL.boss2, sb.BAL.boss3, sb.BAL.boss4, sb.BAL.boss5, sb.BAL.boss6].entries()) {

@@ -346,15 +346,14 @@ const BAL = {
   //   · cd = 召唤冷却（秒）：冷却期内 summon 不进选招池，清完小怪也要等够时间才会再召；
   //   · hp = 召唤体血量覆盖（基础血 9 太肉：2 只 18 血 = 9 刀，清场成本高于收益）。
 
-           // v12（spec §二）：用招池摊开新类型——近身 grab / 远程 spike 保留，charge 仍居首
-           poolNear: ['charge', 'grab', 'leap', 'summon', 'meteor'],   // boss1 保留抓取（最基础的 Boss），去重集中在后五只
-   // v13.1 去同质化：每只 Boss 池子都是 7 招，其中 2~3 招是**招牌**（互不重合），
-   //   其余是允许重合的通用机动招（leap/barrage/summon/quake 这类）。招牌清单：
-   //   星核=跳劈/陨石/召唤/抓取｜蛟龙=扫尾/水雾/吸附｜判官=镰刀/真假身/分身｜
-   //   冥古龙=吐息/推墙/核心｜圣裁=光环/圣盾/追踪弹｜牛魔=三连撞/火油弹/抓取/火柱。
-
-           poolFar: ['barrage', 'charge', 'grab', 'leap', 'spike'],
-           p2Add: ['nova', 'dive'] },
+           /* v16 去同质化（spec §二）：每只 Boss = 4 招招牌 + barrage 普攻，P2 再追加 nova。
+              招牌六只互不重合——重复的招式会被玩家记成「所有 Boss 都这样」，Boss 战就退化成同一场；
+              charge（三连撞）因此只归牛魔王，dive 也从所有 p2Add 撤下（与 leap 同一套抛物线，
+              摆在池里等于变相重合；参数与实现保留，将来有别的用法再接）。 */
+           // 星核巨兽招牌：meteor 陨石雨 / spike 地刺 / summon 召唤 / leap 跳劈
+           poolNear: ['meteor', 'spike', 'summon', 'leap', 'barrage'],
+           poolFar: ['barrage', 'meteor', 'spike'],
+           p2Add: ['nova'] },
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
     hp: 288, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40, // v10：96→288（×3，每段 96）
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70,
@@ -383,9 +382,10 @@ const BAL = {
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6, breath: 0.55,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
                grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mist: 0.6 }, // v12 补键 + v13 mist
-    poolNear: ['sweep', 'mist', 'leap', 'pull', 'barrage', 'quake', 'summon'],   // v13.1：7 招；招牌=横扫/水雾/吸人，quake/summon 是允许重合的通用招
-    poolFar: ['barrage', 'charge', 'quake', 'barrage', 'homing', 'mist'],
-    p2Add: ['nova', 'breath'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
+    // 蛟龙招牌：sweep 扫尾 / mist 水雾 / pull 吸附 / breath 吐息
+    poolNear: ['sweep', 'mist', 'pull', 'breath', 'barrage'],
+    poolFar: ['barrage', 'breath', 'pull', 'mist'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
   boss3: { // 幽冥判官（L16，nether）——v7 §8 逐字
     // v7.9：hp 140→138。三段血要求每段 HP 是整数（140/3=46.67 会让血条与段内残余对不上），
     // v8.1 再回调 138→165（55×3），门禁只断言 maxHp===本表 hp。
@@ -419,9 +419,10 @@ const BAL = {
     recover: { blink: 0.4, halo: 0.6, scythe: 0.6, barrage: 0.5, summon: 0.5, nova: 0.6, leap: 0.7, charge: 0.4,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
                grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mirror: 0.6 }, // v12 补键 + v13 mirror
-    poolNear: ['scythe', 'blink', 'quell', 'mirror', 'clone', 'summon', 'barrage'],  // v13.1：7 招；招牌=镰刀/真假身/分身
-    poolFar: ['barrage', 'blink', 'quell', 'scythe', 'spike'],
-    p2Add: ['nova', 'halo'], contactDmg: 1, drop1: 'gui1', drop2: 'gui2', revive: 0.9 },
+    // 判官招牌：scythe 镰刀波 / blink 传送 / mirror 真假身 / quell 蓄力结界
+    poolNear: ['scythe', 'blink', 'mirror', 'quell', 'barrage'],
+    poolFar: ['barrage', 'scythe', 'blink', 'quell'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'gui1', drop2: 'gui2', revive: 0.9 },
   // ==================== v7.9 终章双 Boss ====================
   // 分两棒，不是同时出场：冥古龙被打空三段 → 原地「倒下」，曜光·圣裁者接力进场（nextKind 链）。
   // 两棒共用同一套状态机与同一套三段血规则；新招式全部由既有实体（ground wave / star bullet）
@@ -454,6 +455,9 @@ const BAL = {
     pull:   { dur: 1.2, force: 320, r: 140 },
     quake: { w: 14, h: 26, v: 200, life: 0.9, n: 2, gap: 0.35 },   // v12：劈地窄高波
     core: { n: 2, hp: 3, life: 10, r: 9 },                          // v12：核心护盾（破盾才掉血）
+    // v16：clone 进 boss4 池（招牌之一），参数直接沿用 boss3 —— 同一招在两个 Boss 身上
+    // 必须是同一套读数，否则玩家「打过一次」的经验会失效。
+    clone: { n: 2, life: 6.0, hp: 2 },
     // v13 §二：推进墙（从玩家背向 Boss 的一侧进场，只能朝 Boss 方向持续跑）
     push: { w: 24, h: 64, v: 88, dmg: 2, warn: 0.9 },
     stagger: 1.4, enrage: 1.2, dying: 2.4, revive: 0.9,
@@ -461,9 +465,10 @@ const BAL = {
                sweep: 0.6, breath: 0.55, dive: 0.65,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
                grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, push: 0.6 }, // v12 补键 + v13 push
-    poolNear: ['breath', 'push', 'quake', 'core', 'meteor', 'sweep', 'summon'],       // v13.1：7 招；招牌=吐息/推墙/核心
-    poolFar: ['barrage', 'charge', 'quake', 'breath', 'pull'],
-    p2Add: ['nova', 'dive'],
+    // 冥古龙招牌：push 推进墙 / core 核心护盾 / quake 劈地波 / clone 幽冥分身
+    poolNear: ['push', 'core', 'quake', 'clone', 'barrage'],
+    poolFar: ['barrage', 'push', 'quake', 'core'],
+    p2Add: ['nova'],
     /* v8.0：接触伤害 2→1。实测 46% 的受伤发生在 Boss 收招/待机/弹幕已放完之后——
      * 玩家主观判定一定是「我明明没被打到」，这是最伤信任的一类挫败。身体始终有危险（保留 1 点），
      * 但代价减半；不改「只在出招时判接触」是因为那会把战斗退化成「等收招再贴脸」。
@@ -476,7 +481,7 @@ const BAL = {
               scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
-              parry: 0.55 }, // v10 五新招前摇 + v12 补键 + v13 parry
+              parry: 0.55, totem: 0.70 }, // v10 五新招前摇 + v12 补键 + v13 parry + v16 totem
     p2WindMul: 0.82, idleT: [0.47, 0.33], walk: [20, 26],
     leap: { T: 0.9, vy: 675, clamp: 300 },
     charge: { v: [240, 300], maxT: 1.5, maxX: 300 },
@@ -487,9 +492,9 @@ const BAL = {
     halo: { v: 92, t: [0.45, 0.80, 1.15], endT: 1.5 },
     scythe: { wv: 150, life: 0.6, w: 16, h: 22 },
     nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
-    // v10：补 dive 参数键。boss5 的 p2Add 里一直有 'dive'（跳劈），但本表从未定义 T.dive，
-    // 于是 `if (b.next === 'dive' && T.dive)` 恒假 —— 圣裁者的跳劈落地永远不甩环，
-    // 与其余四只 Boss 的跳劈（落地甩 8 向弹）行为不一致。补齐后 p2Add 才真正生效。
+    /* v10：补 dive 参数键（当时 p2Add 里有 'dive'，但本表从未定义 T.dive，
+       于是 `if (b.next === 'dive' && T.dive)` 恒假）。v16 已把 dive 从所有 p2Add 撤下，
+       这个键现在没有池子入口——保留是为了将来复用同一套抛物线时不至于又踩「有招无参」。 */
     dive: { ringV: 100 },
     summon: { type: 'ghost', n: 2, off: [-44, 44], leech: 0.4, cd: 16, hp: 4 },
   // v13.1 玩家反馈「召唤不能一直召唤，打小怪累死」：
@@ -503,14 +508,19 @@ const BAL = {
     quell: { dur: 2.2, warn: 0.9, r: 22, n: 2, breakDmg: 12, dmg: 2 }, // v12：蓄力全屏
     // v13 §二/§四：反伤架势（连打会被反弹；大招可破招并开 2.4s 破防窗口）
     parry: { dur: 1.8, reflect: 1, breakT: 2.4 },
+    /* v16 §三：圣像审判（boss5 招牌）。两座圣像立在玩家左右 72px，fuse 4s 后炸 110 半径、2 心。
+       可被普攻打掉（hp 3）——「只盯 Boss 不拆场」才是这招罚的东西；打掉的那座安静消失。
+       fuse 给足 4s：拆两座约 1.2s，玩家永远有得选，不会变成必吃的定时炸弹。 */
+    totem: { n: 2, hp: 3, fuse: 4.0, w: 16, h: 32, r: 110, dmg: 2, off: [-72, 72] },
     stagger: 1.4, enrage: 1.2, dying: 2.6, revive: 0.9,
     recover: { blink: 0.4, barrage: 0.5, halo: 0.6, summon: 0.5, nova: 0.6,
                scythe: 0.6, leap: 0.7, charge: 0.4, dive: 0.65,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, parry: 0.6 }, // v12 补键 + v13 parry
-    poolNear: ['halo', 'parry', 'quell', 'homing', 'blink', 'grab', 'scythe'],          // v13.1：7 招；招牌=光环/圣盾/追踪弹
-    poolFar: ['barrage', 'blink', 'quell', 'halo', 'clone'],
-    p2Add: ['nova', 'dive'],
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, parry: 0.6, totem: 0.6 }, // v12 补键 + v13 parry + v16 totem
+    // 圣裁者招牌：halo 圣辉轮 / parry 反伤架势 / homing 追踪弹 / totem 圣像审判
+    poolNear: ['halo', 'parry', 'homing', 'totem', 'barrage'],
+    poolFar: ['barrage', 'halo', 'homing', 'totem'],
+    p2Add: ['nova'],
     contactDmg: 1, drop1: 'yao1', drop2: 'yao2' },
   /* ==================== v12：L19 烈焰·牛魔王（kind 6，lava） ====================
      蛮力型：把「每招要求不同动作」集中展示——撞墙反弹（往中间绕）/ 抓取（别站正前 46px）/
@@ -520,8 +530,12 @@ const BAL = {
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
               bomb: 0.55 },
     p2WindMul: 0.85, idleT: [0.52, 0.36], walk: [22, 28],
-    leap: { T: 0.95, vy: 690, clamp: 310 },   // p2Add 的 dive 复用 leap 抛物线
+    leap: { T: 0.95, vy: 690, clamp: 310 },   // v16：dive 已不在池，键保留（与 leap 共用抛物线，将来可复用）
     dive: { ringV: 100 },
+    /* v16：barrage 进 boss6 池（spec §二：弹幕是六只共用的普攻层），但本表此前只写了别的招，
+       没有 barrage 读数——barrageFire 直接读 T.barrage.pairGap，缺键会当场抛错。
+       数值取「重甲慢弹」口径：比 boss1 慢一档、散射更宽，符合牛魔王压场而非扫射的手感。 */
+    barrage: { v: 125, rounds: 3, pairGap: 0.18, endT: 0.5, deg: [-14, 0, 14] },
     nova: { v: 108, t: [0.55, 0.95], endT: 1.2 },
     charge: { v: [250, 310], maxT: 1.4, maxX: 340, hits: 3 },        // 三段连撞
     grab: { reach: 46, dmg: 2 },                                     // 抓取摔投（2 伤，长前摇）
@@ -541,9 +555,10 @@ const BAL = {
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, dive: 0.65,
                grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, bomb: 0.6 },
-    poolNear: ['charge', 'bomb', 'grab', 'pillar', 'summon', 'quake', 'leap'],       // v13.1：7 招；招牌=三连撞/火油弹/抓取/火柱
-    poolFar: ['charge', 'quake', 'grab', 'pillar', 'summon'],
-    p2Add: ['nova', 'dive'],
+    // 牛魔王招牌：charge 三连撞 / bomb 火油弹 / pillar 火柱 / grab 抓取摔投
+    poolNear: ['charge', 'bomb', 'pillar', 'grab', 'barrage'],
+    poolFar: ['barrage', 'charge', 'bomb', 'pillar'],
+    p2Add: ['nova'],
     contactDmg: 1, drop1: 'niu1', drop2: 'niu2' },
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 42 }, ghost: { hp: 36 }, // v7 §8：精英怪
     // v8.0：三种新敌的精英血量（工厂 _engMkEnemy 会读 BAL.elite[type].hp，缺键会在 elite=true 时 TypeError）。
@@ -1668,6 +1683,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'bombCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'mist') { if (b.t >= _engBossDur('mist', b.phase)) {
         b.state = 'mistCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'totem') { if (b.t >= _engBossDur('totem', b.phase)) {
+        b.state = 'totemCast'; b.t = 0; b.fireN = 0; } }
     break;
 
   case 'leapAir': {
@@ -2124,6 +2141,27 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= 0.4) { b.state = 'recover'; b.t = 0; }
     break; }
 
+  case 'totemCast': { // ⑬ 圣像审判（boss5，v16 §三）：玩家左右各升一座圣像，之后交给 hazard 自己走引信
+    b.vx = 0;
+    const TT = T.totem || BAL.boss5.totem;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXt = L.w * _engTile;
+      for (let i = 0; i < TT.n; i++) {
+        // 落点绑「玩家当下位置」而不是 Boss 位置：这招逼玩家离开原地去拆场，绑 Boss 就变成纯背景
+        const offT = (TT.off && TT.off[i] !== undefined) ? TT.off[i] : (i - (TT.n - 1) / 2) * 72;
+        const mx = _engClamp(pcx + offT, 8, WXt - 8);
+        // y = 地面上沿（h 向上长，与 mist 同口径）——UI 只读这组字段画 16×32 的圣像与血量点
+        game.hazards.push({ kind: 'totem', x: mx - TT.w / 2, y: _engGroundY(mx, p.y),
+          w: TT.w, h: TT.h, hp: TT.hp, maxHp: TT.hp, t: 0, life: TT.fuse,
+          r: TT.r, dmg: TT.dmg, flashT: 0 });
+      }
+      game.sfxQueue.push('blink'); _engShake(3, 0);
+    }
+    // 出手收招固定 0.45s：生成是一次性的，留短后摇只是为了不让下一招和圣像同帧出现
+    if (b.t >= 0.45) { b.state = 'recover'; b.t = 0; }
+    break; }
+
   case 'recover':  b.vx = 0; b.parryOn = false;   // v13：离开任何状态的统一兜底（parry 只活在 parryCast）
     // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
     if (b.t >= (T.recover[b.next] || 0.5)) {
@@ -2500,6 +2538,30 @@ function _engUpdateHazards(dt) {
         if (e.fxT <= 0) { e.fxT = 0.20;
           _engFx(e.x + 4 + Math.random() * (e.w - 8), e.y - 6,
             { vy: -46, life: 0.55, color: '#48d8e8', size: 1 }); }
+      }
+    } else if (e.kind === 'totem') { // 圣像审判（v16）：引信到点炸开；被拆掉则安静消失
+      e.t += dt;
+      if (e.flashT > 0) e.flashT -= dt;
+      if (e.hp <= 0) {
+        /* 打掉不炸是这招的核心交互——「拆场」必须有正反馈，否则玩家最优解永远是跑开，
+           圣像就退化成一个纯位移检查。碎裂反馈只管演出，不碰伤害。 */
+        dead = true;
+        _engAddParts(e.x + e.w / 2, e.y - e.h / 2, 12, '#f8e8a0', 100, 200);
+        _engFx(e.x + e.w / 2, e.y - e.h / 2, { ring: 1, r: 3, r1: 20, life: 0.3, color: '#f8e8a0' });
+        game.sfxQueue.push('break');
+      } else if (e.t >= e.life) {
+        /* 结算只在这里做（攻击路径只扣 hp）：两处结算会让「最后一下打掉」的圣像照样炸。
+           圆心取圣像中点——y 是地面线、h 向上长，所以中点是 y - h/2。 */
+        dead = true;
+        const tcx = e.x + e.w / 2, tcy = e.y - e.h / 2, tr = e.r || 110;
+        if (!p.dead && _engCircleRect(tcx, tcy, tr, p)) _engHurtPlayer(tcx, e.dmg || 2);
+        _engAddParts(tcx, tcy, 20, '#f8e8a0', 140, 260);
+        _engFx(tcx, tcy, { ring: 1, r: 4, r1: tr, life: 0.45, color: '#f8d048' });
+        _engShake(6, 0); game.sfxQueue.push('boom');
+      } else {                          // 引信燃烧的心跳演出（倒计时环由 UI 按 t/life 自己画）
+        e.fxT = (e.fxT || 0) - dt;
+        if (e.fxT <= 0) { e.fxT = 0.14;
+          _engFx(e.x + e.w / 2, e.y - e.h - 2, { vy: -34, life: 0.3, color: '#f8d048', size: 1 }); }
       }
     }
     if (dead) hz.splice(i, 1);
@@ -3029,9 +3091,18 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   for (let i = hzArr.length - 1; i >= 0; i--) {
     const hz2 = hzArr[i];
     // hitSeq：与敌人同口径「一摆一伤」——判定框存活 0.12s（7 帧），不记名会被同一刀连扣 7 次
-    if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror')
-        || hz2.hitSeq === p.atkSeq || !_engAabb(box, hz2)) continue;
+    // totem 的 y 是地面线、h 向上长（与 mist 同口径）：直接拿 hz2 当矩形会判到地面以下，
+    // 玩家明明砍在圣像身上却打不掉——受击判定必须换成立在地上的那个盒子。
+    const hzBox = hz2.kind === 'totem' ? { x: hz2.x, y: hz2.y - hz2.h, w: hz2.w, h: hz2.h } : hz2;
+    if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror' && hz2.kind !== 'totem')
+        || hz2.hitSeq === p.atkSeq || !_engAabb(box, hzBox)) continue;
     hz2.hitSeq = p.atkSeq;
+    if (hz2.kind === 'totem') {                      // v16：圣像只扣 hp，碎裂/爆炸统一在 _engUpdateHazards 收尸
+      hz2.hp -= 1; hz2.flashT = 0.08;
+      _engFloat(hz2.x + hz2.w / 2, hz2.y - hz2.h - 4, '1', '#f8d048', 0);
+      game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+      continue;
+    }
     if (hz2.kind === 'mirror') {                     // v13：真假身只扣 hp，结算统一在 _engUpdateHazards 收尸处
       hz2.hp -= 1; hz2.flashT = 0.15;
       _engFloat(hz2.x + hz2.w / 2, hz2.y - 4, '1', '#b060f0', 0);

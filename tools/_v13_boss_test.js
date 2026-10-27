@@ -257,10 +257,13 @@ console.log('[T6] breakT 破防窗口：伤害 ×2');
 }
 
 /* ==================== T8 召唤冷却（玩家反馈：不能一直召唤） ==================== */
+// v16：summon 已不是牛魔王招牌（spec §二 牛魔王=冲撞/火油弹/火柱/抓取），boss6 池里没有它，
+// 留在 boss6 上测「冷却好了还能再召」只会得到一条永远选不中的假 PASS。
+// 这条验的是「召唤冷却」这个机制本身，因此换到池里仍带 summon 的 boss1（L7）上测，意图不变。
 console.log('[T8] summon 召唤冷却与清场成本');
 {
-  const g = bossworld(6, 18), b = g.boss, p = g.player;
-  const S = sb.BAL.boss6.summon;
+  const g = bossworld(1, 6), b = g.boss, p = g.player;
+  const S = sb.BAL.boss.summon;
   p.x = b.x - 200; p.y = b.y; p.invT = 9e9;
   b.state = 'idle'; b.t = 0; b.summonCd = 0;
 
@@ -277,9 +280,11 @@ console.log('[T8] summon 召唤冷却与清场成本');
   for (let i = 0; i < 40; i++) { sb._engBossPick(b); got.push(b.next); b.state = 'idle'; b.t = 0; }
   ok(!got.includes('summon'), '冷却期内 40 次选招都不出 summon', got.join('/'));
 
-  // 冷却归零后应能再选出来（注意还要先清场：场上 ≥2 只活敌时 alive 过滤本来就会压掉 summon）
+  // 冷却归零后应能再选出来（注意还要先清场：场上 ≥2 只活敌时 alive 过滤本来就会压掉 summon；
+  // 且必须站近——远距走 poolFar，summon 只在 poolNear 里）
   b.summonCd = 0;
   g.level.enemies.forEach(e => { e.dead = 1; });
+  p.x = b.x + 20; p.y = b.y;
   let got2 = [];
   for (let i = 0; i < 30; i++) { sb._engBossPick(b); got2.push(b.next); b.state = 'idle'; b.t = 0; }
   ok(got2.includes('summon'), '冷却结束后重新可召唤');
@@ -290,29 +295,40 @@ console.log('[T8] summon 召唤冷却与清场成本');
 }
 
 /* ==================== T9 招式池规模 + 招牌唯一性 ==================== */
-console.log('[T9] 招式池：每只 ≥7 招，招牌招互不重合');
+// v16 改口径（spec 2026-10-27-v16-boss-exclusive §二）：池子从「每只 ≥7 招」收成
+// 「P1 = 4 招招牌 + barrage 普攻」，招牌六只零重合。原断言按旧池子写死「≥7 招」和三组
+// 过期的招牌名单（boss3 还在要 clone、boss4 还在要 breath），现在改为按新规格的集合断言：
+// 只验「每只都带自己的 4 招招牌 + 弹幕」「24 个招牌槽位互不相同」，池子的具体顺序不钉死。
+console.log('[T9] 招式池：每只 = 4 招牌 + barrage，24 个招牌槽位零重合');
 {
   const tables = { 1: sb.BAL.boss, 2: sb.BAL.boss2, 3: sb.BAL.boss3, 4: sb.BAL.boss4, 5: sb.BAL.boss5, 6: sb.BAL.boss6 };
-  // 招牌招（每只 Boss 独有的记忆点）：这些不许出现在别的 Boss 池里
-  const SIG = { 1: ['leap', 'meteor'], 2: ['sweep', 'mist', 'pull'], 3: ['scythe', 'mirror', 'clone'],
-                4: ['breath', 'push', 'core'], 5: ['halo', 'parry', 'homing'], 6: ['bomb', 'pillar'] };
-  for (const k of [2, 3, 4, 5, 6]) {
-    const pool = tables[k].poolNear;
-    ok(pool.length >= 7, 'boss' + k + ' poolNear 有 ' + pool.length + ' 招（≥7，别为去重砍太狠）', pool.join('/'));
+  // 招牌招（每只 Boss 独有的记忆点，同时也是玩家要分别学会的应对动作）
+  const SIG = { 1: ['meteor', 'spike', 'summon', 'leap'],
+                2: ['sweep', 'mist', 'pull', 'breath'],
+                3: ['scythe', 'blink', 'mirror', 'quell'],
+                4: ['push', 'core', 'quake', 'clone'],
+                5: ['halo', 'parry', 'homing', 'totem'],
+                6: ['charge', 'bomb', 'pillar', 'grab'] };
+  for (const k of [1, 2, 3, 4, 5, 6]) {
+    const pool = tables[k].poolNear || [];
+    ok(pool.length === 4 + 1, 'boss' + k + ' poolNear 恰好 5 招（4 招牌 + barrage）', pool.join('/'));
     ok(SIG[k].every(n => pool.includes(n)), 'boss' + k + ' 招牌招齐全', SIG[k].join('/'));
+    ok(pool.includes('barrage'), 'boss' + k + ' 带公共普攻 barrage');
   }
-  // 招牌互斥：任一招牌只属于一个 Boss
+  // 招牌互斥：任一招牌只属于一个 Boss（全 24 招两两不重合）
   const owner = {};
   let clash = [];
   for (const k of Object.keys(SIG)) for (const n of SIG[k]) {
     if (owner[n] && owner[n] !== +k) clash.push(n + '(' + owner[n] + '/' + k + ')');
     owner[n] = +k;
   }
-  ok(clash.length === 0, '6 只 Boss 的招牌招零重合', clash.join(',') || 'none');
-  // 允许重合的通用招：确认它们确实重合了（说明招式池不是各自为政的孤岛）
-  const common = ['leap', 'barrage', 'summon', 'quake'];
-  const shared = common.filter(n => [1,2,3,4,5,6].filter(k => tables[k].poolNear.includes(n) || (tables[k].poolFar||[]).includes(n)).length >= 2);
-  ok(shared.length >= 2, '通用招允许重合（' + shared.join('/') + ' 出现在 ≥2 只 Boss 的池里）');
+  ok(clash.length === 0, '6 只 Boss 的 24 招招牌零重合', clash.join(',') || 'none');
+  // 公共层只剩 barrage：六只 poolNear 的交集应该恰好是它（nova 只在 P2 的 p2Add 里追加）
+  const common = (tables[1].poolNear || []).filter(n => [2, 3, 4, 5, 6].every(k => (tables[k].poolNear || []).includes(n)));
+  ok(common.length === 1 && common[0] === 'barrage', '六只 poolNear 的唯一公共招是 barrage', common.join('/'));
+  // dive 与 leap 是同一套抛物线（spec §一.4）：已从所有池里撤下，别再回来
+  const diveIn = [1, 2, 3, 4, 5, 6].filter(k => (tables[k].poolNear || []).concat(tables[k].poolFar || [], tables[k].p2Add || []).includes('dive'));
+  ok(diveIn.length === 0, 'dive 不在任何 Boss 的池里（与 leap 重合，已退场）', 'boss' + diveIn.join('/boss'));
 }
 
 /* ==================== T7 选招覆盖 ==================== */

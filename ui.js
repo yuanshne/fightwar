@@ -1779,6 +1779,7 @@ function renderHazards(tick,camX,camY){
     else if(h.kind==='pushwall')_hzPushwall(h,tick,ox,oy);   // v13 §六：推进墙
     else if(h.kind==='bomb')_hzBomb(h,tick,ox,oy);           // v13 §六：弹跳炸弹
     else if(h.kind==='mist')_hzMist(h,tick,ox,oy);           // v13 §六：水雾区
+    else if(h.kind==='totem')_hzTotem(h,tick,ox,oy);         // v16 §三：圣像审判（地面物件，画在上层）
   }
 }
 
@@ -2257,6 +2258,102 @@ function _hzMist(h,tick,ox,oy){
   ctx.restore();
 }
 
+/* v16 §三：圣像审判（totem，boss5 专属）——y 是地面线、h 向上长（与 mist 同口径），引擎判伤圆心取
+   柱心 (x+w/2, y-h/2)。这招要玩家在 4s 内做一个决定（拆 / 跑），所以画面必须同时回答三件事：
+     ① 这是什么 → 石柱本体 + 柱顶金色「圣像之眼」，眼在呼吸 = 它是活的、还能被打；
+     ② 还有几刀 → 柱顶 maxHp 枚 3×2 血量点，打掉一枚灭一枚（清空=不炸，这是这招唯一的正解）；
+     ③ 什么时候炸 → 脚下 14×2 引信条按剩余比例缩短、颜色从青白烧到红，最后 0.8s 闪烁。
+   爆炸半径只在剩余 <1s 时画一圈虚线：平时画 = 同屏两圈 110px 红环，画面糊成一片，反而没人看引信。
+   性能：idle 每帧 ~20 个图元（柱 1 + 眼 3 + 血点 ≤8 + 引信 3 + 弧 ≤1）；不 new 对象、不建 gradient。 */
+const _TOTEM_FUSE_COL=(function(){   // 引信 8 档色（青白→暖金→红）：模块加载时算一次，运行期只查表，
+  // 不在每帧拼字符串/建 createLinearGradient（沙箱里 gradient 行为有差异，mist 那条注释踩过）。
+  const A=[216,244,255],B=[255,232,176],C=[248,96,32],out=[];
+  for(let i=0;i<8;i++){
+    const u=i/7,p=u<0.5?A:B,q=u<0.5?B:C,s=u<0.5?u*2:(u-0.5)*2;
+    out.push('rgb('+Math.round(p[0]+(q[0]-p[0])*s)+','+Math.round(p[1]+(q[1]-p[1])*s)+','+Math.round(p[2]+(q[2]-p[2])*s)+')');
+  }
+  return out;
+})();
+function _hzTotem(h,tick,ox,oy){
+  if(!h||h.kind!=='totem')return;
+  const w=Math.max(4,+h.w||16),hg=Math.max(4,+h.h||32);
+  const x=px((+h.x||0)-(+ox||0)),base=px((+h.y||0)-(+oy||0)); // base=地面线：柱底压在这条线上，不浮空
+  const top=base-hg,cx=x+Math.round(w/2),T=+tick||0;
+  const life=Math.max(0.05,+h.life||4),t=Math.max(0,+h.t||0);
+  const k=clamp(t/life,0,1),left=Math.max(0,life-t);
+  ctx.save();
+  if(left<1.0){                                        // 只剩 1s 才给「跑多远算安全」，平时露圈=脏
+    const rr=Math.max(8,+h.r||110),a=0.34+0.22*(1-left); // 越临爆越不透明（0.34→0.56）
+    /* 实机目检（_v16_totem_almost.png）第一版 0.10~0.16 + 1.5px 虚线，在 nether 暗紫底上几乎看不见 =
+       等于没给「跑多远」的信息。0.34 起跳才能在混战里读到；最后 0.5s 再补一层极淡填充，
+       把「圈内是危险区」从一条线升级成一个面（填充只 0.07，不糊画面）。 */
+    ctx.globalAlpha=a;ctx.strokeStyle='#f84848';ctx.lineWidth=2;
+    if(ctx.setLineDash)ctx.setLineDash([6,5]);          // 虚线：读成「边界线」而不是又一层实体
+    ctx.beginPath();ctx.arc(cx,base-Math.round(hg/2),rr,0,Math.PI*2);ctx.stroke();
+    if(ctx.setLineDash)ctx.setLineDash([]);
+    if(left<0.5){
+      ctx.globalAlpha=0.07;ctx.fillStyle='#f84848';
+      ctx.beginPath();ctx.arc(cx,base-Math.round(hg/2),rr,0,Math.PI*2);ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+  // 本体：art 契约 16×32。取不到 SPR.totem 时**不要**拿 pushwall（24×64 熔岩裂纹竖条）冒充——
+  // 那个造型是「推进墙」，混进 L18 会让玩家把圣像当成墙。退回中性程序化石柱，造型错位好过认错。
+  const img=SPR.totem;
+  ctx.globalAlpha=1;
+  if(img){
+    /* 实机目检（_v16_totem_fresh.png）：nether 关是暗紫底，灰石柱压上去轮廓会融掉，
+       和旁边的木箱/平台混成一片。贴图前先描一圈 1px 暖金外框（0.24）把剪影抠出来——
+       不改 art 画稿，只在 ui 侧补分离度；金框也顺带把「这是圣物不是场景道具」说清楚。 */
+    ctx.globalAlpha=0.24;ctx.fillStyle='#f8d048';
+    ctx.fillRect(x-1,top-1,w+2,1);ctx.fillRect(x-1,base,w+2,1);
+    ctx.fillRect(x-1,top-1,1,hg+1);ctx.fillRect(x+w,top-1,1,hg+1);
+    ctx.globalAlpha=1;
+    ctx.drawImage(img,x,top,w,hg);
+  }
+  else{
+    ctx.fillStyle='#3c3a44';ctx.fillRect(x,top,w,hg);              // 石柱
+    ctx.fillStyle='#5c5a68';ctx.fillRect(x+2,top+2,Math.max(1,w-4),Math.max(1,hg-4));
+    ctx.fillStyle='#26242c';ctx.fillRect(x,top,2,hg);ctx.fillRect(x+Math.max(0,w-2),top,2,hg);
+    ctx.fillStyle='#8a8698';ctx.fillRect(x+2,top+2,Math.max(1,w-4),1);
+  }
+  const ft=+h.flashT||0;
+  if(ft>0){                                            // 打中反馈：整根压白（引擎每刀只给 0.08s，够看够短）
+    ctx.globalAlpha=clamp(ft/0.08,0,1)*0.5;ctx.fillStyle='#ffffff';
+    ctx.fillRect(x,top,w,hg);
+  }
+  // 圣像之眼：art 画稿里已有 3×3 金眼（矩形 y1..3、列 x6..8），这里只做「呼吸」——光晕对准画稿那颗眼，
+  // 不另起第二个金点（错开画会变成两只眼）。相位用 tick（不是 t）：两座圣像的眼同步，混战里更好认。
+  // 列偏 1px 是因为 16 宽的画布中心列是 7，而 cx=x+8（画稿把眼放在 x6..8，中心列 7）。
+  const eyeY=top+Math.max(2,Math.round(hg*0.0625)),eyeX=cx-1,br=0.6+0.4*Math.sin(T*0.2);
+  ctx.globalAlpha=0.22+0.33*br;ctx.fillStyle='#f8d048';   // 0.10 起跳太淡，实机看是个白点，认不出「金色圣像之眼」
+  ctx.fillRect(eyeX-3,eyeY-3,6,6);                      // 光晕用硬边方块（像素风，不用 shadowBlur）
+  ctx.globalAlpha=0.85+0.15*br;ctx.fillStyle='#ffe070';
+  ctx.fillRect(eyeX-1,eyeY-1,3,3);
+  ctx.globalAlpha=1;ctx.fillStyle='#fffbe0';ctx.fillRect(eyeX,eyeY,1,1);
+  // 血量点：3 刀能拆 → 进度必须「数得出」。深底板保证灭掉的那几枚也留着位（总数不变才是读数）
+  const maxHp=Math.max(1,+h.maxHp||3),hp=clamp((+h.hp===undefined?maxHp:+h.hp),0,maxHp);
+  const totalW=maxHp*3+(maxHp-1);
+  const pipX=cx-Math.round(totalW/2),pipY=top-6;        // 留 6px 让开柱顶，别和眼/装饰糊在一起
+  ctx.globalAlpha=1;ctx.fillStyle='#2a2016';ctx.fillRect(pipX-1,pipY-1,totalW+2,4);
+  for(let i=0;i<maxHp;i++){
+    ctx.fillStyle=i<hp?'#ffe070':'#4a3a24';
+    ctx.fillRect(pipX+i*4,pipY,3,2);
+  }
+  // 引信条：14×2 贴在脚下，长度=剩余比例，颜色按 t/life 烧红；最后 0.8s 闪烁＝最后的「拆还是跑」
+  const fw=14,fx0=cx-7,fy0=base+1;
+  ctx.globalAlpha=0.55;ctx.fillStyle='#181018';ctx.fillRect(fx0-1,fy0-1,fw+2,4); // 底板：雪/沙等亮地面上也读得出
+  ctx.globalAlpha=1;ctx.fillStyle=_TOTEM_FUSE_COL[Math.min(7,(k*8)|0)];
+  const fwNow=Math.max(1,Math.round(fw*(1-k)));
+  ctx.fillRect(fx0,fy0,fwNow,2);
+  if(left<=0.8){
+    ctx.globalAlpha=(0.45+0.45*Math.sin(T*1.2))*clamp((0.8-left)/0.8,0.25,1);
+    ctx.fillStyle='#ff7050';ctx.fillRect(fx0,fy0-1,fw,1);ctx.fillRect(fx0,fy0+2,fw,1);
+    ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+
 // v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
 // 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
 // 悬浮型中心对齐（'mid'）；alpha 由调用方给（含死亡渐隐/幽灵 0.78）。BAL 缺省回退 1.75。
@@ -2622,6 +2719,21 @@ function renderBossWindupFx(b,bimg,bx,by){
       drawCNText('雾',cx,px(top)-14,8,'#48d8d0','center');
       break;
     }
+    case 'totem':{                                   // 圣像审判：本体两侧各升起一根金色柱影 +「圣」
+      // 落点绑「玩家两侧 ±72」而不是 Boss 身上——本体附近不给任何指向时，玩家读不出「柱子会立在哪儿」，
+      // 两根随 k 长高的柱影就是位置预告（只到 26px 高，且远小于真柱，不会被误认成危险物）。
+      for(let i=0;i<2;i++){
+        const px0=px(cx+(i?26:-26)),gy=px(top+b.h),hgt=Math.max(4,Math.round(6+k*20));
+        ctx.globalAlpha=0.22+0.33*k;ctx.fillStyle='#f8d048';
+        ctx.fillRect(px0-2,gy-hgt,4,hgt);
+        ctx.globalAlpha=0.50+0.40*k;ctx.fillStyle='#fff6c0';
+        ctx.fillRect(px0-2,gy-hgt,4,2);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('圣',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
   }
 }
 
@@ -2681,6 +2793,24 @@ function renderBossTags(b,tick){
     ctx.strokeStyle='#f84848';ctx.lineWidth=1;
     ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
     ty-=15;
+  }
+  // v16 §三：圣像审判进行中——金「圣」+ 场上还剩几座没拆（这是本招的唯一失败条件，得一直挂在头上）。
+  // 不按 b.state==='totemCast' 判：那个状态只活 0.45s，标签会闪一下就没，纯噪音；
+  // 这招真正的读数是「引信烧完之前还有几座」，危险物还在场 = 还得去拆，所以条件就取 hazard 存活数。
+  {
+    let nT=0;
+    const HZ=game.hazards;
+    if(HZ)for(let i=0;i<HZ.length;i++){const z=HZ[i];if(z&&z.kind==='totem'&&(+z.hp||0)>0)nT++;}
+    if(nT>0){
+      const w=Math.ceil(_textW('圣',9))+8+5;             // 宽度口径同「撞 N」：字位 + 1 位数字位
+      _panel(cx-w/2,ty,w,13,{cut:2,alpha:0.84});
+      drawCNText('圣',cx-w/2+5,ty+2,9,'#f8d048');
+      drawPixelText(''+nT,cx+w/2-5,ty+4,1,'#ffe070','right');
+      ctx.globalAlpha=0.45+0.45*Math.abs(Math.sin(tick*0.32));
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=1;
+      ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
+      ty-=15;
+    }
   }
   // v13 §五：破防窗口「破防」+ 剩余条（宽度按 breakT/2.0 收缩；2.0 是契约里的破防总时长）。
   // 这是 v13 唯一的「打得更疼」窗口，必须比破绽更显眼：金字金框 + 条一亮一暗地呼吸。

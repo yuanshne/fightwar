@@ -4,7 +4,7 @@
 服务端若逐字节复现了 author/committer/message，生成 commit sha 与本地 HEAD 一致，
 本地 refs/remotes/origin/main 可直接指过去，后续真推送不会分叉。
 """
-import base64, datetime, json, os, subprocess, sys, urllib.request
+import base64, datetime, json, os, subprocess, sys, urllib.error, urllib.request
 
 REPO = "yuanshne/fightwar"
 API = "https://api.github.com"
@@ -31,6 +31,28 @@ def ident(line):
     return {"name": name, "email": email, "date": dt.strftime("%Y-%m-%dT%H:%M:%S") + tz[:3] + ":" + tz[3:]}
 
 
+def _via_curl(method, path, data):
+    """urllib 走不通时的备用传输（2026-10-27 起本机 urllib 直连报
+    CERTIFICATE_VERIFY_FAILED: unable to get issuer certificate，而 curl 正常——
+    同一个 api.github.com，Python 用自带 CA 束、curl 用系统/schannel 存储，链断在中间证书）。
+    curl 走环境代理即可通，因此这里不屏蔽代理。"""
+    cmd = ["curl", "-sS", "-X", method, API + path,
+           "-H", "Authorization: Bearer " + TOKEN,
+           "-H", "Accept: application/vnd.github+json",
+           "-H", "X-GitHub-Api-Version: 2022-11-28",
+           "--max-time", "120", "-w", "\n%{http_code}"]
+    if data:
+        cmd += ["-H", "Content-Type: application/json", "--data-binary", "@-"]
+    r = subprocess.run(cmd, input=data, capture_output=True)
+    if r.returncode != 0:
+        sys.exit("! curl 传输失败: " + r.stderr.decode(errors="replace")[:400])
+    body, _, code = r.stdout.decode().rpartition("\n")
+    if not code.startswith("2"):
+        print(f"!! {method} {path} -> {code}\n{body[:2000]}", file=sys.stderr)
+        sys.exit(1)
+    return json.loads(body or "{}")
+
+
 def call(method, path, payload=None):
     data = json.dumps(payload).encode() if payload is not None else None
     req = urllib.request.Request(API + path, data=data, method=method)
@@ -46,6 +68,9 @@ def call(method, path, payload=None):
     except urllib.error.HTTPError as e:
         print(f"!! {method} {path} -> {e.code}\n{e.read().decode()[:2000]}", file=sys.stderr)
         raise
+    except urllib.error.URLError as e:          # 证书链/连接层失败 → 换 curl 重试一次
+        print(f"… urllib 不可用（{e.reason}），改用 curl 传输", file=sys.stderr)
+        return _via_curl(method, path, data)
 
 
 def main():

@@ -611,3 +611,96 @@ v12 把类型从 1 种扩到 7 种，但七种里**有五种都在惩罚同一�
 
 ### 实机踩坑（写在这里免得下一个人再踩）
 - （本轮新增，见下方「实测」小节）
+
+## v16 · Boss 招式去同质化（招牌独占）
+
+**一句话规则**：`charge` 归牛魔王专属；六只 Boss 招牌零重合；公共层只保留 `barrage`（普攻）与 `nova`（P2 全屏冲击）。
+
+出处：玩家原话「boss 撞来撞去这个技能不要谁都给啊，这个很难躲的，你就当成牛魔王的专属技能就可以了，
+然后 boss 要有自己的特色，除了普通攻击其他的能不要一样吗？」。真值文件 `docs/specs/2026-10-27-v16-boss-exclusive.md`。
+
+### 六张冻结池表（engine.js 逐字照抄，顺序也一致）
+
+```js
+// boss1 星核巨兽（L7）
+poolNear: ['meteor', 'spike', 'summon', 'leap', 'barrage'],
+poolFar:  ['barrage', 'meteor', 'spike'],
+p2Add:    ['nova'],
+
+// boss2 蛟龙·敖渊（L13）
+poolNear: ['sweep', 'mist', 'pull', 'breath', 'barrage'],
+poolFar:  ['barrage', 'breath', 'pull', 'mist'],
+p2Add:    ['nova'],
+
+// boss3 幽冥判官（L16）
+poolNear: ['scythe', 'blink', 'mirror', 'quell', 'barrage'],
+poolFar:  ['barrage', 'scythe', 'blink', 'quell'],
+p2Add:    ['nova'],
+
+// boss4 冥古龙（L18 第一棒）
+poolNear: ['push', 'core', 'quake', 'clone', 'barrage'],
+poolFar:  ['barrage', 'push', 'quake', 'core'],
+p2Add:    ['nova'],
+
+// boss5 曜光·圣裁者（L18 第二棒）
+poolNear: ['halo', 'parry', 'homing', 'totem', 'barrage'],
+poolFar:  ['barrage', 'halo', 'homing', 'totem'],
+p2Add:    ['nova'],
+
+// boss6 牛魔王（L19）
+poolNear: ['charge', 'bomb', 'pillar', 'grab', 'barrage'],
+poolFar:  ['barrage', 'charge', 'bomb', 'pillar'],
+p2Add:    ['nova'],
+```
+
+每只的实际招数：P1 = 4 招牌 + `barrage` = 5；P2 = + `nova` = 6。全程无跨 Boss 重合。
+`dive`（跳劈落地甩环）从所有 `p2Add` 移除（与 `leap` 同一套抛物线 = 变相重合）；`T.dive` 参数与实现保留，只是不再进池。
+
+### 招牌分工表（README 同步，也是 `tools/_v16_boss_test.js` 断言的真值）
+
+| Boss | 4 招招牌 | 各自罚什么 |
+|---|---|---|
+| 星核巨兽 | meteor 陨石雨 / spike 地刺 / summon 召唤 / leap 跳劈 | 不看天、不看地、不清场、不预判落点 |
+| 蛟龙·敖渊 | sweep 扫尾 / mist 水雾 / pull 吸附 / breath 吐息 | 贴地站、站桩、被拉回危险区、不跳台 |
+| 幽冥判官 | scythe 镰刀波 / blink 传送 / mirror 真假身 / quell 蓄力结界 | 直线站位、读不出落点、打错目标、不打断 |
+| 冥古龙 | push 推进墙 / core 核心护盾 / quake 劈地波 / clone 幽冥分身 | 往墙里退、不看本体、不跳、分不清残影 |
+| 曜光·圣裁者 | halo 圣辉轮 / parry 反伤架势 / homing 追踪弹 / totem 圣像审判 | 穿缝失误、连打、不甩弹、只盯 Boss 不拆场 |
+| 牛魔王 | charge 三连撞 / bomb 火油弹 / pillar 火柱 / grab 抓取摔投 | 站桩、记不住弹两下、不看脚下、正面贴脸 |
+
+### 新增招 `totem` 圣像审判（boss5 专属 · hazard `kind:'totem'`）
+
+玩法：举手前摇 0.7s → 玩家左右两侧各升起一座圣像（受地形 clamp）→ 4s 引信。
+圣像**可被普通攻击打掉（3 刀）**，打掉的那座不炸；引信到点未拆的炸开，半径 110 内扣 **2 心**。
+两座都留 = 两次判定，但受伤无敌 1.0s 会吃掉第二次（实际最坏 1+1=2 心）。
+
+参数（冻结，写进 `BAL.boss5`）：
+```js
+totem: { n: 2, hp: 3, fuse: 4.0, w: 16, h: 32, r: 110, dmg: 2, off: [-72, 72] },
+```
+
+hazard 对象字段（冻结，ui 只读这些）：
+```js
+{ kind: 'totem', x, y,          // y = 地面线（h 向上长，与 mist 同口径）
+  w: 16, h: 32,
+  hp: 3, maxHp: 3,              // ui 画血量点用
+  t: 0,                          // 已存活
+  life: 4.0,                     // fuse
+  r: 110, dmg: 2,                // 爆炸半径/伤害
+  flashT: 0 }                    // 被打中闪白（≤0.08s）
+```
+
+- 生成口径同 mist/pillar：只在 `b.fireN === 0` 那一帧 spawn（`totemCast` 首帧，0.45s 后 recover），
+  不要自己另起计时器；状态机 `windup(totem)` → `totemCast`。
+- 结算唯一：爆炸只发生在 `_engUpdateHazards` 收尸处（`e.t >= e.life` → `_engHurtPlayer(e.x + e.w/2, e.dmg)`，
+  仅玩家在 `e.r` 内，圆心取圣像中心）；`e.hp <= 0` → `dead = true` 且**不炸**。
+- 攻击命中走已有「攻击 vs hazard」路径（同 `mirror`，engine.js:3035 附近），**只扣 hp，不在那里结算爆炸**。
+- 不挡移动、不挡攻击、不阻挡子弹；清场无新增点（`game.hazards.length = 0` 五处整数组清场自动覆盖）。
+- 素材：`SPR.totem` 16×32（`art.js`，与 `BAL.boss5.totem.w/h` 同尺寸），ui 取不到时按程序化兜底画柱。
+
+### 硬约束（对 v16 之后所有 Boss 招生效）
+
+1. **新增 Boss 招必须先在本节登记归属**（哪只 Boss 的招牌、状态名、参数对象、罚什么），六只招牌不得重复。
+2. 新招**只有出现在「公共层」名单里才允许共用**；公共层当前固定为 `barrage`（每只都有的普攻）与
+   `nova`（P2 追加的全屏双环）。要扩公共层须先改本节 + spec，不允许悄悄复用别人的招牌。
+3. `charge` 只属于 boss6 牛魔王；其余五只的 `poolNear` / `poolFar` / `p2Add` 里出现 `charge` 即视为破坏契约。
+4. 池表改动只动池子，不动 `BAL` 已有招式数值、不动 `dash` / `player` 参数。

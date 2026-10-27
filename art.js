@@ -100,6 +100,11 @@
  *      SPR.mirror 24×32：兜帽斗篷人形剪影，全图只用 #b070f0 一个色（无内部细节，UI 自染色/叠 alpha）；
  *      SPR.pushwall 24×64：熔岩裂纹砖墙（上沿 3px 尖齿朝上、#6a2418 底 + #c04020 裂纹网 +
  *      #f88040 发光缝、下沿压暗）。三者生成后 Object.freeze（v13 冻结约束，防 UI 侧误改字段）。
+ * —— v16 危险物素材（spec 2026-10-27-v16-boss-exclusive §三，只加一键，既有键零改动）——
+ *   L. SPR.totem 16×32：圣像审判（boss5 曜光·圣裁者专属，hazard.kind='totem'）——16×4 深灰石台
+ *      （#3a3448，顶面 #5a5470）+ 居中 8×24 石柱（#4a4258，左右各 1px 亮边 #6a6280）+
+ *      柱身两道 1px 横向凹槽（#332c44）+ 柱顶 3×3 金眼（#f8d048，中心 1px #fff8d0）。
+ *      除金眼外不含第二种色相：同屏最多 2 座、还要压在 nether 暗紫底上，加装饰就糊成柱子。
  * 约束：
  *   - 普通 script（无 import/export），加载顺序 art → levels → engine → ui；
  *   - 顶层零 DOM/音频/键盘调用；document 只出现在函数体内；
@@ -2764,6 +2769,43 @@ function _pushwallGrid() { // 内部：24×64 熔岩裂纹砖墙（尖齿 y0-2 /
   for (let x = 0; x < W; x++) if (((x + 55) & 1) === 0 && G[55][x] === 'B') G[55][x] = 'K';
   return G.map(function (r) { return r.join(''); });
 }
+const _P_TOTEM = { // 内部：圣像调色板（d 石台 / h 石台顶面 / s 柱身 / e 柱身亮边 / g 凹槽兼接地阴影 / y 金眼 / w 眼心）
+  d: '#3a3448', h: '#5a5470', s: '#4a4258', e: '#6a6280', g: '#332c44', y: '#f8d048', w: '#fff8d0'
+};
+const _TOTEM = [ // 16×32：尺寸与 hazard.w/h 逐字一致（spec §三 w16 h32，y 为地面线、向上长）
+  '................', // 0  留空 1px：金眼不顶到画布边，头顶留一口气
+  '......yyy.......', // 1  金眼 3×3（x6..8）——「这是圣像不是柱子」的唯一识别点
+  '......ywy.......', // 2    中心 1px 白：没有这个白点，3×3 金块会读成柱头铜箍
+  '......yyy.......', // 3
+  '....esssssse....', // 4  柱身 8×24 起（y4..27，居中 x4..11）：左右各 1px 亮边做圆柱受光
+  '....esssssse....', // 5
+  '....esssssse....', // 6
+  '....esssssse....', // 7
+  '....esssssse....', // 8
+  '....esssssse....', // 9
+  '....esssssse....', // 10
+  '....esssssse....', // 11
+  '....gggggggg....', // 12 凹槽 1（柱身中段，与下一道对称于 y16——两刀刻痕才不像光滑水管）
+  '....esssssse....', // 13
+  '....esssssse....', // 14
+  '....esssssse....', // 15
+  '....esssssse....', // 16
+  '....esssssse....', // 17
+  '....esssssse....', // 18
+  '....esssssse....', // 19
+  '....gggggggg....', // 20 凹槽 2
+  '....esssssse....', // 21
+  '....esssssse....', // 22
+  '....esssssse....', // 23
+  '....esssssse....', // 24
+  '....esssssse....', // 25
+  '....esssssse....', // 26
+  '....esssssse....', // 27 柱身止于地面线（y 口径与 mist 一致：y 是脚底，不向上偏移）
+  'hhhhhhgggghhhhhh', // 28 石台 16×4 顶面：柱脚正下方压暗当投影，否则柱子和台面糊成一块
+  'dddddddddddddddd', // 29
+  'dddddddddddddddd', // 30
+  'gggggggggggggggg'  // 31 最底 1px 接地阴影：16px 宽的平条不加这行会像悬空的板
+];
 function _frozenSpr(spr) { // 内部：v13 冻结（精灵画布本身冻结；内容不可变、引用不可换）
   return Object.freeze(spr);
 }
@@ -3319,6 +3361,8 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.bomb = _frozenSpr(_makeSprite(_BOMB, _P_BOMB));
   SPR.mirror = _frozenSpr(_makeSprite(_mirrorGrid(), _P_MIRROR));
   SPR.pushwall = _frozenSpr(_makeSprite(_pushwallGrid(), _P_PUSHWALL));
+  // v16：SPR.totem 16×32（hazard.kind='totem'，boss5 圣像审判）——冻结口径同上，尺寸即 BAL.boss5.totem.w/h。
+  SPR.totem = _frozenSpr(_makeSprite(_TOTEM, _P_TOTEM));
   // —— v7.7：预生成 blue 皮肤帧对象（纯引用上面已画好的 hero* 帧，零额外像素绘制，耗时≈0）；
   //     其余 19 套留待 ui 首次取用时惰性生成，启动期不付 19×20 张画布的钱。——
   getHeroSkin('blue');
