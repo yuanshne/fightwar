@@ -279,10 +279,12 @@ const BAL = {
            stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
   atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
   // v7.7 手感：cd 0.8→0.5（对照空洞骑士 0.45~0.55s；dur/v 不动 ⇒ 冲刺距离 59.53px 不变）
-  // v7.9：冲刺追加 inv=0.10 无敌帧。0.10s（6 帧）刚好覆盖「看到攻击抬手 → 按 K 穿过判定框」的反应窗口，
+  // v7.9：冲刺追加无敌帧。0.10s（6 帧）刚好覆盖「看到攻击抬手 → 按 K 穿过判定框」的反应窗口，
   // 又远短于 dash 总时长 0.28 —— 不会变成「一直按 K 无敌」。取 0.10 而非 0.18 是玩家明确要求：
   // 0.18 太长会「没有操作感觉」（无敌窗口比敌人攻击判定还宽，闪避就退化成无脑贴身）。
-  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5, inv: 0.10 },
+  // v14：0.10 → 0.15。玩家实测觉得 6 帧容错偏硬，给到 9 帧；仍只有 dash 总时长 0.28 的 54%，
+  // 无双窗口 0.5s 的 30%，「一直按 K」依旧换不来连续无敌（dash 结束→CD 未到期间照常挨打）。
+  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5, inv: 0.15 },
   combo: { win: 2, ultNeed: 8 },
   // v7.1 O 重做：连击门槛与实战节奏脱节（怪少窗短叠不满 8）→ 改能量充能制：
   // 任何命中充 ultCharge.hit（碎砖减半），满 ultNeed 释放；死亡/断连击不清充能
@@ -3149,8 +3151,9 @@ function _engUpdatePlayer(dt, L, p) {
     if (p.dashCd <= 0) {
       p.dashCd = _engDashCd; p.dashT = _engDashDur; // v5 §B：总时长 0.28（原 0.18）；v7.7：冷却回到基础值 0.5s（局外成长已删）
       p.dashDir = dir !== 0 ? dir : p.face; // 有方向输入用输入向，否则用面向
-      // v7.9：起手 0.10s 无敌帧（与受伤无敌同一套 invT 判定，伤害/击退/即死物全部覆盖——
+      // v7.9：起手给无敌帧（与受伤无敌同一套 invT 判定，伤害/击退/即死物全部覆盖——
       // 走 _engHurtPlayer 与 _engHazardHit 两条既有路径，不另开分支，避免出现「闪了但照样死」的交互不一致）。
+      // v14：0.10 → 0.15（见 BAL.dash 注释）。
       p.invT = Math.max(p.invT, BAL.dash.inv);
       game.sfxQueue.push('dash');
       _engAddParts(p.x + 5 - p.dashDir * 6, p.y + 7, 6, '#48d8e8', 60, 0);
