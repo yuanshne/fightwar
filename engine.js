@@ -404,9 +404,11 @@ const BAL = {
     // v13 §二：水雾区（原地不动就持续挨打；跑出去即脱身，雾不挡移动不挡攻击）
     // v18 §一：v13 原版实测过弱——tick 0.5s 被玩家受击无敌 1.0s 吞半 + 受击击退 160px/s
     // 当场把人弹出 56px 雾带，实战期望伤害≈1（站桩才挨打=玩家自选）。
-    // 加强取「减速流」：雾内普跑 ×0.5（120→60px/s，穿越 56px 雾带 0.93s、必吃 1~2 跳），
+    // 加强取「减速流」：雾内普跑 ×0.5（120→60px/s，穿越 56px 雾带 0.93s），
     // 冲刺不压速（dash 260px/s 带无敌帧仍是一瞬间穿出，保留操作奖励）。
-    mist:  { n: 3, w: 56, h: 96, life: 4.0, tick: 0.5, dmg: 1, off: [-80, 0, 80], slow: 0.5 },
+    // v18.1（用户指令）：水雾改为**纯减速零伤害**——dmg=0 时 hazard 侧完全不走
+    // _engHurtPlayer（无伤无击退不触发无敌帧），雾只负责「进去就走不动」。
+    mist:  { n: 3, w: 56, h: 96, life: 4.0, tick: 0.5, dmg: 0, off: [-80, 0, 80], slow: 0.5 },
     stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6, breath: 0.55,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
@@ -2183,8 +2185,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         const mx = _engClamp(pcx + offM, 8, WXs - 8);
         // y = 地面上沿（h 向上长）——落地立即生效，不用等雾「长起来」
         game.hazards.push({ kind: 'mist', x: mx - MS.w / 2, y: _engGroundY(mx, p.y),
-          w: MS.w, h: MS.h, t: 0, life: MS.life || 4.0, tickT: 0, dmg: MS.dmg || 1,
-          slow: MS.slow || 1 }); // v18：雾内减速系数随参数表下发（R4：Boss 行为只读表）
+          w: MS.w, h: MS.h, t: 0, life: MS.life || 4.0, tickT: 0, dmg: MS.dmg || 0,
+          slow: MS.slow || 1 }); // v18：减速系数随参数表下发；v18.1 dmg 缺省 0（纯减速）
       }
       game.sfxQueue.push('blink'); _engShake(3, 0);
     }
@@ -2583,8 +2585,9 @@ function _engUpdateHazards(dt) {
         // v18 §一：雾内减速——接触帧刷新标记（0.06s 防抖，大于 2 帧避免边界抖动），
         // 真正的减速发生在玩家移速钳制处（effRun × mistSlow），dash 路径天然绕开
         const inMist = !p.dead && _engAabb({ x: e.x, y: e.y - e.h, w: e.w, h: e.h }, p);
-        if (e.tickT <= 0 && inMist) {
-          _engHurtPlayer(e.x + e.w / 2, e.dmg || 1);
+        // v18.1：仅 dmg>0 才走伤害入口——dmg=0 时零伤害零击退不触发无敌帧（纯减速雾）
+        if (e.tickT <= 0 && inMist && (e.dmg || 0) > 0) {
+          _engHurtPlayer(e.x + e.w / 2, e.dmg);
           e.tickT = e.tick || 0.5;
         }
         if (inMist) { p.mistT = 0.06; p.mistSlow = e.slow || 0.5; }

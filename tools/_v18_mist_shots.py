@@ -33,7 +33,7 @@ with sync_playwright() as p:
       p.x = 200; p.vx = 0; p.vy = 0; p.invT = 9e9;
       const MX = p.x + 240;
       game.hazards.push({ kind:'mist', x: MX-28, y: p.y + p.h, w:56, h:96, t:0,
-                          life:8.0, tickT:0, dmg:1, slow:0.5 });
+                          life:8.0, tickT:0, dmg:0, slow:0.5 });
       return {px: p.x, py: p.y, mistX: MX-28, mistR: MX+28};
     }""")
     print('准备: 玩家@(%d,%d) 雾带[%d,%d]' % (r['px'], r['py'], r['mistX'], r['mistR']))

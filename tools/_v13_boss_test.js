@@ -198,7 +198,7 @@ console.log('[T4] bomb 弹跳炸弹：落点会变，站死会被二次命中');
 }
 
 /* ==================== T5 mist 水雾区（boss2 蛟龙，L13） ==================== */
-console.log('[T5] mist 水雾区：不能站桩');
+console.log('[T5] mist 水雾区：纯减速零伤害（v18.1）');
 {
   const g = bossworld(2, 12), b = g.boss, p = g.player;
   const M = sb.BAL.boss2.mist;
@@ -211,12 +211,13 @@ console.log('[T5] mist 水雾区：不能站桩');
     const m = ms[0];
     ok(m.h > 48, '雾墙够高，跳不出去（h=' + m.h + 'px）');
 
-    // 站进去
+    // 站进去（v18.1：纯减速零伤害——hp 不动，减速标记生效）
     p.invT = 0; p.hp = p.maxHp;
     p.x = m.x + m.w / 2; p.y = m.y - p.h;
     const before = p.hp;
     for (let f = 0; f < Math.ceil(M.tick * 60) + 4; f++) sb.updateWorld(1 / 60);
-    ok(p.hp < before, '站在雾里持续掉血（' + before + '→' + p.hp + '）');
+    ok(p.hp === before, '站在雾里不掉血（dmg=0 纯减速，' + before + '→' + p.hp + '）');
+    ok(p.mistT > 0, '雾内减速标记生效（mistT=' + (p.mistT || 0).toFixed(3) + '）');
 
     // 站外面
     p.invT = 0; p.hp = p.maxHp;
