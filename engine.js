@@ -213,6 +213,8 @@ const _ENG_DECOR_HIT = {
   skull:       { cls: 'break', w: 10, h: 9 },  // 骷髅
   ribcage:     { cls: 'break', w: 12, h: 5 },  // 肋骨
   lavarock:    { cls: 'break', w: 13, h: 9 },  // 熔岩砾石
+  gear:        { cls: 'break', w: 14, h: 14 }, // 齿轮（v17.1：tower/factory 的轮状机械件，玩家点名「轮子没交互」）
+  valve:       { cls: 'break', w: 13, h: 12 }, // 阀门轮盘（轮辐+红阀芯，同为轮状金属件）
   crystal:     { cls: 'pick', w: 9,  h: 13 },  // 水晶簇（两帧辉光）
   crystalS:    { cls: 'pick', w: 8,  h: 9 },   // 小水晶（art 注释写 7×9，实测画布 8×9——以测试 T2 对表为准）
 };
@@ -3672,11 +3674,16 @@ function updateWorld(dt) {
   }
 
   /* ③ 门：持钥匙接触任一 D 瓦片 → 该连通分量整组移除（契约算法 8）
-        门是瓦片：玩家会被碰撞解算顶在门面上（边缘恰好相贴、不构成严格重叠），
-        因此接触扫描用「含边界」的覆盖范围（相贴即算接触）。 */
+        门是瓦片：玩家会被碰撞解算顶在门面上，因此接触扫描用「相贴即算接触」。
+        v17.1 修复：原实现只扫玩家矩形压住的瓦片——从左侧贴门时右缘恰好落在门列起点
+        （floor(门列*16/16)=门列）能命中；但从右侧贴门时左缘 = (门列+1)*16，floor 后
+        永远落在门列+1，整列扫描不到门 → L6「甲板→门→塔顶」这条从右往左的必经路线
+        全程开不了门（只有绕到门左侧才触发，而门左侧是终点侧=死锁）。
+        修法：扫描范围向四周各外扩 1px，两个方向对称命中；1px 穿不透 16px 的瓦片墙，
+        不存在隔墙误开门。 */
   if (!p.dead && game.keys > 0) {
-    const dx0 = Math.floor(p.x / _engTile), dx1 = Math.floor((p.x + p.w) / _engTile);
-    const dy0 = Math.floor(p.y / _engTile), dy1 = Math.floor((p.y + p.h) / _engTile);
+    const dx0 = Math.floor((p.x - 1) / _engTile), dx1 = Math.floor((p.x + p.w + 1) / _engTile);
+    const dy0 = Math.floor((p.y - 1) / _engTile), dy1 = Math.floor((p.y + p.h + 1) / _engTile);
     for (let ty = dy0; ty <= dy1; ty++) {
       for (let tx = dx0; tx <= dx1; tx++) {
         if (L.tileAt(tx, ty) !== 'D' || game.keys <= 0) continue;

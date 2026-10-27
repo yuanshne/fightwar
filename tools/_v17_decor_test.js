@@ -1,7 +1,8 @@
 // node tools/_v17_decor_test.js —— v17 装饰交互独立验收
-// 背景：玩家反馈「像地刺这种有建模但没交互的还有多少」——审计结论=12 种装饰类型零交互。
+// 背景：玩家反馈「像地刺这种有建模但没交互的还有多少」——v17 审计结论=12 种装饰类型零交互；
+// v17.1 追加：玩家第二轮点名「轮子还是没交互」→ gear 齿轮 / valve 阀门轮盘入表（14 种）。
 // 本文件按「玩家该看到的现象」断言，不是"代码跑了没报错"：
-//   T1 分类表完备：12 类型 / 3 类 / 尺寸为正
+//   T1 分类表完备：14 类型 / 3 类 / 尺寸为正
 //   T2 尺寸契约：表内 w/h 与 art.js buildThemeArt 的画布尺寸逐项一致（改 art 必须同步表）
 //   T3 摆放隔离：harm 不进 Boss 关、不压出生点/终点/关键实体；全 19 关扫描
 //   T4 确定性：同 seed 两次构造 decor 完全一致（摆放改动不许破坏既有确定性契约）
@@ -11,6 +12,7 @@
 //   T8 纯装饰无交互：草丛碰/砍都无反应（「本来就不该有交互」的边界不破）
 //   T9 respawn 口径：死亡复活不重建 Level → 已碎/已捡保持（与碎砖同口径）
 //  T10 空转安全：L2 出生点站 5 秒不掉血（摆放隔离的玩家视角证明）
+//  T11 门接触对称（v17.1）：玩家从右侧贴门也能开门——L6 甲板→门→塔顶的必经路线
 'use strict';
 const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
@@ -58,14 +60,14 @@ function ok(cond, msg, extra) {
 console.log('T1 分类表完备');
 {
   const H = sb._ENG_DECOR_HIT, keys = Object.keys(H);
-  ok(keys.length === 12, '12 个交互类型', keys.length);
+  ok(keys.length === 14, '14 个交互类型（v17 的 12 + v17.1 的 gear/valve）', keys.length);
   const cls = new Set(keys.map(k => H[k].cls));
   ok(cls.size === 3 && cls.has('harm') && cls.has('break') && cls.has('pick'), '三类齐全 harm/break/pick');
   ok(keys.every(k => H[k].w > 0 && H[k].h > 0), '全部尺寸为正');
   // 每个交互类型都必须真的出现在某主题的 decor 表里（表里躺着没人用的类型=死代码）
   const used = new Set();
   for (const k of Object.keys(art.THEMES)) (art.THEMES[k].decor || []).forEach(t => used.add(t));
-  ok(keys.every(k => used.has(k)), '12 类型全部被主题引用', keys.filter(k => !used.has(k)).join(','));
+  ok(keys.every(k => used.has(k)), '14 类型全部被主题引用', keys.filter(k => !used.has(k)).join(','));
 }
 
 /* ---------- T2 尺寸契约 ---------- */
@@ -81,7 +83,7 @@ console.log('T2 尺寸与 art.js 画布一致');
     const c = Array.isArray(img) ? img[0] : img;
     if (c.width !== H[type].w || c.height !== H[type].h) bad.push(type + '(' + c.width + 'x' + c.height + '≠' + H[type].w + 'x' + H[type].h + ')');
   }
-  ok(bad.length === 0, '12 类型画布尺寸逐项一致', bad.join(' '));
+  ok(bad.length === 0, '14 类型画布尺寸逐项一致', bad.join(' '));
 }
 
 /* ---------- T3 摆放隔离（全 19 关） ---------- */
@@ -224,6 +226,27 @@ console.log('T10 L2 出生点空转 5s 不掉血');
   const hp0 = g.player.hp;
   for (let i = 0; i < 300; i++) sb.updateWorld(1 / 60);
   ok(g.player.hp === hp0, '摆放隔离=出生区无伤害源', (hp0 - g.player.hp));
+}
+
+/* ---------- T11 门接触对称（v17.1） ---------- */
+// L6 最终之塔：钥匙 K(27,4) 在甲板上，门墙 (25,1..4)、门 D(25,3)/(25,4)，甲板顶面 y=80。
+// 玩家从弹簧弹上甲板（门右侧）必须向左穿门去塔顶——原实现从右贴门扫描不到门列=死锁。
+console.log('T11 门接触对称：从右侧贴门能开门');
+{
+  const g = freshLevel(5);                 // idx 5 = L6 最终之塔
+  const L = g.level, p = g.player;
+  g.keys = 1;                              // 直接给钥匙（拿钥匙的路径 reach 27/27 已验）
+  p.x = 26 * 16; p.y = 80 - p.h;           // 站甲板、左缘精确贴门右面（=碰撞解算落点）
+  p.vx = 0; p.vy = 0; p.invT = 0;
+  const tileBefore = L.tiles[4][25];
+  g.input.left = 1;                        // 向左推：先被门顶住 → 门接触扫描
+  for (let i = 0; i < 12; i++) sb.updateWorld(1 / 60);
+  g.input.left = 0;
+  ok(tileBefore === 'D', '现场有门：tile(25,4)=' + tileBefore);
+  ok(L.tiles[3][25] === '.' && L.tiles[4][25] === '.', '从右贴门 0.2s 内整组开门（连通分量两格齐开）',
+     't3=' + L.tiles[3][25] + ' t4=' + L.tiles[4][25]);
+  ok(g.keys === 0, '钥匙被消耗', g.keys);
+  ok(p.x < 26 * 16 + 1, '门开后玩家得以继续向左通行', '+p.x.toFixed(1)=' + (+p.x).toFixed(1));
 }
 
 console.log('=== v17 装饰交互: ' + pass + ' PASS / ' + fail + ' FAIL ===');
