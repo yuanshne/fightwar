@@ -232,6 +232,36 @@ console.log('[T5] mist 水雾区：不能站桩');
     ok((g.hazards || []).filter(h => h.kind === 'mist').length === 0,
       'life=' + M.life + 's 到期后全部消散');
   }
+
+  // ---- v18 §一：雾内减速（slow=0.5）----
+  ok(M.slow === 0.5, '参数表 slow=0.5（实际 ' + M.slow + '）');
+  {
+    const g2 = bossworld(2, 12), b2 = g2.boss, p2 = g2.player;
+    p2.invT = 9e9; p2.x = b2.x - 200;
+    cast(b2, 'mist');
+    for (let f = 0; f < 130; f++) sb.updateWorld(1 / 60);
+    const ms2 = (g2.hazards || []).filter(h => h.kind === 'mist');
+    ok(ms2.length > 0, '减速组：雾已生成');
+    const m2 = ms2[0];
+    // 站进雾里：接触标记生效 + 普跑被钳到 maxRun×slow=60
+    p2.hp = p2.maxHp; p2.x = m2.x + m2.w / 2; p2.y = m2.y - p2.h;
+    for (let f = 0; f < 6; f++) sb.updateWorld(1 / 60);
+    ok(p2.mistT > 0, '雾内接触标记 mistT 生效（' + (p2.mistT || 0).toFixed(3) + '）');
+    p2.vx = 200;
+    sb.updateWorld(1 / 60);
+    ok(Math.abs(p2.vx) <= 120 * M.slow + 1e-6,
+      '雾内普跑钳制 120→' + (120 * M.slow) + '（实测 ' + Math.abs(p2.vx).toFixed(1) + '）');
+    // 冲刺不压速：dash 中爆发段 vx=260，不被雾的普跑钳制碰
+    p2.dashT = 0.20; p2.dashDir = 1;
+    sb.updateWorld(1 / 60);
+    ok(Math.abs(p2.vx) > 120 * M.slow + 1,
+      '冲刺不受雾减速（vx=' + Math.abs(p2.vx).toFixed(1) + ' > 60）');
+    // 出雾恢复
+    p2.dashT = 0; p2.x = 20; p2.y = m2.y - p2.h;
+    for (let f = 0; f < 10; f++) sb.updateWorld(1 / 60);
+    p2.vx = 200; sb.updateWorld(1 / 60);
+    ok(Math.abs(p2.vx) > 100, '出雾后移速恢复（vx=' + Math.abs(p2.vx).toFixed(1) + '）');
+  }
 }
 
 /* ==================== T6 breakT 破防窗口 ==================== */

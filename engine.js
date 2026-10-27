@@ -402,7 +402,11 @@ const BAL = {
     homing: { n: 3, gap: 0.22, v: 78, turn: 1.4, life: 2.6 },
     quake: { w: 14, h: 26, v: 200, life: 0.9, n: 2, gap: 0.35 }, // v12：劈地窄高波（跳 26px 即躲）
     // v13 §二：水雾区（原地不动就持续挨打；跑出去即脱身，雾不挡移动不挡攻击）
-    mist:  { n: 3, w: 56, h: 96, life: 4.0, tick: 0.5, dmg: 1, off: [-80, 0, 80] },
+    // v18 §一：v13 原版实测过弱——tick 0.5s 被玩家受击无敌 1.0s 吞半 + 受击击退 160px/s
+    // 当场把人弹出 56px 雾带，实战期望伤害≈1（站桩才挨打=玩家自选）。
+    // 加强取「减速流」：雾内普跑 ×0.5（120→60px/s，穿越 56px 雾带 0.93s、必吃 1~2 跳），
+    // 冲刺不压速（dash 260px/s 带无敌帧仍是一瞬间穿出，保留操作奖励）。
+    mist:  { n: 3, w: 56, h: 96, life: 4.0, tick: 0.5, dmg: 1, off: [-80, 0, 80], slow: 0.5 },
     stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6, breath: 0.55,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
@@ -1097,6 +1101,7 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.vx = 0; p.vy = 0; p.dead = false; p.deadT = 0;
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
   p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; p.abuf = 0; // v2 P1：动作状态复位（v7.7 追加攻击缓冲）
+  p.mistT = 0; p.mistSlow = 0; // v18：水雾减速标记复位（重生点不在雾里，防残留半帧）
   // v6 §C：HP 回满（maxHp 含装备头饰加成）+ BAL 出生保护；技能 CD 保留计时（设计 §5）
   p.maxHp = BAL.player.hpBase + (game.equip ? game.equip.hp : 0); // v7.7：局外成长项已删（否则复活后上限与出生时不一致）
   p.hp = p.maxHp; p.invT = BAL.player.respawnInvT; p.shieldT = 0; p.castT = 0;
@@ -2178,7 +2183,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         const mx = _engClamp(pcx + offM, 8, WXs - 8);
         // y = 地面上沿（h 向上长）——落地立即生效，不用等雾「长起来」
         game.hazards.push({ kind: 'mist', x: mx - MS.w / 2, y: _engGroundY(mx, p.y),
-          w: MS.w, h: MS.h, t: 0, life: MS.life || 4.0, tickT: 0, dmg: MS.dmg || 1 });
+          w: MS.w, h: MS.h, t: 0, life: MS.life || 4.0, tickT: 0, dmg: MS.dmg || 1,
+          slow: MS.slow || 1 }); // v18：雾内减速系数随参数表下发（R4：Boss 行为只读表）
       }
       game.sfxQueue.push('blink'); _engShake(3, 0);
     }
@@ -2574,10 +2580,14 @@ function _engUpdateHazards(dt) {
       if (e.tickT > 0) e.tickT -= dt;
       if (e.t >= e.life) dead = true;
       else {
-        if (e.tickT <= 0 && !p.dead && _engAabb({ x: e.x, y: e.y - e.h, w: e.w, h: e.h }, p)) {
+        // v18 §一：雾内减速——接触帧刷新标记（0.06s 防抖，大于 2 帧避免边界抖动），
+        // 真正的减速发生在玩家移速钳制处（effRun × mistSlow），dash 路径天然绕开
+        const inMist = !p.dead && _engAabb({ x: e.x, y: e.y - e.h, w: e.w, h: e.h }, p);
+        if (e.tickT <= 0 && inMist) {
           _engHurtPlayer(e.x + e.w / 2, e.dmg || 1);
           e.tickT = e.tick || 0.5;
         }
+        if (inMist) { p.mistT = 0.06; p.mistSlow = e.slow || 0.5; }
         e.fxT = (e.fxT || 0) - dt;
         if (e.fxT <= 0) { e.fxT = 0.20;
           _engFx(e.x + 4 + Math.random() * (e.w - 8), e.y - 6,
@@ -3343,7 +3353,11 @@ function _engUpdatePlayer(dt, L, p) {
     if (s !== 0) { p.vx -= s * _engAirDrag * dt; if (_engSign(p.vx) !== s) p.vx = 0; }
   }
   // v6 §C：装备披风移速加成（波1 恒 0 → effRun=maxRun=120，零行为变化）
-  const effRun = PHY.maxRun * (1 + (game.equip ? game.equip.spd : 0));
+  // v18 §一：水雾减速（boss2）——p.mistT 由雾 hazard 接触帧刷新、此处逐帧衰减。
+  // 只压普跑钳制上限；dash 分支（p.dashT>0）不进这条钳制 ⇒ 冲刺穿雾不减速（操作奖励）。
+  if (p.mistT > 0) p.mistT -= dt;
+  const effRun = PHY.maxRun * (1 + (game.equip ? game.equip.spd : 0))
+               * (p.mistT > 0 ? (p.mistSlow || 0.5) : 1);
   if (p.dashT <= 0) p.vx = _engClamp(p.vx, -effRun, effRun);
   /* ---- v8.0 任务1：传送带（独立带速 p.convV，不占用 p.vx） ----
      为什么必须独立：旧写法 `p.vx = clamp(p.vx + 520*dt, -170, 170)` 看似把速度顶到 170，
