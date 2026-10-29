@@ -2916,6 +2916,197 @@ function getHeroSkin(id) { // 取某套皮肤的全部帧（惰性生成 + 缓�
   return SPR.skins[sk.id];
 }
 
+/* ==================== v19：第二角色「星语法师」素材 ====================
+ * 16×16 程序化手绘（buildSprites 内调用；顶层零 DOM，全部绘制在函数体内完成）。
+ * 锚点与勇者一致（drawImage 于 p.x-3,p.y-2）、12×14 身体、脚底 y=15、右向基准 + ...L 翻转。
+ * 键名一律 mg 前缀——hero 前缀会被 _v77_skins_art.js 当成第 21 套皮肤（该测试按 /^hero[A-Z]/ 推导）。
+ * 调色板 8 阶：描边深靛 / 袍三阶 / 金饰 / 皮肤 / 宝珠青蓝 / 纯白高光（禁纯黑描边）。 */
+const _P_MG = { k: '#1c1440', B: '#3a2a78', b: '#6a4ad0', W: '#a88af8', y: '#f8d048',
+  s: '#f8d0a8', e: '#241848', p: '#f8a0b0', o: '#8ae8ff', O: '#48c8f8', w: '#ffffff' };
+/* 姿态表：dy 整体上下（呼吸/前倾）、leg 双脚左右、arm 手臂、staff 法杖形态（0 竖持/1 高举/2 前刺/-1 低垂）、
+   sway 袍摆左右、glow 宝珠光晕大小、lean 上身横向偏移。 */
+const _MG_POSE = {
+  idle1: { dy: 0, leg: [0, 0], arm: 0, staff: 0, sway: 0, glow: 0, lean: 0 },
+  idle2: { dy: 1, leg: [0, 0], arm: 0, staff: 0, sway: 0, glow: 1, lean: 0 },
+  run: [{ dy: 0, leg: [1, -1], arm: 0, staff: 0, sway: 1, glow: 0, lean: 0 },
+        { dy: 1, leg: [1, 0], arm: 1, staff: 0, sway: 2, glow: 0, lean: 0 },
+        { dy: 0, leg: [0, 0], arm: 0, staff: 0, sway: 1, glow: 0, lean: 0 },
+        { dy: 0, leg: [-1, 1], arm: 0, staff: 0, sway: -1, glow: 0, lean: 0 },
+        { dy: 1, leg: [-1, 0], arm: 1, staff: 0, sway: -2, glow: 0, lean: 0 },
+        { dy: 0, leg: [0, 0], arm: 0, staff: 0, sway: -1, glow: 0, lean: 0 }],
+  jump: { dy: -1, leg: [1, 1], arm: -1, staff: 1, sway: 1, glow: 1, lean: 0 },
+  fall: { dy: 0, leg: [2, -2], arm: 1, staff: 1, sway: 2, glow: 0, lean: 0 },
+  attack: { dy: 0, leg: [1, -1], arm: 0, staff: 2, sway: 1, glow: 1, lean: 1 },
+  cast: { dy: -1, leg: [0, 0], arm: 2, staff: 1, sway: 0, glow: 2, lean: 0 },
+  dash: { dy: 0, leg: [2, -1], arm: -1, staff: -1, sway: 3, glow: 0, lean: 1 },
+  dashWind: { dy: 2, leg: [1, -1], arm: 1, staff: -1, sway: 0, glow: 0, lean: -1 },
+  squash: { dy: 2, leg: [2, -2], arm: 1, staff: 0, sway: 0, glow: 0, lean: 0 }
+};
+function _mgDraw(g, o) {
+  const dy = o.dy || 0, lean = o.lean || 0, sway = o.sway || 0;
+  const P = function (x, y, w, h, c) { g.fillStyle = c; g.fillRect(x + lean, y + dy, w, h); };
+  /* ---- 法杖（身体右侧 x=13，先画=在袍后） ---- */
+  if (o.staff === 2) {                       // 横刺：杖杆横置 y=9
+    P(7, 8, 7, 1, '#8a6a48'); P(7, 7, 7, 1, '#c8a870');
+    P(14, 7, 2, 2, _P_MG.O); P(15, 8, 1, 1, _P_MG.w);
+  } else if (o.staff === 1) {                // 高举：杆 y=2..11，宝珠顶到 y=0
+    P(13, 2, 1, 10, '#8a6a48'); P(13, 2, 1, 1, '#c8a870');
+    P(12, 0, 2, 2, _P_MG.O); P(12, 0, 1, 1, _P_MG.o); P(13, 1, 1, 1, _P_MG.w);
+  } else if (o.staff === -1) {               // 低垂：杆 y=9..15
+    P(13, 9, 1, 7, '#8a6a48'); P(13, 9, 1, 1, '#c8a870');
+    P(12, 13, 2, 2, _P_MG.O); P(12, 13, 1, 1, _P_MG.w);
+  } else {                                   // 竖持：杆 y=5..15，宝珠 y=3
+    P(13, 5, 1, 11, '#8a6a48'); P(13, 5, 1, 1, '#c8a870');
+    P(12, 3, 2, 2, _P_MG.O); P(12, 3, 1, 1, _P_MG.o); P(13, 4, 1, 1, _P_MG.w);
+  }
+  if (o.glow > 0) {                          // 宝珠光晕（cast/attack 帧，四角 1px 半透明）
+    g.globalAlpha = 0.5;
+    const gx = o.staff === 1 ? 12 : o.staff === 2 ? 15 : 12;
+    const gy = o.staff === 1 ? 0 : o.staff === 2 ? 7 : o.staff === -1 ? 13 : 3;
+    P(gx - 1, gy, 1, 1, _P_MG.o); P(gx + 2, gy, 1, 1, _P_MG.o);
+    P(gx, gy - 1, 1, 1, _P_MG.o); P(gx, gy + 2, 1, 1, _P_MG.o);
+    if (o.glow > 1) { P(gx, gy, 1, 1, _P_MG.w); }
+    g.globalAlpha = 1;
+  }
+  /* ---- 尖顶帽：逐行加宽（尖 y0 → 檐 y4） ---- */
+  const HAT = [[7, 1], [6, 3], [5, 5], [4, 7], [2, 12]];
+  for (let r = 0; r < HAT.length; r++) {
+    const x0 = HAT[r][0], w = HAT[r][1];
+    P(x0, r, w, 1, _P_MG.k);
+    if (w > 2) P(x0 + 1, r, w - 2, 1, r >= 3 ? _P_MG.B : _P_MG.b);
+    if (r >= 2 && r <= 3) P(x0 + 1, r, 1, 1, _P_MG.W);   // 左侧亮阶
+  }
+  P(5, 3, 4, 1, _P_MG.y);                    // 帽带金饰
+  /* ---- 脸（3/4 侧面，朝右；帽檐下 4 行） ---- */
+  P(5, 5, 6, 4, _P_MG.k);
+  P(6, 6, 4, 3, _P_MG.s);
+  P(6, 5, 4, 1, _P_MG.B);                    // 帽檐投影/刘海
+  P(9, 6, 1, 1, _P_MG.e); P(8, 6, 1, 1, _P_MG.w); // 大眼 + 高光（朝右）
+  P(6, 7, 1, 1, _P_MG.p);                    // 腮红
+  P(9, 8, 1, 1, _P_MG.e);                    // 小嘴
+  /* ---- 袍身（肩 → 摆，腰带金饰） ---- */
+  P(4, 9, 8, 1, _P_MG.k); P(5, 9, 6, 1, _P_MG.b); P(5, 9, 1, 1, _P_MG.W);
+  P(4, 10, 8, 1, _P_MG.k); P(5, 10, 6, 1, _P_MG.b);
+  P(3, 11, 10, 1, _P_MG.k); P(4, 11, 8, 1, _P_MG.y); P(7, 11, 2, 1, _P_MG.w); // 腰带+扣
+  P(2, 12, 12, 1, _P_MG.k); P(3 + sway, 12, 10, 1, _P_MG.b);
+  P(2, 13, 12, 1, _P_MG.k); P(3 + sway, 13, 10, 1, _P_MG.b); P(4 + sway, 13, 1, 1, _P_MG.W);
+  P(2, 14, 12, 1, _P_MG.k); P(3 + sway, 14, 10, 1, _P_MG.B);
+  P(2, 15, 12, 1, _P_MG.k); P(3 + sway, 15, 10, 1, _P_MG.y); // 袍摆金边
+  /* ---- 手臂：右臂（持杖侧）用袍色覆盖杖杆中段，形成"握住"的层次 ---- */
+  if (o.arm === 2) {                         // 双手上举（施法）
+    P(11, 6, 2, 3, _P_MG.k); P(11, 7, 1, 2, _P_MG.b);
+    P(4, 7, 2, 3, _P_MG.k); P(4, 8, 1, 2, _P_MG.b);
+  } else if (o.arm === -1) {                 // 后摆
+    P(3, 10, 2, 3, _P_MG.k); P(3, 10, 1, 2, _P_MG.b);
+  } else if (o.arm === 1) {                  // 前伸
+    P(11, 9, 2, 2, _P_MG.k); P(11, 9, 1, 1, _P_MG.b);
+    P(4, 10, 2, 2, _P_MG.k); P(4, 10, 1, 1, _P_MG.b);
+  } else {                                   // 自然下垂
+    P(4, 10, 2, 3, _P_MG.k); P(4, 10, 1, 2, _P_MG.b);
+    P(11, 9, 2, 2, _P_MG.k); P(11, 9, 1, 1, _P_MG.b);
+  }
+  /* ---- 双腿/靴（按 pose 左右错开；袍摆下沿 y=15 不留空） ---- */
+  const leg = o.leg || [0, 0];
+  P(4 + leg[0], 15, 3, 1, _P_MG.k);
+  P(9 + leg[1], 15, 3, 1, _P_MG.k);
+  P(5 + leg[0], 15, 1, 1, _P_MG.B);
+  P(10 + leg[1], 15, 1, 1, _P_MG.B);
+}
+function _mgSprite(name) { // 内部：单帧 16×16（squash 用画布变换压扁，其余直接绘制）
+  const c = _makeCanvas(16, 16), g = c.getContext('2d');
+  let o = _MG_POSE[name];
+  if (!o && name.indexOf('run') === 0) o = _MG_POSE.run[+name.slice(3)] || _MG_POSE.run[0];
+  if (!o) o = _MG_POSE.idle1;
+  if (name === 'squash') { g.translate(0, 15); g.scale(1.16, 0.8); g.translate(0, -15); }
+  _mgDraw(g, o);
+  return c;
+}
+function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调用一次；幂等由外层守卫）
+  // 姿态名 → SPR 键：一律 mg 前缀（ui 直接取 SPR.mgIdle1 等；无前缀键会被当成新全局精灵，且与 hero* 撞命名域）
+  const reg1 = function (k, K) { SPR[K] = _mgSprite(k); SPR[K + 'L'] = flipSprite(SPR[K]); };
+  [['idle1', 'mgIdle1'], ['idle2', 'mgIdle2'], ['jump', 'mgJump'], ['fall', 'mgFall'],
+   ['attack', 'mgAttack'], ['cast', 'mgCast'], ['dash', 'mgDash'], ['dashWind', 'mgDashWind'],
+   ['squash', 'mgSquash']].forEach(function (p) { reg1(p[0], p[1]); });
+  SPR.mgRun = [0, 1, 2, 3, 4, 5].map(function (i) { return _mgSprite('run' + i); });
+  SPR.mgRunL = SPR.mgRun.map(flipSprite);
+  /* —— 弹体（spec §4.2 尺寸逐字）—— */
+  SPR.arcaneBolt = [0, 1].map(function (f) { // 8×6 青白星弹两帧脉动
+    const c = _makeCanvas(8, 6), g = c.getContext('2d');
+    g.fillStyle = _P_MG.O; g.fillRect(1, 2, 5, 2); g.fillRect(3, 1, 2, 4);
+    g.fillStyle = _P_MG.o; g.fillRect(2, 2, 3, 2);
+    g.fillStyle = _P_MG.w; g.fillRect(f ? 4 : 3, 2, 2, 1);
+    if (f) { g.globalAlpha = 0.55; g.fillStyle = _P_MG.o; g.fillRect(0, 1, 8, 4); g.globalAlpha = 1;
+      g.fillStyle = _P_MG.w; g.fillRect(4, 2, 2, 1); }
+    return _glow(c, '#d8f8ff');
+  });
+  SPR.iceLance = (function () { // 16×6 冰蓝长矛（尖端高光）
+    const c = _makeCanvas(16, 6), g = c.getContext('2d');
+    g.fillStyle = '#2a5a8a'; g.fillRect(1, 3, 12, 1);            // 暗底
+    g.fillStyle = _P_MG.O; g.fillRect(1, 2, 12, 1);              // 矛身
+    g.fillStyle = _P_MG.o; g.fillRect(2, 4, 9, 1);
+    g.fillStyle = _P_MG.o; g.fillRect(12, 1, 2, 4);              // 矛尖
+    g.fillStyle = _P_MG.w; g.fillRect(13, 2, 2, 2); g.fillRect(6, 2, 3, 1);
+    g.fillStyle = '#8ad8f8'; g.fillRect(0, 3, 1, 1);             // 尾羽
+    return _glow(c, '#d8f8ff');
+  })();
+  SPR.seeker = [0, 1].map(function (f) { // 6×6 追踪星点两帧
+    const c = _makeCanvas(6, 6), g = c.getContext('2d');
+    g.fillStyle = _P_MG.O; g.fillRect(2, 1, 2, 4); g.fillRect(1, 2, 4, 2);
+    g.fillStyle = _P_MG.w; g.fillRect(2, 2, 2, 2);
+    if (f) { g.fillStyle = _P_MG.o; g.fillRect(0, 2, 1, 2); g.fillRect(5, 2, 1, 2); }
+    return _glow(c, '#d8f8ff');
+  });
+  SPR.starMeteor = [0, 1].map(function (f) { // 10×12 青紫陨星（尾部随帧摆动）
+    const c = _makeCanvas(10, 12), g = c.getContext('2d');
+    g.fillStyle = '#7a58d8'; g.fillRect(4, 0, 3, 3); g.fillRect(3, 1, 5, 2);  // 星体
+    g.fillStyle = _P_MG.o; g.fillRect(4, 0, 2, 2);
+    g.fillStyle = _P_MG.w; g.fillRect(4, 0, 1, 1);
+    g.fillStyle = '#f8d048'; g.fillRect(3, 3, 2, 2);                          // 火核
+    g.fillStyle = '#b090f8'; g.fillRect(5, 3, 2, 2);
+    for (let i = 0; i < 6; i++) {                                             // 尾焰
+      const w = Math.max(1, 3 - (i >> 1));
+      g.fillStyle = i < 2 ? '#f8a040' : i < 4 ? '#d878f0' : '#8a58c8';
+      g.fillRect(3 + ((i + f) % 2), 4 + i, w, 1);
+    }
+    return _glow(c, '#f0d8ff');
+  });
+  /* —— 技能图标 12×12（深底 + 金框 + 单主色，风格同 skU/skI/skO；青蓝发光）—— */
+  const icon = function (paint, rim) {
+    const c = _makeCanvas(12, 12), g = c.getContext('2d');
+    g.fillStyle = '#181232'; g.fillRect(1, 1, 10, 10);
+    g.fillStyle = _P_MG.y; g.fillRect(1, 1, 10, 1); g.fillRect(1, 10, 10, 1);
+    g.fillRect(1, 1, 1, 10); g.fillRect(10, 1, 1, 10);
+    paint(g);
+    return _glow(c, rim || '#8ae8ff');
+  };
+  SPR.mgU = icon(function (g) { // 冰晶长矛：斜向 2px 矛身 + 白尖
+    g.fillStyle = _P_MG.O;
+    for (let i = 0; i < 7; i++) g.fillRect(2 + i, 9 - i, 2, 1);
+    g.fillStyle = _P_MG.w; g.fillRect(8, 2, 2, 2);
+    g.fillStyle = '#d8f8ff'; g.fillRect(5, 5, 2, 1);
+  });
+  SPR.mgI = icon(function (g) { // 星辉屏障：六边盾
+    g.fillStyle = _P_MG.O; g.fillRect(5, 2, 2, 1); g.fillRect(3, 3, 6, 1);
+    g.fillRect(2, 4, 8, 4); g.fillRect(3, 8, 6, 1); g.fillRect(4, 9, 4, 1);
+    g.fillStyle = '#2a5a8a'; g.fillRect(4, 4, 4, 4);
+    g.fillStyle = _P_MG.w; g.fillRect(5, 4, 2, 2);
+  });
+  SPR.mgO = icon(function (g) { // 陨星风暴：紫星体 + 金尾
+    g.fillStyle = '#b090f8'; g.fillRect(5, 2, 3, 3); g.fillRect(4, 3, 5, 2);
+    g.fillStyle = _P_MG.w; g.fillRect(5, 2, 1, 1);
+    g.fillStyle = _P_MG.y; g.fillRect(3, 6, 2, 1); g.fillRect(4, 7, 2, 1); g.fillRect(3, 8, 1, 2);
+    g.fillStyle = '#f8a040'; g.fillRect(6, 5, 1, 2);
+  }, '#f0d8ff');
+  SPR.mgL = icon(function (g) { // 追星弹：三枚小星斜列
+    const star = function (x, y, big) {
+      g.fillStyle = _P_MG.O; g.fillRect(x, y - 1, 1, 3); g.fillRect(x - 1, y, 3, 1);
+      g.fillStyle = _P_MG.w; g.fillRect(x, y, 1, 1);
+      if (big) { g.fillStyle = _P_MG.o; g.fillRect(x - 1, y - 1, 3, 3); g.fillStyle = _P_MG.w; g.fillRect(x, y, 1, 1); }
+    };
+    star(3, 8, 0); star(6, 6, 1); star(8, 3, 0);
+  });
+}
+
 function buildSprites() { // 一次性构建全部精灵（幂等：重复调用直接返回，契约导出）
   if (SPR.heroIdle1) return SPR;
   // —— 主角「星之勇者」（16×16，右向为基准，左向为翻转版）——
@@ -3197,6 +3388,27 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     for (let y = 0; y < 28; y++) for (let x = 0; x < 24; x++)
       if (!sol(x, y) && !r1[y * 24 + x] && (r1[y * 24 + x + 1] || r1[(y + 1) * 24 + x] || r1[(y + 1) * 24 + x + 1])) hg.fillRect(x, y, 1, 1);
     cv.heroSil = hs;
+    // v19 mageSil 24×28：mgCast 放大剪影（杖指星）+左上外缘金边（构图同 heroSil）
+    (function () {
+      const ms = _makeCanvas(24, 28), mg = ms.getContext('2d'), mp = new Uint8Array(672);
+      mg.imageSmoothingEnabled = false;
+      mg.drawImage(_mgSprite('cast'), 0, 0, 16, 16, 0, 0, 24, 28);
+      mg.globalCompositeOperation = 'source-in';           // 只保留原透明轮廓内的像素
+      mg.fillStyle = '#0a0e22'; mg.fillRect(0, 0, 24, 28);
+      mg.globalCompositeOperation = 'source-over';
+      const img = mg.getImageData(0, 0, 24, 28).data;       // 取轮廓掩码（画布仅由 fillRect 组成，无污染）
+      for (let y = 0; y < 28; y++) for (let x = 0; x < 24; x++)
+        if (img[(y * 24 + x) * 4 + 3]) mp[y * 24 + x] = 1;
+      const msol = function (x, y) { return x >= 0 && y >= 0 && x < 24 && y < 28 && mp[y * 24 + x]; };
+      const mr = new Uint8Array(672);
+      mg.fillStyle = '#f8d048';
+      for (let y = 0; y < 28; y++) for (let x = 0; x < 24; x++)
+        if (!msol(x, y) && (msol(x + 1, y) || msol(x, y + 1) || msol(x + 1, y + 1))) { mg.fillRect(x, y, 1, 1); mr[y * 24 + x] = 1; }
+      mg.fillStyle = _rgba('#f8d048', 0.4);
+      for (let y = 0; y < 28; y++) for (let x = 0; x < 24; x++)
+        if (!msol(x, y) && !mr[y * 24 + x] && (mr[y * 24 + x + 1] || mr[(y + 1) * 24 + x] || mr[(y + 1) * 24 + x + 1])) mg.fillRect(x, y, 1, 1);
+      cv.mageSil = ms;
+    })();
     // bossSil 104×56：巨兽剪影+双眼+核心微光+右上缘暖边
     const bs = _makeCanvas(104, 56), bg = bs.getContext('2d'), bp = new Uint8Array(5824);
     const BP = function (x, y) { if (x >= 0 && x < 104 && y >= 0 && y < 56) { bg.fillRect(x, y, 1, 1); bp[y * 104 + x] = 1; } };
@@ -3363,6 +3575,8 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.pushwall = _frozenSpr(_makeSprite(_pushwallGrid(), _P_PUSHWALL));
   // v16：SPR.totem 16×32（hazard.kind='totem'，boss5 圣像审判）——冻结口径同上，尺寸即 BAL.boss5.totem.w/h。
   SPR.totem = _frozenSpr(_makeSprite(_TOTEM, _P_TOTEM));
+  // v19：第二角色「星语法师」帧 + 弹体 + 技能图标（mg 前缀，不参与皮肤推导）
+  _buildMageSprites();
   // —— v7.7：预生成 blue 皮肤帧对象（纯引用上面已画好的 hero* 帧，零额外像素绘制，耗时≈0）；
   //     其余 19 套留待 ui 首次取用时惰性生成，启动期不付 19×20 张画布的钱。——
   getHeroSkin('blue');

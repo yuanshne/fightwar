@@ -146,6 +146,17 @@
 //   §任务3 三段血刻度改按 maxHp/bandMax 比例算（_bossTickXs），血量 ×3（63→189 / 189→567）后不漂移。
 //   硬约束：game.hazards 缺失/空数组、b.comboQ/comboN 未定义、SPR.meteor/spike/bossGhost 缺失
 //   一律静默降级（程序化兜底），零异常；每元素绘制调用 ≤12 次。
+// v19 增量·界面队（docs/specs/2026-10-29-v19-mage.md §3，第二角色「星语法师」）：
+//   §3.1 选角覆盖层 heroOpen（面板 42,24,300,190，左骑士右法师双卡）：C 键/标题·选关「角色」按钮开启，
+//        ←→ 选卡、Enter/Space 确认并写 progress.hero（只增存档键）、C/Esc/X 关闭；与衣橱互斥。
+//   §3.2 startLevel 首行注入 game.hero、recomputeEquip 基础血按 HEROES.hpBase、boot 读存档 + ?hero= 调试；
+//        renderBag 肖像按英雄取帧。
+//   §3.3 magePoseImg（cast>attack>dash>air>run/idle + 落地 squash，左向取 ...L）、死亡帧 mgFall、
+//        法师无近战弧光、renderMageUlt（紫青压暗/魔法阵/陨星/紫环）、标题剪影 mageSil。
+//   §3.4 HUD：英雄技能图标 mg*/sk*、CD 分母读 HEROES、法师法力条（血条面板右半区，零新增纵向空间）、
+//        法力不足槽位 35% 图标 + 红点、技能卡按英雄读名/述/法力、O 横幅按英雄、法力不足红字。
+//   §3.5 SFX bolt/lance/seek/storm/nomana。
+//   硬约束：HEROES 与全部新 SPR.mg* 键守卫式回退（引擎/美术未合入时照常可跑，骑士外观逐像素不变）。
 // ============================================================
 'use strict';
 (function(){
@@ -179,6 +190,7 @@ const KEYMAP={
   bag:['KeyB'], // v6 波2 §7.1：背包开关键（B 未被既有键占用；hit('bag') 仅背包层与 play 态消费）
   unlockAll:['KeyF'], // v7.7：首页「全关开放」开关键（F 未被既有键占用；仅 title 态消费）
   wardrobe:['KeyG'],  // v7.7：衣橱开关键（G 未被既有键占用；仅 title/select 态消费；原「成长」面板键位复用）
+  hero:['KeyC'],      // v19：选角开关键（C 未被既有键占用；仅 title/select 态消费；面板内 C/Esc/X 关闭）
   confirm:['Enter','Space','KeyW','ArrowUp'],
   // v8.0：无方向冲突的确认组——confirm 含 ↑/W，凡「↑/W 已是导航」的界面（选关 ↑=跨章、背包/衣橱 ↑=选上一格）
   // 用它就会一键双响（选关按 ↑ 直接进关、背包按 W 边移动边装备）。这三处改用 ok（只认 Enter/Space），
@@ -308,6 +320,13 @@ const SFX={
   boom(){tone({f:90,f2:36,d:0.35,v:0.3,type:'sawtooth'});noiseSfx({d:0.3,v:0.28});},      // 魂火自爆
   blink(){tone({f:680,f2:120,d:0.22,v:0.16,type:'sine'});},                               // 判官传送
   sweep(){noiseSfx({d:0.18,v:0.22});tone({f:200,f2:90,d:0.18,v:0.14,type:'square'});},    // 扫尾/镰刀宽波
+  // v19 §3.5 法师音效（事件名与 engine push 完全一致；全程序化合成，风格同既有）
+  bolt(){tone({f:1500,f2:760,d:0.05,v:0.12,type:'square'});noiseSfx({d:0.04,v:0.1});},      // 奥术飞弹：短促高频电流
+  lance(){noiseSfx({d:0.12,v:0.2});tone({f:920,f2:180,d:0.18,v:0.16,type:'sawtooth'});},     // 冰晶长矛：冰裂下坠
+  seek(){[660,880,1174].forEach((f,i)=>tone({f,d:0.07,v:0.16,at:i*0.05,type:'triangle'}));}, // 追星弹：三连上扬
+  storm(){noiseSfx({d:0.5,v:0.3});tone({f:62,f2:38,d:0.5,v:0.28,type:'sine'});
+    tone({f:900,f2:200,d:0.32,v:0.18,at:0.06,type:'square'});},                              // 陨星风暴：低频轰鸣+坠星
+  nomana(){tone({f:180,f2:110,d:0.16,v:0.2,type:'square'});tone({f:120,d:0.12,v:0.14,at:0.1,type:'triangle'});}, // 法力不足：低沉否定
 };
 const MUSIC_LEAD=[440,523,659,0,587,659,784,0,659,523,440,0,494,587,494,0,
  440,523,659,0,587,659,784,0,880,784,659,523,587,494,440,0];
@@ -359,6 +378,9 @@ function migrateProgress(p){
   if (!Array.isArray(p.skins)) p.skins = ['blue'];
   if (p.skins.indexOf('blue') < 0) p.skins.unshift('blue');
   if (p.skins.indexOf(p.skin) < 0) p.skin = 'blue';
+  // v19 §3.1：当前英雄（'knight'|'mage'）。只增键：缺省/非法（篡改、回退版本）一律回落 'knight'，
+  // 其余既有键（unlocked/stars/puzzles/equip/inv/shards/skin/skins/unlockAll）一概不动。
+  if (p.hero !== 'knight' && p.hero !== 'mage') p.hero = 'knight';
   return p;
 }
 let progress=migrateProgress(loadProgress()); // v6 波2 §A：新档回退对象同样补 v6 缺省字段（幂等）
@@ -392,6 +414,27 @@ function skinIdle1(id){ // v7.7：某套皮肤的待机帧（缺键/未合入 �
   const f=skinFrames(id===undefined?progress.skin:id);
   return (f&&f.idle1)?f.idle1:SPR.heroIdle1;
 }
+// ---------- v19 英雄表（engine.js HEROES 为唯一真值；守卫式兜底保证 ui 在旧引擎上照常运行） ----------
+// 顺序冻结：左骑士、右法师（spec §1.1/§3.1）。兜底数值=spec 冻结值，仅在 HEROES 缺失时使用。
+const HERO_IDS=['knight','mage'];
+const HERO_FALLBACK={
+  knight:{id:'knight',name:'星旅勇者',short:'勇者',hpBase:BAL_PLAYER_HP,usesMana:false,
+    skills:{u:{name:'星陨术',  desc:'召唤三颗流星轰击锁定的敌人', cd:8, mana:0},
+            i:{name:'星光护盾',desc:'3 秒内吸收 2 次伤害',       cd:12,mana:0},
+            o:{name:'流星连斩',desc:'时停十字斩：屏内敌人全灭并清弹幕', cd:20,mana:0,ult:true},
+            l:{name:'星刃回旋',desc:'掷出回旋星刃，去回两程割草',   cd:6, mana:0}}},
+  mage:{id:'mage',name:'星语法师',short:'法师',hpBase:4,usesMana:true,
+    skills:{u:{name:'冰晶长矛',desc:'掷出穿透三敌的冰矛，命中重击',       cd:6, mana:30},
+            i:{name:'星辉屏障',desc:'2.5 秒内吸收 2 次伤害',            cd:10,mana:25},
+            o:{name:'陨星风暴',desc:'锁定全屏落星：六颗陨星轰击敌阵',   cd:20,mana:0,ult:true},
+            l:{name:'追星弹',  desc:'三枚追踪星弹锁定最近的敌人',       cd:6, mana:25}}}
+};
+function heroDef(id){ // 内部：英雄表项（engine 未合入/非法 id → spec 同值兜底）
+  if(typeof HEROES!=='undefined'&&HEROES&&HEROES[id]&&HEROES[id].skills)return HEROES[id];
+  return HERO_FALLBACK[id]||HERO_FALLBACK.knight;
+}
+function curHero(){return heroDef(game.hero);} // 内部：当前局内英雄
+
 const BAL_GEAR_STAT=BAL_GEAR.stat;        // 平衡表 §Q stat 表（§D 冻结公式引用名）
 const BAL_GEAR_BAG=BAL_GEAR.bagSize;      // 12
 const BAL_GEAR_STEP=BAL_GEAR.shardsPerStep;     // 3
@@ -421,7 +464,7 @@ function recomputeEquip(){
   game.equip=eq;game.cdMul=1-eq.cd;
   const p=game.player;
   if(p&&typeof p.maxHp==='number'){
-    p.maxHp=BAL_PLAYER_HP+eq.hp;
+    p.maxHp=heroDef(game.hero).hpBase+eq.hp; // v19 §3.2：基础血按英雄表（骑士 5 / 法师 4）+ 装备
     p.hp=Math.min(p.hp,p.maxHp); // 只按新上限截断：脱装降上限会压血，穿装升上限不回血（防脱穿刷血）
   }
   if(repaired)saveProgress(progress);
@@ -515,6 +558,9 @@ let uiState='title',menuSel=0,fade=1,fadeDir=-1,hintT=0,lastLevelIdx=-1; // hint
 let clearStars=0,clearShown=0,creditsT=0; // v3 §E：致谢屏计时
 // v7.7：衣橱面板（title/select 两态可开；打开期间独占输入与悬停，世界本就不在跑）
 let wardrobeOpen=false,wardrobeSel=0;
+// v19 §3.1：选角面板（同衣橱模式；与衣橱互斥，绝不重叠）
+let heroOpen=false,heroSel=0;
+let HERO_DEBUG=null;          // v19：?hero= 调试覆盖（boot 里赋值；非法值忽略）
 let clearSkinGain=null;       // v7.7：本次通关掉落的皮肤 id（无掉落=null；结算屏展示用）
 // v6 §D/§E：引导与提示计时（渲染按 uiState==='play' 门控；startLevel 重置，见下）
 let oHintDone=false,oHintT=0; // §D2：O 大提示每关一次（上升沿置 oHintT=2.5）
@@ -911,6 +957,7 @@ function equipSkin(id){
 }
 function openWardrobe(){ // v7.7：仅 title/select 可开（play 态不响应，避免与世界输入交叉）
   if(uiState!=='title'&&uiState!=='select')return;
+  heroOpen=false; // v19：衣橱与选角互斥（后开者胜）
   wardrobeOpen=true;wardrobeSel=Math.max(0,skinIdx(progress.skin));SFX.select();
 }
 function closeWardrobe(){wardrobeOpen=false;}
@@ -932,7 +979,41 @@ function stepWardrobeInput(){ // v7.7：面板独占输入（方向选格 / 回�
   }
 }
 
+// ---------- v19 §3.1 选角面板（title/select 覆盖层；与衣橱同模式、互斥） ----------
+// 几何与 computeHover/renderHeroSelect 同源：面板 42,24,300,190；双卡 126×142 @ y=46（左 52 / 右 206）。
+const HERO_PANEL=[42,24,300,190],HERO_CARD_W=126,HERO_CARD_H=142,HERO_CARD_Y=46;
+function _heroCardXY(i){return [52+i*154,HERO_CARD_Y];}
+function heroFrame(id){ // 内部：选角头像/背包肖像——mge 用 mgIdle1（无皮肤、无装备）；缺素材回落骑士
+  if(id==='mage')return SPR.mgIdle1||SPR.heroIdle1;
+  return skinIdle1(progress.skin);
+}
+function openHeroSelect(){ // 仅 title/select 可开；打开即收起衣橱（互斥）
+  if(uiState!=='title'&&uiState!=='select')return;
+  wardrobeOpen=false;
+  heroSel=Math.max(0,HERO_IDS.indexOf(progress.hero));
+  heroOpen=true;SFX.select();
+}
+function closeHeroSelect(){heroOpen=false;}
+function confirmHero(){ // 确认并落盘（下一关 startLevel 才注入 game.hero——面板写明「下一关生效」）
+  const id=HERO_IDS[heroSel]||'knight';
+  if(progress.hero!==id){progress.hero=id;saveProgress(progress);}
+  SFX.select();
+}
+function stepHeroInput(){ // 面板独占输入（←→ 选卡 / Enter·Space 确认 / C·Esc·X 关闭 / 鼠标等价）
+  if(hit('hero')||hit('back')||pressed['KeyX']){closeHeroSelect();return;}
+  if(hit('left')){heroSel=clamp(heroSel-1,0,HERO_IDS.length-1);SFX.select();}
+  if(hit('right')){heroSel=clamp(heroSel+1,0,HERO_IDS.length-1);SFX.select();}
+  if(hit('ok'))confirmHero(); // v8.0 键位等价：Enter/Space（↑/W 不参与，防与导航双响）
+  if(mouse.click&&hover){
+    if(hover.indexOf('hero:')===0){heroSel=+hover.slice(5);confirmHero();} // 点卡=选中并确认
+    else if(hover==='heroclose')closeHeroSelect();
+  }
+}
+
 function startLevel(idx){
+  // v19 §3.2：注入当前英雄必须在 loadLevel 之前（engine 由此决定 4/5 血与法力上限）。
+  // HERO_DEBUG=调试参数 ?hero=（boot 里校验过）；正式路径只认存档 progress.hero。
+  game.hero=HERO_DEBUG||(progress.hero==='mage'?'mage':'knight');
   loadLevel(idx,false);
   uiState='play';game.state='play';
   hintT=3.0;lastLevelIdx=idx;menuSel=idx; // v8.0：提示条显示 3 秒（最后 1 秒渐隐）
@@ -1059,6 +1140,12 @@ function computeHover(){
   hover=null;
   if(!mouse.inside)return;
   const mx=mouse.x,my=mouse.y;
+  if(heroOpen&&(uiState==='title'||uiState==='select')){ // v19：选角面板独占悬停（卡优先于关闭钮）
+    for(let i=0;i<HERO_IDS.length;i++){const xy=_heroCardXY(i);
+      if(ptIn(mx,my,xy[0],xy[1],HERO_CARD_W,HERO_CARD_H)){hover='hero:'+i;break;}}
+    if(!hover&&ptIn(mx,my,322,28,12,12))hover='heroclose';
+    return;
+  }
   if(wardrobeOpen&&(uiState==='title'||uiState==='select')){ // v7.7：衣橱面板独占悬停（格优先于关闭钮）
     for(let i=0;i<SKIN_MAX;i++){const xy=_skinCellXY(i);
       if(ptIn(mx,my,xy[0],xy[1],WD_CELL[0],WD_CELL[1])){hover='skin:'+i;break;}}
@@ -1069,7 +1156,9 @@ function computeHover(){
     if(ptIn(mx,my,VIEW_W/2-52,146,104,22))hover='titleStart';
     else if(ptIn(mx,my,140,110,104,18))hover='titleUnlock';  // v7.7：全关开放开关（键盘等价=F）
     else if(ptIn(mx,my,250,110,72,18))hover='titleWardrobe'; // v7.7：衣橱入口（键盘等价=G）
+    else if(ptIn(mx,my,328,110,50,18))hover='titleHero';     // v19：角色入口（键盘等价=C）
   }else if(uiState==='select'){ // §A.4：选关卡（键盘等价=方向+回车）；v7 §9.2：章节布局矩阵（与渲染同源 _chapters）
+    if(ptIn(mx,my,252,20,60,13)){hover='menuHero';return;}     // v19：选关屏角色入口（键盘等价=C）
     if(ptIn(mx,my,316,20,62,13)){hover='menuWardrobe';return;} // v7.7：选关屏衣橱入口（键盘等价=G）
     chsLoop:for(const ch of _chapters()){
       for(let j=0;j<ch.len;j++){
@@ -1120,7 +1209,8 @@ function render(){
 
   if(uiState==='title'||uiState==='select'){
     renderMenu(th,tick);
-    if(wardrobeOpen)renderWardrobe(tick); // v7.7：衣橱面板覆盖在封面/选关之上（仅这两态可开）
+    if(heroOpen)renderHeroSelect(tick);        // v19：选角面板（与衣橱互斥，绝不重叠）
+    else if(wardrobeOpen)renderWardrobe(tick); // v7.7：衣橱面板覆盖在封面/选关之上（仅这两态可开）
   }
   else if(L){
     // 天空
@@ -1154,6 +1244,7 @@ function render(){
     renderSpeedLines(); // v5 §B：冲刺爆发段速度线（renderGhosts 之后、renderPlayer 之前）
     renderPlayer(tick);
     renderSlash();    // v2 P1：挥击弧光（玩家之上层；v5 §C 升级四帧时间轴）
+    renderShots();    // v19：法师远程弹体（世界空间；骑士无 shots，空转）
     renderParts();    // v5 §F：流光粒子（按速度量化细长条）
     renderScars();    // v5 §A：陨石爆坑（renderParts 之后追加三渲染）
     renderFx();       // v5 §A：UI 层演出粒子（star/shard/ring）
@@ -2975,7 +3066,39 @@ function renderBoss(tick){
 // 待交付键——就位前自动回退既有帧，取帧式按 SPR.heroRun.length 自适应（3 帧现状/6 帧 P2 均可）。
 // v6 波2 §F：朝向改由 heroLook 统一翻转（*L 变体=flipSprite(右向基准)，右向基准合成后翻转=原
 // faceL 变体逐像素一致），本函数改传右向基准；fam 由 pose 分支给出（attack/dash/dashWind/cast→'atk'）。
+// v19 §3.3：法师分支——magePoseImg 直接返回「已按朝向选好」的帧（法师无皮肤、无装备外观合成），
+// 优先级 cast > attack > dash > air > run/idle，落地 squash 兜底；所有 SPR.mg* 键缺失时回落骑士帧。
+function magePoseImg(tick){
+  const p=game.player;
+  if(!p)return SPR.heroIdle1;
+  const flip=p.face<0;
+  const park=(k,fb)=>{ // 内部：单帧取帧——法师帧优先，缺失回落骑士帧；左向优先 ...L 变体
+    if(SPR[k])return flip?(SPR[k+'L']||SPR[k]):SPR[k];
+    if(flip&&SPR[fb+'L'])return SPR[fb+'L'];
+    return SPR[fb]||SPR.heroIdle1;
+  };
+  let img,anim;
+  if(!p.onGround)anim=p.vy<0?'jump':'fall';
+  else anim=Math.abs(p.vx)>10?'run':'idle';
+  if(anim==='idle')img=(tick%40<38)?park('mgIdle1','heroIdle1'):park('mgIdle2','heroIdle2');
+  else if(anim==='run'){
+    const runR=(SPR.mgRun&&SPR.mgRun.length)?SPR.mgRun:null;
+    const runL=(flip&&SPR.mgRunL&&SPR.mgRunL.length)?SPR.mgRunL:runR;
+    if(runR){const i=(p.animT*12|0)%runR.length;img=runL[i]||runR[i];}
+    else img=park('mgRun','heroRun');
+  }
+  else if(anim==='jump')img=park('mgJump','heroJump');
+  else img=park('mgFall','heroFall');
+  if(p.landT>0)img=park('mgSquash','heroSquash');            // 落地压扁帧（同骑士时机）
+  if(p.dashT>0){                                            // 冲刺：蓄力期 dashWind、爆发/滑行 dash
+    img=(0.28-p.dashT<0.05)?park('mgDashWind','heroDashWind'):park('mgDash','heroDash');
+  }
+  if(p.atkT>0||p.atkWind>0)img=park('mgAttack','heroAttack'); // 挥杖/法杖前刺
+  if(p.castT>0)img=park('mgCast',SPR.heroAttackGold?'heroAttackGold':'heroAttack'); // 施法姿态最高优先
+  return img;
+}
 function heroPoseImg(tick){
+  if(game.hero==='mage')return magePoseImg(tick); // v19：法师走独立取帧（无皮肤/无装备）
   const p=game.player;
   let anim;
   if(!p.onGround)anim=p.vy<0?'jump':'fall';
@@ -3036,8 +3159,11 @@ function renderPlayer(tick){
   const p=game.player;
   if(!p)return;
   if(p.dead){ // 死亡表现：旋转上抛渐隐（替代 v1 的 0.9s 完全隐形）
+    // v19 §3.3：法师用 mgFall（左向取 mgFallL，缺素材回落 heroFall）；骑士路径逐字不变
     const sk=skinFrames(progress.skin); // v7.7：死亡帧同样随皮肤（缺键/未合入 → SPR.heroFall）
-    const df=heroLook((sk&&sk.fall)?sk.fall:SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
+    const df=(game.hero==='mage')
+      ?(p.face<0?(SPR.mgFallL||SPR.mgFall||SPR.heroFall):(SPR.mgFall||SPR.heroFall))
+      :heroLook((sk&&sk.fall)?sk.fall:SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
     ctx.save();
     ctx.translate(px(p.x-3)+df.width/2,px(p.y-2)+df.height-2);
     ctx.rotate(p.deadT*9);
@@ -3146,6 +3272,7 @@ function renderSpeedLines(){
 // 0.05~0.17 帧1→2 随进度插值（0.11 分界）；0.17~0.25 帧3 余韵。位置/翻转/透明度沿现状。
 // v4 引擎无 atkAnim → 整体走下方现行 atkT 逻辑（H4 静默降级到 v2 三帧/程序化弧表现）。
 function renderSlash(){
+  if(game.hero==='mage')return; // v19 §3.3：法师无近战弧光（远程弹体由引擎渲染 shots，无需挥击弧）
   const p=game.player;
   if(!p)return;
   if(p.atkAnim>0){
@@ -3183,6 +3310,31 @@ function renderSlash(){
     ctx.stroke();
   }
   ctx.restore();
+  ctx.globalAlpha=1;
+}
+
+// v19 §3.3：法师远程弹体（game.shots，引擎只写位置/判定，不绘制）——在 renderSlash 之后、世界空间调用。
+// 取帧：bolt 8×6 两帧脉动 / lance 16×6 冰矛 / seek 6×6 星点；素材缺失时程序化兜底（同 renderSlash 口径）。
+// 朝向：素材均为右向基准，s.vx<0 时水平翻转；尾段 0.12s 渐隐，避免弹体「啪」地消失。
+function renderShots(){
+  const arr=game.shots;
+  if(!arr||!arr.length)return;
+  const t=game.tick;
+  for(const s of arr){
+    let img=null;
+    if(s.kind==='bolt')img=SPR.arcaneBolt&&SPR.arcaneBolt[(t>>2)%2];
+    else if(s.kind==='lance')img=SPR.iceLance;
+    else if(s.kind==='seek')img=SPR.seeker&&SPR.seeker[(t>>2)%2];
+    const w=s.w||8,h=s.h||6;
+    ctx.save();
+    ctx.globalAlpha=clamp(s.life/0.12,0,1);
+    ctx.translate(px(s.x)+Math.round(w/2),px(s.y)+Math.round(h/2));
+    if((s.vx||0)<0)ctx.scale(-1,1);
+    if(img)ctx.drawImage(img,-Math.round(img.width/2),-Math.round(img.height/2));
+    else if(s.kind==='lance'){ctx.fillStyle='#48c8f8';ctx.fillRect(-8,-3,16,6);ctx.fillStyle='#ffffff';ctx.fillRect(4,-2,4,4);}
+    else{const r=s.kind==='seek'?3:4;ctx.fillStyle='#8ae8ff';ctx.fillRect(-1,-r,2,r*2);ctx.fillRect(-r,-1,r*2,2);ctx.fillStyle='#ffffff';ctx.fillRect(-1,-1,2,2);}
+    ctx.restore();
+  }
   ctx.globalAlpha=1;
 }
 
@@ -3235,8 +3387,68 @@ function renderFloats(){ // 浮动文字
 // 阶段（spec §3.1）：①时停压暗+主角高亮 0~0.55 ②十字巨剑光 0.30~0.55 ③结算 t=0.55（引擎）
 // ④冲击环 0.55~0.90（压暗随 1-k 退去）⑤白闪 t=0.90（引擎置 flashT=0.1，renderFlash 现有逻辑）
 // ⑥余韵 t≥1.2 引擎复位。game.ult 不存在（v4）时整函数空转。
+// v19 §3.3：法师「陨星风暴」覆盖层（屏幕坐标系；调用点同 renderUlt——renderFlash 之前）。
+// 0~0.35 紫青压暗 + 玩家脚下双旋转环魔法阵（6 符文点，按 0.4 纵向压扁模拟地面透视）；
+// 0.35~1.2 按 game.meteors 里 m.mage 的真实世界坐标换到屏幕画青紫陨星 + 落点 30px 光圈；
+// 0.9~1.2 紫环扩散收尾（白闪仍由引擎 flashT → renderFlash 负责，不重复画）。
+function renderMageUlt(){
+  const u=game.ult,p=game.player;
+  if(!p)return;
+  const t=u.t||0;
+  if(t<0.35){
+    const a=0.42*Math.min(1,t/0.12);
+    ctx.fillStyle='rgba(24,10,52,'+a.toFixed(3)+')';ctx.fillRect(0,0,VIEW_W,VIEW_H);
+    const sx=px(p.x+p.w/2-game.cam.x),sy=px(p.y+p.h-game.cam.y),rot=t*10;
+    ctx.save();ctx.translate(sx,sy);ctx.scale(1,0.4);
+    ctx.strokeStyle='#a88af8';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(0,0,20,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='#48c8f8';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(0,0,14,rot,rot+Math.PI*1.35);ctx.stroke();
+    ctx.beginPath();ctx.arc(0,0,14,rot+Math.PI,rot+Math.PI*2.35);ctx.stroke();
+    ctx.fillStyle='#8ae8ff';
+    for(let i=0;i<6;i++){const a2=rot*0.6+i*Math.PI/3;ctx.fillRect(Math.round(Math.cos(a2)*17)-1,Math.round(Math.sin(a2)*17)-1,2,2);}
+    ctx.restore();
+  }
+  if(t>=0.35&&t<1.2){
+    const meteors=game.meteors||[],si=SPR.starMeteor;
+    for(const m of meteors){
+      if(!m||!m.mage)continue;
+      const sx=px(m.x-game.cam.x),sy=px(m.y-game.cam.y);
+      // 30px 落点光圈（m.ring=世界地面线；未落地时也画，让玩家看清砸哪）
+      if(typeof m.ring==='number'){
+        const gy=px(m.ring-game.cam.y),pu=0.5+0.3*Math.sin(game.tick*0.4);
+        ctx.globalAlpha=pu;ctx.strokeStyle='#a88af8';ctx.lineWidth=1;
+        ctx.beginPath();ctx.ellipse(px(m.x-game.cam.x),gy,30,10,0,0,Math.PI*2);ctx.stroke();
+        ctx.globalAlpha=1;
+      }
+      // 尾迹（4 段紫渐隐，向上）
+      for(let k=1;k<=4;k++){
+        ctx.globalAlpha=0.5-k*0.1;ctx.fillStyle=k<3?'#a88af8':'#8ae8ff';
+        ctx.fillRect(sx,sy-k*6,3,5);
+      }
+      ctx.globalAlpha=1;
+      const img=si&&si.length?si[((game.tick/4)|0)%si.length]:null;
+      if(img)ctx.drawImage(img,sx-5,sy-6);
+      else{ // 程序化兜底：青紫核心+白高光
+        ctx.fillStyle='#a88af8';ctx.fillRect(sx-4,sy-5,8,10);
+        ctx.fillStyle='#8ae8ff';ctx.fillRect(sx-3,sy-4,6,8);
+        ctx.fillStyle='#ffffff';ctx.fillRect(sx-2,sy-3,3,3);
+      }
+    }
+  }
+  if(t>=0.9&&t<1.2){ // 紫环扩散收尾（白闪由 renderFlash 负责）
+    const k=clamp((t-0.9)/0.3,0,1);
+    const sx=px(p.x+p.w/2-game.cam.x),sy=px(p.y+p.h/2-game.cam.y);
+    ctx.globalAlpha=1-k;ctx.strokeStyle='#a88af8';ctx.lineWidth=2;
+    ctx.beginPath();ctx.arc(sx,sy,Math.max(0.1,40+220*k),0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle='#48c8f8';ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(sx,sy,Math.max(0.1,40+220*k-4),0,Math.PI*2);ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+}
 function renderUlt(){
   const u=game.ult; if(!u||!u.on)return;
+  if(game.hero==='mage'){renderMageUlt();return;} // v19 §3.3：法师大招独立演出，骑士路径逐字不变
   const t=u.t, p=game.player;
   if(!p)return;
   // ①②④ 压暗：0~0.30 渐入 0.55 维持；0.55~0.90 随冲击环按 1-k 退去（spec §3.1①④）
@@ -3378,6 +3590,7 @@ function renderHUD(){
   // v6 §C3：面板加宽 61→104、循环上限 5→p.maxHp||5（引擎 v6 p.maxHp∈[5,9]，缺省 5=现行为 H4）；
   // 空槽照画 heartEmpty 至 maxHp
   const p=game.player;
+  const hd=heroDef(game.hero),mageHero=game.hero==='mage'; // v19：当前英雄表（HUD 图标/CD/法力文案的唯一来源）
   if(p&&typeof p.hp==='number'&&SPR.heartFull&&SPR.heartEmpty){
     const maxHp=p.maxHp||5;
     _panel(1,16,104,14,{cut:2});
@@ -3386,6 +3599,19 @@ function renderHUD(){
       ctx.drawImage(i<p.hp?SPR.heartFull:SPR.heartEmpty,4+i*11,19);
     }
     if(p.hp<=2&&game.tick%30<15){ctx.strokeStyle='#f84848';ctx.strokeRect(2.5,17.5,101,11);} // 低血红框脉冲（随新面板宽）
+  }
+  // v19 §3.4：法师法力条（血条面板右下区内——MP 3×5 字 (62,20)、槽 (72,21,28,5)，不新增纵向空间）。
+  // 低于「最便宜法术」的费用时红 #f87858 呼吸（任何法术都放不起）；否则 #48c8f8 静态填充。
+  if(mageHero&&p){
+    const costs=['u','i','l'].map(k=>((hd.skills[k]||{}).mana)||0).filter(v=>v>0);
+    const lowCost=costs.length?Math.min.apply(null,costs):0;
+    const mm=game.manaMax||100,mv=clamp(Number.isFinite(game.mana)?game.mana:0,0,mm);
+    drawPixelText('MP',62,20,1,'#8ae8ff');
+    ctx.fillStyle='#3a4468';ctx.fillRect(71,20,30,7);                 // 1px 外框
+    ctx.fillStyle='#101a34';ctx.fillRect(72,21,28,5);                 // 空槽
+    const low=lowCost>0&&mv<lowCost;
+    ctx.fillStyle=low&&game.tick%30<15?'#f87858':'#48c8f8';
+    if(mv>0)ctx.fillRect(72,21,Math.max(1,Math.round(28*mv/mm)),5);
   }
   // v3 §C②：Boss 血条（仅 boss 存在且非 dormant 显示）；v5 §A-4：条底深蓝+金细线
   // v7 §9.3：名字按 b.kind 参数化
@@ -3501,14 +3727,26 @@ function renderHUD(){
   // v5 §A-1：技能槽外套 _panel 切角小面板（cut=2），扇形 CD 与呼吸光不变（第一波 H4）
   // v6 §C1：3→4 槽（U/I/O/L）；SPR.skL 缺失槽内只画字母（守卫）；sk.l 缺省视为就绪
   const sk=game.skills||{u:0,i:0,o:0,l:0};
-  const skDef=[['U',SPR.skU,8,sk.u],['I',SPR.skI,12,sk.i],['O',SPR.skO,20,sk.o],['L',SPR.skL,6,sk.l]];
+  // v19 §3.4：图标按英雄取（法师 mgU/I/O/L，缺素材回落骑士 skU/I/O/L）；字母 U/I/O/L 不变；
+  // CD 分母改读 HEROES[hero].skills.<slot>.cd（不再硬编码 8/12/20/6——兜底表与 BAL 同值）。
+  const HERO_SK=['u','i','o','l'],HERO_KEYS=['U','I','O','L'];
+  const iconOf=(k,fb)=>(mageHero&&SPR[k])?SPR[k]:SPR[fb];
+  const cdMaxOf=k=>{const s=hd.skills[k];return (s&&s.cd)||1;};
+  const skDef=[['U',iconOf('mgU','skU'),cdMaxOf('u'),sk.u],
+               ['I',iconOf('mgI','skI'),cdMaxOf('i'),sk.i],
+               ['O',iconOf('mgO','skO'),cdMaxOf('o'),sk.o],
+               ['L',iconOf('mgL','skL'),cdMaxOf('l'),sk.l]];
   const slotX=[];
   for(let i=0;i<4;i++){
     const x=162+i*22,y=198;slotX.push(x);
     _panel(x,y,16,16,{cut:2});
     const letter=skDef[i][0],icon=skDef[i][1],max=skDef[i][2],cd=skDef[i][3]||0;
-    if(icon)ctx.drawImage(icon,x+2,y+2);
+    // v19：法力不足的槽位——图标压 35% 透明 + 左上 2×2 红点（与 CD 黑饼可同时存在）
+    const cost=((hd.skills[HERO_SK[i]]||{}).mana)||0;
+    const noMana=mageHero&&cost>0&&(Number.isFinite(game.mana)?game.mana:0)<cost;
+    if(icon){if(noMana)ctx.globalAlpha=0.35;ctx.drawImage(icon,x+2,y+2);ctx.globalAlpha=1;}
     drawPixelText(letter,x+11,y+9,1,'#f0f4ff');
+    if(noMana){ctx.fillStyle='#f84848';ctx.fillRect(x+2,y+2,2,2);}
     if(cd>0){const frac=clamp(cd/max,0,1);                 // v5 §F：扇形扫描 CD 罩（饼形顺时针回收）
       ctx.fillStyle='rgba(6,10,24,0.66)';ctx.beginPath();ctx.moveTo(x+8,y+8);
       ctx.arc(x+8,y+8,11,-Math.PI/2,-Math.PI/2+Math.PI*2*(1-frac));ctx.closePath();ctx.fill();
@@ -3519,6 +3757,10 @@ function renderHUD(){
       ctx.fillStyle=(game.ultCharge||0)>=100||k<Math.floor((game.ultCharge||0)/10)?'#f8d048':'#3a3a4a';
       ctx.fillRect(x+k*1.5,y+13,2,2);
     }
+  }
+  // v19 §3.4：法力不足提示（engine 置 game.manaToast=0.9；画在技能槽上方 (150,186)）
+  if(mageHero&&(game.manaToast||0)>0){
+    drawCNText('法力不足',150,186,9,'#f87858','center');
   }
   // v7.1：O 槽金色呼吸——ultCharge≥100 且就绪（原 combo≥8 条件废除）
   if((game.ultCharge||0)>=100&&sk.o<=0){
@@ -3576,7 +3818,8 @@ function renderHUD(){
   if(oHintT>0&&uiState==='play'){ // v6 §D2：O 大提示横幅（每关一次；尾 0.5s 渐隐）
     ctx.globalAlpha=clamp(oHintT/0.5,0,1);
     _panel(VIEW_W/2-120,VIEW_H-64,240,18,{cut:3});
-    drawCNText('能量已满！按 O 释放流星连斩',VIEW_W/2,VIEW_H-61,12,'#f8d048','center');
+    // v19 §3.4：横幅按英雄取大招名（骑士 流星连斩 / 法师 陨星风暴）
+    drawCNText('能量已满！按 O 释放'+(game.hero==='mage'?'陨星风暴':'流星连斩'),VIEW_W/2,VIEW_H-61,12,'#f8d048','center');
     ctx.globalAlpha=1;
   }
   // v8.0 删「L1 技能提示条」：背景常驻提示第一行已写「空格 / W 跳跃 · J 攻击 · K 冲刺」，开局 6 秒内
@@ -3592,19 +3835,28 @@ function renderHUD(){
 // v6 §B：技能提示卡（文案=设计书 §4.3 表逐字冻结；容器 _panel(clamp(slotX-67,4,VIEW_W-154),146,150,46,{cut:3})，
 // 槽上方 52px；四行：名 10px 金 / 键与 CD 像素字 / 说明 9px 白 / 充能条件 9px（未满足红/满足绿））
 function drawSkillCard(i,slotX){
-  const SKILLS=[ // [名, 键, 一句话说明, 充能条件(null=无，冷却即用)]
-    ['星陨术','U','召唤三颗流星轰击锁定的敌人',null],
-    ['星光护盾','I','3 秒内吸收 2 次伤害',null],
-    ['流星连斩','O','时停十字斩：屏内敌人全灭并清弹幕','命中积累能量，满 100 释放'],
-    ['星刃回旋','L','掷出回旋星刃，去回两程割草',null]];
-  const info=SKILLS[i],sk2=game.skills||{u:0,i:0,o:0,l:0},cd=[sk2.u,sk2.i,sk2.o,sk2.l][i]||0;
-  const condOk=info[3]?(game.ultCharge||0)>=100:true;
+  // v19 §3.4：四行文案改读 HEROES[game.hero].skills（名/说明/CD/法力）；旧骑士文案逐字保留（兜底表同值）。
+  const hd=heroDef(game.hero);
+  const LETTER=['U','I','O','L'][i];
+  const info=hd.skills[['u','i','o','l'][i]]||{name:'-',desc:'',cd:1,mana:0};
+  const sk2=game.skills||{u:0,i:0,o:0,l:0},cd=[sk2.u,sk2.i,sk2.o,sk2.l][i]||0;
+  const cost=info.mana||0;
+  const condOk=info.ult?(game.ultCharge||0)>=100:true;
   const cx=clamp(slotX-67,4,VIEW_W-154);
   _panel(cx,146,150,46,{cut:3});
-  drawCNText(info[0],cx+6,150,10,'#f8d048');
-  drawPixelText('KEY '+info[1]+'  '+(cd>0?('CD '+Math.ceil(cd)+'S'):'READY'),cx+6,161,1,'#a8b4d8');
-  drawCNText(info[2],cx+6,170,9,'#f0f4ff');
-  drawCNText(info[3]||'无（冷却即用）',cx+6,181,9,condOk?'#8ad8a0':'#f87858');
+  drawCNText(info.name,cx+6,150,10,'#f8d048');
+  drawPixelText('KEY '+LETTER+'  '+(cd>0?('CD '+Math.ceil(cd)+'S'):'READY'),cx+6,161,1,'#a8b4d8');
+  drawCNText(info.desc||'',cx+6,170,9,'#f0f4ff');
+  if(cost>0){ // 法师 U/I/L：法力 30（当前 80）满足绿/不足红，后叠「冷却即用」
+    const have=Number.isFinite(game.mana)?game.mana:0,enough=have>=cost;
+    const s='法力 '+cost+'（当前 '+(have|0)+'）';
+    drawCNText(s,cx+6,181,9,enough?'#8ad8a0':'#f87858');
+    drawCNText('· 冷却即用',cx+9+_textW(s,9),182,8,'#a8b4d8');
+  }else if(info.ult){ // O：充能条件（骑士原文逐字不变）
+    drawCNText('命中积累能量，满 100 释放',cx+6,181,9,condOk?'#8ad8a0':'#f87858');
+  }else{
+    drawCNText('无（冷却即用）',cx+6,181,9,'#a8b4d8');
+  }
 }
 // v6 §A.2：简单提示卡（hearts/bossbar/coins/shrinehud；锚定 rect 上方，顶栏处翻下方防出屏）
 function drawTipCard(r,text){
@@ -3648,14 +3900,15 @@ function renderBag(tick){
   _panel(24,8,336,208);
   // 左·角色区：外观预览 ×3（48×48）@ (44,24)（SPR.look 未合入=现主角帧直通）
   // v7.7：预览帧跟随当前皮肤（守卫：getHeroSkin 未合入 → SPR.heroIdle1）
-  const pv=heroLook(skinIdle1(progress.skin),'idle');
+  // v19 §3.2：法师→mgIdle1（无皮肤/无装备外观合成，缺素材回落骑士帧）
+  const pv=(game.hero==='mage')?heroFrame('mage'):heroLook(skinIdle1(progress.skin),'idle');
   if(pv)ctx.drawImage(pv,44,24,48,48);
   // 属性行（读 game.equip；攻击=基攻+装备加成，加成绿字；§7.2/工单 §C）
   const atkBase=(typeof BAL!=='undefined'&&BAL&&BAL.player&&BAL.player.atkBase)||1;
   const atkStr='攻击 '+(atkBase+eq.atk);
   drawCNText(atkStr,34,90,9,'#f0f4ff');
   if(eq.atk>0)drawCNText('（+'+eq.atk+'）',34+_textW(atkStr,9),90,9,'#8ad8a0');
-  drawCNText('生命 '+(p?p.hp:'-')+' / '+(p?p.maxHp:BAL_PLAYER_HP),34,102,9,'#f0f4ff');
+  drawCNText('生命 '+(p?p.hp:'-')+' / '+(p?p.maxHp:heroDef(game.hero).hpBase),34,102,9,'#f0f4ff');
   drawCNText('移速 +'+Math.round(eq.spd*100)+'%',34,114,9,'#f0f4ff');
   drawCNText('技能冷却 −'+Math.round(eq.cd*100)+'%',34,126,9,'#f0f4ff');
   // 中·装备槽 3 个（稀有度色描边；空槽=暗色+槽名 武/冠/氅；装备中=右下小金点；r=4 金描边脉冲）
@@ -3790,6 +4043,61 @@ function renderWardrobe(tick){
   }
   drawCNText('方向 选择 · 回车 装备 · G/Esc 关闭',VIEW_W/2,pnl[1]+pnl[3]-20,9,'#a8b4d8','center');
   renderBagFloats(); // v7.7：装备浮字（已装备 · 草绿）复用背包浮字管线，锚点落在面板底部
+}
+
+// ---------- v19 §3.1 选角面板渲染（title/select 覆盖层；几何常量 HERO_* 与 computeHover 同源） ----------
+// 布局：面板 42,24,300,190；双卡 126×142 @ y=46（左 52 / 右 206）；头像 16×16 放大 3 倍 = 48×48；
+// 卡内：名 11px y+58 / 心数 y+71 / MP 行 y+82 / 四技能行 y+94+12i（名 8px + 键位 + CD + 法力）；
+// 当前英雄=金框 + 右上「使用中」徽标；光标=白 2px；底栏两行「C/Esc 关闭」「下一关生效」。
+function renderHeroSelect(tick){
+  ctx.fillStyle='rgba(4,4,14,0.72)';ctx.fillRect(0,0,VIEW_W,VIEW_H);
+  _panel(HERO_PANEL[0],HERO_PANEL[1],HERO_PANEL[2],HERO_PANEL[3],{titleBar:1});
+  drawCNText('角色 · 选择出战英雄',VIEW_W/2,30,13,'#f8d048','center');
+  _panel(322,28,12,12,{cut:2,alpha:0.9});
+  drawPixelText('X',325,31,1,'#f0f4ff');
+  if(hover==='heroclose'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;ctx.strokeRect(322.5,28.5,11,11);}
+  for(let i=0;i<HERO_IDS.length;i++){
+    const id=HERO_IDS[i],h=heroDef(id),xy=_heroCardXY(i),x=xy[0],y=xy[1];
+    const cur=progress.hero===id,sel=heroSel===i;
+    _panel(x,y,HERO_CARD_W,HERO_CARD_H,{cut:3,alpha:cur?0.92:0.8});
+    // 头像 48×48（mage=mgIdle1；缺素材回落骑士 idle1；不叠皮肤装备）
+    const img=heroFrame(id);
+    if(img)ctx.drawImage(img,x+39,y+7,48,48);
+    drawCNText(h.name,x+63,y+58,11,cur?'#f8d048':'#f0f4ff','center');
+    // 心数（hpBase；缺 heartFull 时程序化红块兜底）
+    const hn=h.hpBase|0,hx0=x+63-(hn*10)/2;
+    for(let k=0;k<hn;k++){
+      if(SPR.heartFull)ctx.drawImage(SPR.heartFull,Math.round(hx0+k*10),y+71);
+      else{ctx.fillStyle='#f84848';ctx.fillRect(Math.round(hx0+k*10),y+71,8,7);}
+    }
+    // MP（有/无）
+    drawCNText(h.usesMana?'MP 100':'无 MP',x+63,y+82,8,h.usesMana?'#48c8f8':'#8a94b8','center');
+    // 四条技能：名 8px + 键位徽标 + CD 秒 + 法力
+    for(let s=0;s<4;s++){
+      const key='uiol'[s],si=h.skills[key]||{name:'-',cd:1,mana:0},ry=y+94+s*12;
+      drawCNText(si.name,x+6,ry,8,'#dfe4f4');
+      _panel(x+44,ry-1,8,9,{cut:1,alpha:0.5});
+      drawPixelText('UIOL'[s],x+46,ry+1,1,'#f8d048');
+      drawPixelText('CD'+(si.cd|0),x+55,ry+2,1,'#a8b4d8');
+      if(si.mana>0)drawPixelText('M'+si.mana,x+92,ry+2,1,'#48c8f8');
+    }
+    if(cur){ // 当前出战：金框 + 「使用中」徽标（徽标落在头像右侧空隙，不压头像）
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=2;
+      ctx.strokeRect(x+1,y+1,HERO_CARD_W-2,HERO_CARD_H-2);
+      ctx.fillStyle='rgba(248,208,72,0.16)';ctx.fillRect(x+HERO_CARD_W-34,y+4,30,11);
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=1;ctx.strokeRect(x+HERO_CARD_W-33.5,y+4.5,29,10);
+      drawCNText('使用中',x+HERO_CARD_W-19,y+5,7,'#f8d048','center');
+    }
+    if(sel){ // 光标：白 2px（同衣橱/选关）
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+      ctx.strokeRect(x+1,y+1,HERO_CARD_W-2,HERO_CARD_H-2);
+    }else if(hover==='hero:'+i){
+      ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
+      ctx.strokeRect(x+0.5,y+0.5,HERO_CARD_W-1,HERO_CARD_H-1);
+    }
+  }
+  drawCNText('←→ 选择 · 回车 使用 · C/Esc 关闭',VIEW_W/2,195,9,'#a8b4d8','center');
+  drawCNText('选角后下一关生效',VIEW_W/2,204,9,'#f8d048','center');
 }
 
 // v6 波2 §B：背包浮字渲染（屏幕中层居中堆叠；≤4 条 2s 消隐尾 0.5s 渐隐——本地渲染不经 engine 池，H4）
@@ -3958,8 +4266,10 @@ function renderTitleCover(tick){
       game.fxParts.push({x:mx-3,y:my+1,vx:-30,vy:-10,life:0.25,color:'#f8d048',size:1});
   }
   // 5 主角剪影（左下 96,118 剑指右上，sin(tick*0.03+1) 悬浮 ±2px）
+  // v19 §3.3：当前英雄=法师且 SPR.cover.mageSil 就位 → 画法师剪影（同位置同悬浮）；否则原勇者剪影。
   const hdy=118+Math.round(Math.sin(tick*0.03+1)*2);
-  if(cov.heroSil)ctx.drawImage(cov.heroSil,96,hdy);
+  if(progress.hero==='mage'&&cov.mageSil)ctx.drawImage(cov.mageSil,96,hdy);
+  else if(cov.heroSil)ctx.drawImage(cov.heroSil,96,hdy);
   else{ // 程序化兜底：黑剪影+背光金边
     ctx.fillStyle='#0a0e22';
     ctx.fillRect(104,hdy+2,8,8);ctx.fillRect(102,hdy+10,12,10);
@@ -4035,9 +4345,18 @@ function renderTitleCover(tick){
     drawPixelText('G',mx0+43,my0+7,1,'#f8d048');
     if(hover==='titleWardrobe'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;_panelPath(mx0,my0,mw,mh,3);ctx.stroke();}
   }
+  // 9.7 v19 §3.1：角色入口（328,110,50,18；C 键位徽标，与衣橱同排、右缘 378 不越 384）
+  {
+    const hx=328,hy=110,hw=50,hh=18;
+    _panel(hx,hy,hw,hh,{cut:3,alpha:0.8});
+    drawCNText('角色',hx+5,hy+4,9,'#f0f4ff');
+    _panel(hx+33,hy+4,12,10,{cut:2,alpha:0.5});
+    drawPixelText('C',hx+36,hy+7,1,'#f8d048');
+    if(hover==='titleHero'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;_panelPath(hx,hy,hw,hh,3);ctx.stroke();}
+  }
   // 10 底部操作条：切角面板内现有按键提示行
   _panel(32,198,320,18,{alpha:0.5,cut:2});
-  drawPixelText('ARROWS/WASD MOVE  SPACE JUMP  F UNLOCK  G WARDROBE  M SOUND',VIEW_W/2,204,1,'#f0f4ff','center');
+  drawPixelText('ARROWS/WASD MOVE  SPACE JUMP  F UNLOCK  G WARDROBE  C HERO  M SOUND',VIEW_W/2,204,1,'#f0f4ff','center');
   ctx.restore();
 }
 
@@ -4097,6 +4416,13 @@ function renderMenu(th,tick){
     drawPixelText('G',349,24,1,'#f8d048');
     if(hover==='menuWardrobe'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
       _panelPath(316,20,62,13,2);ctx.stroke();}
+    // v19 §3.1：选关屏角色入口（252,20,60,13；C 徽标）
+    _panel(252,20,60,13,{cut:2,alpha:0.75});
+    drawCNText('角色',258,22,9,'#f0f4ff');
+    _panel(294,22,11,9,{cut:2,alpha:0.5});
+    drawPixelText('C',297,24,1,'#f8d048');
+    if(hover==='menuHero'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
+      _panelPath(252,20,60,13,2);ctx.stroke();}
     if(progress.unlockAll===true)drawCNText('全关开放',6,2,9,'#f8d048'); // 顶栏状态标（y=2，不压章头 y=24）
   }
   for(const ch of _chapters()){
@@ -4134,7 +4460,7 @@ function renderMenu(th,tick){
       if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+3,2,2);}        // 新关金点（L11~L16）
     }
   }
-  drawCNText('←→↑↓ 选择　回车 进入　G 衣橱　Esc 返回',VIEW_W/2,204,11,'#a8b4d8','center'); // v7.7：入口改为衣橱
+  drawCNText('←→↑↓ 选择　回车 进入　C 角色　G 衣橱　Esc 返回',VIEW_W/2,204,10,'#a8b4d8','center'); // v19：加 C 角色入口
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
   drawPixelText('STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,214,1,'#f8d048','center'); // v7 §9.1：上限=ALL_LEVELS.length*3
 }
@@ -4619,17 +4945,22 @@ function step(dt){
   }
 
   if(uiState==='title'){
-    if(wardrobeOpen){
+    if(heroOpen){
+      stepHeroInput(); // v19：选角面板独占输入（C/Esc/X 关闭，不落到下层菜单）
+    }else if(wardrobeOpen){
       stepWardrobeInput(); // v7.7：衣橱面板独占输入（不落到下面的开始钮分支）
     }else{
       // v7.7 §1：F / 点开关 = 切换全关开放（开关型，再按关闭；持久化在 toggleUnlockAll 内）
       if(hit('unlockAll')||(mouse.click&&hover==='titleUnlock'))toggleUnlockAll();
       if(hit('wardrobe')||(mouse.click&&hover==='titleWardrobe'))openWardrobe(); // v7.7：G / 点衣橱钮
+      if(hit('hero')||(mouse.click&&hover==='titleHero'))openHeroSelect(); // v19：C / 点角色钮
       // v6 §A.4：点 title 开始钮=hit('confirm') 等价分支（键盘等价=回车，H2）
       if(hit('confirm')||(mouse.click&&hover==='titleStart')){SFX.select();uiState='select';fade=1;fadeDir=-1;}
     }
   }else if(uiState==='select'){
-    if(wardrobeOpen){
+    if(heroOpen){
+      stepHeroInput(); // v19：同上（选关导航/进入/返回全部让位给面板）
+    }else if(wardrobeOpen){
       stepWardrobeInput(); // v7.7：同上（选关导航/进入/返回全部让位给面板）
     }else{
       // v7 §9.2：章节化导航——←→ ±1（clamp 0..ALL_LEVELS.length-1）；↑↓ 跨章保持列号：
@@ -4647,6 +4978,7 @@ function step(dt){
         SFX.select();
       }
       if(hit('wardrobe')||(mouse.click&&hover==='menuWardrobe'))openWardrobe(); // v7.7：选关屏衣橱入口
+      if(hit('hero')||(mouse.click&&hover==='menuHero'))openHeroSelect();       // v19：选关屏角色入口
       // v6 §A.4：选关卡鼠标单击=选中（menuSel=i）、双击=进入——确认分支复用 hit('confirm') 同代码路径
       if(mouse.click&&hover&&hover.indexOf('select:')===0){
         const i=+hover.slice(7);
@@ -4771,6 +5103,10 @@ function frame(now){
 function boot(){
   buildSprites();
   fitScreen();
+  // v19 §3.2：先按存档注入 game.hero（recomputeEquip 的基础血要读它），再处理 ?hero= 调试覆盖（非法值忽略）。
+  const dh=q.get('hero');
+  HERO_DEBUG=(dh==='mage'||dh==='knight')?dh:null;
+  game.hero=HERO_DEBUG||(progress.hero==='mage'?'mage':'knight');
   recomputeEquip(); // v6 波2 §D：boot 后一次（异常档自愈回写+注入 game.equip/cdMul；先于 startLevel/loadLevel 读装备）
   const lvl=q.get('level');
   if(lvl){

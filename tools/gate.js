@@ -188,7 +188,7 @@ try {
       }
       for (let f = 0; f < 180; f++) sandbox.updateWorld(1 / 60);   // 纯空转 180 帧
       const g = sandbox.game;
-      if (g.player.dead || (g.player.hp !== undefined && g.player.hp < 5) || g.boss.state !== 'dormant') {
+      if (g.player.dead || (g.player.hp !== undefined && g.player.hp < (g.player.maxHp || 5)) || g.boss.state !== 'dormant') {
         console.error('L' + (bi + 1) + ' Boss 违约: 空转180帧 dead=' + g.player.dead + ' hp=' + g.player.hp + ' boss=' + g.boss.state);
         process.exit(1);
       }

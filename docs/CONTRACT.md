@@ -791,3 +791,63 @@ hazard 对象字段（冻结，ui 只读这些）：
 仅 `dmg>0` 才走 `_engHurtPlayer`（dmg=0 时零伤害零击退不触发无敌帧），
 生成侧缺省口径同步改 `MS.dmg || 0`。雾的唯一功能=「进去就走不动」（slow=0.5），
 T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS / 0 FAIL。
+
+## v19 · 第二角色「星语法师」（追加，2026-10-29 · 集成队录入）
+
+> 依据：玩家原话「再构建一个角色，要求偏向法师角色，角色技能应该主要是偏向远程」+
+> `docs/specs/2026-10-29-v19-mage.md`（下称"设计书"，唯一设计基准）。本附记只增不改上文任何条款
+> （v4~v18 先例）。默认 `game.hero='knight'`，骑士全部旧行为逐字不变。
+
+### engine.js 新契约导出（第 3 节追加）
+- `const HEROES` —— 英雄注册表，顺序固定 knight → mage；`hpBase`/`skills[*].cd|mana` 一律引用
+  `BAL` 求值（调平衡只改一处）。ui 的选角面板、HUD、技能卡直接读本表。
+- `BAL.heroes.mage` —— 法师数值唯一真值（设计书 §1.2 原样）。
+
+### PHY 例外记录
+- 法师与骑士共用同一套 `PHY`，一个字节都没动（`reach` 27 目标全部依赖它）。
+
+### engine.js 新字段（沿「扩展字段」先例）
+- `game`：`hero`（'knight'|'mage'，ui 在 `loadLevel` **之前**写入）、`mana`、`manaMax`、
+  `manaToast`（「法力不足」剩余秒）、`shots[]`（法师弹体，**不复用 `game.bullets`**——后者整组按敌方结算）。
+- 玩家：`shotSeq`（法师普攻「一次起手只发一发」，对标 `atkSeq`）。`mana` 不挂玩家，只认 `game.mana`。
+- `game.ult` 增加 `kind`（缺省=骑士连斩；'mage'=陨星风暴）。**禁止第二份 ult 状态机**。
+- 陨星对象增加 `dmg/bossDmg/aoe/mage`（缺省回退 `BAL.skills.u.*` ⇒ 骑士星陨字节等价）。
+
+### 内部符号（下划线，不入契约）
+`_engHero()`、`_engSpendMana()`（设计书写的是 `_engCastMana`，实装取名更贴近语义，二者等价）、
+`_engPushShot()`、`_engResolveMageAttack()`、`_engUpdateShots()`、`_engShotHome()`、
+`_engShotHitEnemy()`、`_engMageMeteorHit()`。
+
+### sfx 事件表追加
+- `'bolt','lance','seek','storm','nomana'`（engine 只 push，ui 消费）。骑士原事件名不变。
+
+### art.js 新 SPR 键（第 4 节追加）
+- 帧（16×16，右向基准，均带 `L` 翻转版）：`mgIdle1, mgIdle2, mgRun[6], mgJump, mgFall, mgAttack,
+  mgCast, mgDash, mgDashWind, mgSquash`。**必须 `mg` 前缀**——`_v77_skins_art.js` 用 `/^hero[A-Z]/`
+  推导皮肤帧集合，`hero` 前缀会把法师帧算成第 21 套皮肤。
+- 弹体/图标：`arcaneBolt[2]` 8×6、`iceLance` 16×6、`seeker[2]` 6×6、`starMeteor[2]` 10×12、
+  `mgU/mgI/mgO/mgL` 12×12、`cover.mageSil` 24×28。
+- `HERO_SKINS` 仍恰 20 套；法师不吃换色皮肤。
+
+### ui.js 契约（第 5 节以外的界面口径）
+- `progress.hero`（'knight'|'mage'，缺省/非法回落 knight）；选角覆盖层 `heroOpen`、
+  `C` 键（`KEYMAP.hero`），标题 (328,110,50,18) 与选关屏 (252,20,60,13) 各一个「角色」按钮。
+- `startLevel` 首行写 `game.hero`（**在 `loadLevel` 之前**），`maxHp` 改读 `HEROES[hero].hpBase + equip.hp`；
+  `boot()` 同时注入，`?hero=mage` 可调试覆盖。
+- 法力条画在血条面板 `(1,16,104,14)` 右半区（`MP` 64,21 / 槽 72,21,28,5），**不新增纵向空间**
+  （否则与 Boss 血条 y=29 相撞）。
+- `renderSlash` 对法师直接 return；`renderUlt` 按 hero 分派；技能卡/CD 分母读 `HEROES`。
+- `renderShots()`（新增，内部）：`renderSlash()` 之后、世界空间内绘制 `game.shots`
+  （bolt 取 `SPR.arcaneBolt[(tick>>2)%2]` / lance 取 `SPR.iceLance` / seek 取 `SPR.seeker[(tick>>2)%2]`，
+  `s.vx<0` 水平翻转，尾段 0.12s 渐隐，素材缺失时程序化兜底）。**引擎不画弹体、UI 不判命中**。
+
+### 与设计书的偏差（已实装，后果已知）
+- L 追星弹出膛 y：设计书 `+4/+7/+10`，实装 `Math.min(4+i*3, p.h-6)`（第三枚钳到 +8）。
+  原因：站立时第三枚 6px 高、底边 `p.y+16` 伸进脚下地板，出膛当帧被瓦片判定回收，L 只剩 2 发。
+  钳制后三发齐全（`_v19_mage_test.js` 按「3 枚全部命中」断言，防回退）。
+- 法师帧注册键：`_mgSprite('idle1')` 必须落到 `SPR.mgIdle1`（首版误注册成 `SPR.idle1`，
+  UI 回落骑士帧——实机截图发现，已修；`mg` 前缀同时规避皮肤推导）。
+
+### 测试
+- `tools/_v19_mage_test.js`（12 组）+ `tools/_v19_shots.py`（5 张实机截图）；
+  `gate.js` Boss 冒烟 `hp < 5` → `hp < (g.player.maxHp || 5)`（knight 等价，mage 4 血不误报）。
