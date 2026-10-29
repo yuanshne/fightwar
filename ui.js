@@ -322,8 +322,12 @@ const SFX={
   sweep(){noiseSfx({d:0.18,v:0.22});tone({f:200,f2:90,d:0.18,v:0.14,type:'square'});},    // 扫尾/镰刀宽波
   // v19 §3.5 法师音效（事件名与 engine push 完全一致；全程序化合成，风格同既有）
   bolt(){tone({f:1500,f2:760,d:0.05,v:0.12,type:'square'});noiseSfx({d:0.04,v:0.1});},      // 奥术飞弹：短促高频电流
-  lance(){noiseSfx({d:0.12,v:0.2});tone({f:920,f2:180,d:0.18,v:0.16,type:'sawtooth'});},     // 冰晶长矛：冰裂下坠
-  seek(){[660,880,1174].forEach((f,i)=>tone({f,d:0.07,v:0.16,at:i*0.05,type:'triangle'}));}, // 追星弹：三连上扬
+  nova(){noiseSfx({d:0.2,v:0.24,fc:2600});tone({f:1600,f2:420,d:0.22,v:0.18,type:'triangle'});
+    [1320,990,660].forEach((f,i)=>tone({f,d:0.1,v:0.12,at:i*0.04,type:'square'}));},          // 霜爆新星：冰壳炸开（高频碎裂八向扩散）
+  well(){tone({f:60,f2:110,d:0.35,v:0.22,type:'sine'});noiseSfx({d:0.3,v:0.12,fc:380});},     // 引力奇点出手：低频下潜
+  wellStop(){tone({f:110,f2:55,d:0.25,v:0.2,type:'sine'});tone({f:880,d:0.06,v:0.1,at:0.02});}, // 奇点停驻：闷响+轻点
+  wellBoom(){noiseSfx({d:0.35,v:0.32});tone({f:120,f2:40,d:0.4,v:0.3,type:'sawtooth'});
+    [523,392,262].forEach((f,i)=>tone({f,d:0.12,v:0.16,at:i*0.05,type:'triangle'}));},        // 引爆：低频爆+三连下坠
   storm(){noiseSfx({d:0.5,v:0.3});tone({f:62,f2:38,d:0.5,v:0.28,type:'sine'});
     tone({f:900,f2:200,d:0.32,v:0.18,at:0.06,type:'square'});},                              // 陨星风暴：低频轰鸣+坠星
   nomana(){tone({f:180,f2:110,d:0.16,v:0.2,type:'square'});tone({f:120,d:0.12,v:0.14,at:0.1,type:'triangle'});}, // 法力不足：低沉否定
@@ -1714,6 +1718,24 @@ function renderEntities(L,tick){
     }
     if(e.elite&&!e.dead)_eliteFx(e); // v7 §9.4：精英通用层（4 段旋转金弧/头顶血条/可选金冠）
   }
+  /* v19.3：霜爆新星冻结——冰壳单独走第二遍画在敌人之上，避免嵌进上面 9 个 type 分支里各改一次。
+     读数：半透明冰蓝块 + 1px 亮边 + 两粒高光；末 0.2s 加速闪（要解冻了）。 */
+  for(const e of L.enemies){
+    if(!(e.freezeT>0)||e.dead>0)continue;
+    const fx=px(e.x)-1,fy=px(e.y)-1,fw=e.w+2,fh=e.h+2;
+    ctx.globalAlpha=e.freezeT<0.2?((tick>>1)%2?0.12:0.26):0.22;   // 填充压到 0.22：再浓就把里面的敌人涂层白
+    ctx.fillStyle='#9ae0ff';ctx.fillRect(fx,fy,fw,fh);
+    ctx.globalAlpha=0.95;ctx.fillStyle='#e8fbff';                 // 亮边（主要辨识靠它）
+    ctx.fillRect(fx,fy,fw,1);ctx.fillRect(fx,fy+fh-1,fw,1);
+    ctx.fillRect(fx,fy,1,fh);ctx.fillRect(fx+fw-1,fy,1,fh);
+    ctx.globalAlpha=0.75;ctx.fillStyle='#ffffff';                 // 内部两道斜裂纹
+    for(let k=0;k<2;k++){const ox=fx+3+k*3,oy=fy+2;
+      ctx.fillRect(ox,oy,1,2);ctx.fillRect(ox+1,oy+2,1,2);ctx.fillRect(ox+2,oy+4,1,fh-6);}
+    ctx.globalAlpha=0.85;ctx.fillStyle='#ffffff';
+    ctx.fillRect(fx+2,fy+2,1,1);ctx.fillRect(fx+fw-3,fy+3,1,1);
+    ctx.globalAlpha=1;
+  }
+  renderWells();      // v19.3：奇点必须画在敌人之后——被吸成一坨的敌人会正好盖住黑洞核心
   // v3 §B2：流星（v5 §D：delay 期画金色瞄准圈——m.ring=落点地面 y 由 v5 引擎写入；
   // v3/v4 引擎无 ring 字段 → 保持现状 delay 期不画）（拖尾粒子由引擎 fxParts 推，renderFx 自动画）
   for(const m of game.meteors||[]){
@@ -3314,44 +3336,75 @@ function renderSlash(){
 }
 
 // v19 §3.3：法师远程弹体（game.shots，引擎只写位置/判定，不绘制）——在 renderSlash 之后、世界空间调用。
-// v19.1 辨识度：lance 加三道速度线（看得出"快而直"）、seek 加脉动紫环（看得出"在追"）；
-// 素材尺寸 bolt 8×6 / lance 24×10 / seek 11×11，一律以判定框中心为锚点居中，判定框本身没变。
+// v19.3：只剩两种弹体——bolt（普攻 8×6 青白星弹）与 shard（霜爆新星 7×7 冰锥，八向同时飞）。
+// 冰锥一律不旋转：素材本身是对称菱形，八向都读得出「冰」，省掉每个弹体一次 ctx.rotate。
 function renderShots(){
   const arr=game.shots;
   if(!arr||!arr.length)return;
   const t=game.tick;
   for(const s of arr){
-    if(s.born>0)continue;                             // v19.1：尚未出膛（追星弹 0.07s 连发间隔）不画
+    if(s.born>0)continue;                             // 尚未出膛不画（字段仍在，供未来带延迟的弹体复用）
     let img=null;
     if(s.kind==='bolt')img=SPR.arcaneBolt&&SPR.arcaneBolt[(t>>2)%2];
-    else if(s.kind==='lance')img=SPR.iceLance;
-    else if(s.kind==='seek')img=SPR.seeker&&SPR.seeker[(t>>2)%2];
+    else if(s.kind==='shard')img=SPR.iceShard;
     const w=s.w||8,h=s.h||6;
-    const fade=clamp(s.life/0.12,0,1);
     ctx.save();
-    ctx.globalAlpha=fade;
+    ctx.globalAlpha=clamp(s.life/0.12,0,1);
     ctx.translate(px(s.x)+Math.round(w/2),px(s.y)+Math.round(h/2));
     if((s.vx||0)<0)ctx.scale(-1,1);
-    if(s.kind==='lance'){                             // 速度线（矛尾方向拖三条，长短随帧错开）
-      const o=(t>>1)%3;
-      ctx.globalAlpha=fade*0.5;ctx.fillStyle='#eafcff';
-      ctx.fillRect(-20-o*2,-4,8+o*3,1);
-      ctx.fillRect(-25-o*3,-1,7+o*2,1);
-      ctx.fillRect(-17-o*2,2,6+o*2,1);
-      ctx.globalAlpha=fade;
-    } else if(s.kind==='seek'){                       // 外扩紫环（6→8px 呼吸，圈在四芒星外面当光晕，别压住星体）
-      const pu=0.5+0.5*Math.sin(t*0.5+(s.x+s.y)*0.07);
-      ctx.globalAlpha=fade*(0.30+0.40*pu);
-      ctx.strokeStyle='#c8a8ff';ctx.lineWidth=1;
-      ctx.beginPath();ctx.arc(0,0,6+2*pu,0,Math.PI*2);ctx.stroke();
-      ctx.globalAlpha=fade;
-    }
     if(img)ctx.drawImage(img,-(img.width>>1),-(img.height>>1));
-    else if(s.kind==='lance'){ctx.fillStyle='#48c8f8';ctx.fillRect(-8,-3,16,6);ctx.fillStyle='#ffffff';ctx.fillRect(4,-2,4,4);}
-    else{const r=s.kind==='seek'?3:4;ctx.fillStyle='#8ae8ff';ctx.fillRect(-1,-r,2,r*2);ctx.fillRect(-r,-1,r*2,2);ctx.fillStyle='#ffffff';ctx.fillRect(-1,-1,2,2);}
+    else if(s.kind==='shard'){ctx.fillStyle='#14304f';ctx.fillRect(-3,-3,7,7);ctx.fillStyle='#a8e8ff';ctx.fillRect(-2,-2,5,5);ctx.fillStyle='#ffffff';ctx.fillRect(-1,-1,2,2);}
+    else{ctx.fillStyle='#8ae8ff';ctx.fillRect(-1,-4,2,8);ctx.fillRect(-4,-1,8,2);ctx.fillStyle='#ffffff';ctx.fillRect(-1,-1,2,2);}
     ctx.restore();
   }
   ctx.globalAlpha=1;
+}
+
+// v19.3：引力奇点（game.wells，引擎只写位置/寿命，不绘制）——在世界空间、弹体之后画。
+// 三段状态各有专属画法：飞行=紫尾点+小核 / 停驻=黑核+旋转吸积环+朝内吸的碎点 / 末段 0.2s 闪烁预警。
+function renderWells(){
+  const arr=game.wells;
+  if(!arr||!arr.length)return;
+  const t=game.tick;
+  for(const w of arr){
+    const cx=px(w.x+w.w/2),cy=px(w.y+w.h/2);
+    const grow=w.stopped?1.4:0.62;                     // 停驻后本体膨胀到 1.4 倍（不用 1.7：14px 素材放大会糊成一块）
+    // ① 吸力场（半径=真实吸附半径 r）：用径向渐变从中心向外淡出。
+    //   ✗ 早先是「整圈平铺 #8a58d8 半透明」——叠在木箱和地面上会糊成一片灰雾，像贴了张脏玻璃。
+    //   ✓ 改成中心暗、边缘全透明：读作「把光吸走」，也不会脏了背后的场景。
+    if(w.stopped){
+      const pulse=0.9+0.18*Math.sin(t*0.3);
+      const g1=ctx.createRadialGradient(cx,cy,2,cx,cy,w.r);
+      g1.addColorStop(0,'rgba(20,6,40,'+(0.40*pulse).toFixed(3)+')');
+      g1.addColorStop(0.5,'rgba(34,12,64,'+(0.15*pulse).toFixed(3)+')');
+      g1.addColorStop(1,'rgba(50,22,96,0)');
+      ctx.fillStyle=g1;
+      ctx.beginPath();ctx.arc(cx,cy,w.r,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.45;
+      ctx.strokeStyle='#c8a8ff';ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(cx,cy,w.r,0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=1;
+    }
+    // ② 吸积环（两圈反向旋转的弧）——放在本体**外面**：套在本体半径内会被素材整块盖住，看不见
+    ctx.strokeStyle='#b090f8';ctx.lineWidth=1;
+    for(let k=0;k<2;k++){
+      const a0=t*0.055*(k?-1:1)+k*1.6,r=(w.stopped?13:6)+k*4;
+      ctx.globalAlpha=0.55-k*0.2;
+      ctx.beginPath();ctx.arc(cx,cy,r,a0,a0+2.2);ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+    // ③ 本体（素材两帧交替；末 0.2s 加速闪烁预警「要炸了」）
+    //   不要再叠「半径 10 的半透黑圆」压暗层：素材核心已是不透明纯黑，外面再罩一层会在天空上留下
+    //   一块硬边灰盘（读作脏）。背景压暗交给 ① 的径向渐变。
+    const warn=w.life<=0.2?((t>>1)%2?0.35:1):1;
+    const img=SPR.singularity&&SPR.singularity[(t>>2)%2];
+    ctx.globalAlpha=warn;
+    ctx.save();ctx.translate(cx,cy);ctx.scale(grow,grow);
+    if(img)ctx.drawImage(img,-(img.width>>1),-(img.height>>1));
+    else{ctx.fillStyle='#0e0620';ctx.fillRect(-3,-3,6,6);ctx.strokeStyle='#c8a8ff';ctx.strokeRect(-4,-4,8,8);}
+    ctx.restore();
+    ctx.globalAlpha=1;
+  }
 }
 
 // v5 §F：存量粒子「流光」渲染——按速度量化画细长条（禁旋转）：

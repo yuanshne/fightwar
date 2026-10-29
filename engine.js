@@ -632,10 +632,10 @@ const BAL = {
       hpBase: 4,                 // 玻璃大炮：比勇者少 1 心
       manaMax: 100, manaRegen: 5, manaPerHit: 8, manaPerKill: 12,
       bolt: { cd: 0.38, dmg: 2, v: 300, life: 0.85, w: 8, h: 6, homeR: 110, homeDeg: 26, turn: 6 },
-      u: { cd: 6,  mana: 30, dmg: 3, v: 420, life: 0.9,  pierce: 3, w: 16, h: 6 },
+      u: { cd: 7,  mana: 25, n: 8, dmg: 3, v: 300, life: 0.36, freeze: 0.8, w: 7, h: 7 },   // v19.3 霜爆新星：八向冰锥 + 冻结
       i: { cd: 10, mana: 25, dur: 2.5, absorb: 2 },                    // 复用骑士护盾实现，只换参数
       o: { cd: 20, mana: 0,  t: [0.35, 0.90, 1.20], n: 6, dmg: 3, aoe: 30, fallV: 340, gap: 0.08 },
-      l: { cd: 6,  mana: 25, n: 3,  dmg: 2, v: 230, life: 1.6, turn: 5, homeR: 260 }
+      l: { cd: 8,  mana: 30, dmg: 4, v: 150, stopT: 0.5, hold: 1.1, radius: 100, pull: 90, w: 14, h: 14 } // v19.3 引力奇点
     }
   },
   guard: { parts: 240, floats: 40, fx: 60, scars: 8 } // 容量守卫（R5，不得放宽）
@@ -651,10 +651,10 @@ const HEROES = {
                      o:{name:'流星连斩',desc:'时停十字斩：屏内敌人全灭并清弹幕', cd:BAL.skills.o.cd, mana:0, ult:true},
                      l:{name:'星刃回旋',desc:'掷出回旋星刃，去回两程割草',   cd:BAL.skills.l.cd, mana:0} } },
   mage:   { id:'mage', name:'星语法师', short:'法师', hpBase: BAL.heroes.mage.hpBase, usesMana:true,
-            skills:{ u:{name:'冰晶长矛', desc:'掷出穿透三敌的冰矛，命中重击', cd:BAL.heroes.mage.u.cd, mana:BAL.heroes.mage.u.mana},
+            skills:{ u:{name:'霜爆新星', desc:'身周炸开八道冰锥，命中冻结 0.8 秒', cd:BAL.heroes.mage.u.cd, mana:BAL.heroes.mage.u.mana},
                      i:{name:'星辉屏障', desc:'2.5 秒内吸收 2 次伤害',       cd:BAL.heroes.mage.i.cd, mana:BAL.heroes.mage.i.mana},
                      o:{name:'陨星风暴', desc:'锁定全屏落星：六颗陨星轰击敌阵', cd:BAL.heroes.mage.o.cd, mana:0, ult:true},
-                     l:{name:'追星弹',   desc:'三枚追踪星弹锁定最近的敌人',   cd:BAL.heroes.mage.l.cd, mana:BAL.heroes.mage.l.mana} } }
+                     l:{name:'引力奇点', desc:'丢出奇点吸附敌人，1.1 秒后引爆', cd:BAL.heroes.mage.l.cd, mana:BAL.heroes.mage.l.mana} } }
 };
 
 /* ==================== v2 P1 动作常量（内部；不入 PHY——契约键名不得变） ====================
@@ -1036,7 +1036,8 @@ const game = {
   mana: 0,               // 法师法力（唯一真值在 game 上：HUD/复活/换关只认这一处）
   manaMax: 0,            // 法力上限（knight 恒 0 ⇒ 法力条不画、回蓝/耗蓝全空转）
   manaToast: 0,          // 「法力不足」提示剩余秒（0.9s；ui 在技能槽上方画红字）
-  shots: []              // 法师远程弹体（**不复用 game.bullets**：后者全部按「敌方」结算伤害）
+  shots: [],             // 法师远程弹体（**不复用 game.bullets**：后者全部按「敌方」结算伤害）
+  wells: []              // v19.3：法师「引力奇点」实体（飞行 → 停驻吸附 → 引爆）
 };
 
 /* ==================== 关卡装载 / 出生 / 死亡 / 通关 ==================== */
@@ -1116,6 +1117,7 @@ function loadLevel(idx, keepStats) {
   const _engH19 = _engHero(); // 内部：本关英雄（game.hero 由 ui 在 loadLevel 前写入）
   game.manaMax = _engH19.usesMana ? BAL.heroes.mage.manaMax : 0;
   game.mana = game.manaMax; game.manaToast = 0; game.shots = [];
+  game.wells = [];
   // respawnAt.p = 前进度量(x-y)：检查点「只进不退」的比较基准（横版 x 递增 / 纵版 y 递减均单调）
   game.respawnAt = { x: L.spawn.x, y: L.spawn.y, p: L.spawn.x - L.spawn.y };
   game.player = _engMkPlayer(L.spawn.x, L.spawn.y);
@@ -1167,6 +1169,7 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   // v19（spec §2.2）：法力回满 / 远程弹体清空（防复活瞬间被自己的旧弹体结算出怪伤害与连击）
   game.mana = game.manaMax; game.manaToast = 0;
   game.shots = game.shots || []; game.shots.length = 0;
+  game.wells = game.wells || []; game.wells.length = 0;
   game.shakePend = null;
   // v2 P1：清输入锁存——死亡期间残留的边沿不得在复活后的缓冲窗口内自动触发
   game.input.jumpHit = 0; game.input.attackHit = 0; game.input.dashHit = 0;
@@ -2755,17 +2758,27 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
   if (_engHero().usesMana) {
     const M = BAL.heroes.mage;
     if (inp.skillUHit) { inp.skillUHit = 0;
-      // U 冰晶长矛：穿透三敌的冰蓝长矛（可破 B/G 砖、斩敌弹；撞墙/撞 Boss 消失）
+      /* v19.3：U 由「冰晶长矛」换成「霜爆新星」——以自身为圆心八向炸开冰锥，命中冻结 0.8s。
+         换的理由：长矛是往前打的单体穿透，和普攻 J 只差伤害，玩家永远只会在安全距离按一下；
+         法师真正的痛点是「被贴脸就没招」。新星把 U 变成唯一的近身解围手段，玩家必须贴身才划算。
+         八道冰锥共用 novaSeq：同一次新星对同一敌人只结算一次（否则贴脸会吃到 8×3=24 伤）。 */
       if (S.u <= 0 && !p.dead && _engSpendMana(M.u.mana)) {
         S.u = M.u.cd * game.cdMul; p.castT = 0.3;
-        _engPushShot({ kind: 'lance', x: p.x + p.w / 2 - M.u.w / 2 + p.face * 8, y: p.y + 4,
-          w: M.u.w, h: M.u.h, vx: p.face * M.u.v, vy: 0, life: M.u.life,
-          base: M.u.dmg, dmg: M.u.dmg, crit: 0, pierce: M.u.pierce, hitList: [],
-          homeR: 0, homeDeg: 0, turn: 0, face: p.face, manaGain: 0 }); // 长矛不回蓝（防穿透一击回满）
-        game.sfxQueue.push('lance');
-        _engAddParts(p.x + p.w / 2 + p.face * 8, p.y + 7, 6, '#8ae8ff', 70, 60);
-        _engAddParts(p.x + p.w / 2 + p.face * 8, p.y + 7, 4, '#ffffff', 50, 40); // v19.1：出膛白闪，长矛起手一眼可辨
-        _engFx(p.x + p.w / 2 + p.face * 10, p.y + 6, { ring: 1, r: 2, r1: 14, life: 0.24, life0: 0.24, color: '#d8f4ff' });
+        const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+        const seq = (game.novaSeq = (game.novaSeq || 0) + 1);
+        for (let i = 0; i < M.u.n; i++) {
+          const a = (i / M.u.n) * Math.PI * 2 - Math.PI / 2;   // 从正上方起算，八向均分
+          _engPushShot({ kind: 'shard', novaSeq: seq, freeze: M.u.freeze,
+            x: cx - M.u.w / 2 + Math.cos(a) * 5, y: cy - M.u.h / 2 + Math.sin(a) * 5,
+            w: M.u.w, h: M.u.h, vx: Math.cos(a) * M.u.v, vy: Math.sin(a) * M.u.v, life: M.u.life,
+            base: M.u.dmg, dmg: M.u.dmg, crit: 0, pierce: 0, hitList: [],
+            homeR: 0, homeDeg: 0, turn: 0, face: p.face, manaGain: 0 });
+        }
+        game.sfxQueue.push('nova');
+        _engShake(3, 0.06);
+        _engAddParts(cx, cy, 16, '#d8f4ff', 110, 0);
+        _engAddParts(cx, cy, 8, '#ffffff', 80, 0);
+        _engFx(cx, cy, { ring: 1, r: 4, r1: 46, life: 0.3, life0: 0.3, color: '#a8e8ff' });
       } }
     if (inp.skillIHit) { inp.skillIHit = 0;
       // I 星辉屏障：复用骑士护盾实现（shieldT/shieldHp），只换参数（2.5s / 吸 2 次）
@@ -2782,25 +2795,20 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
         game.sfxQueue.push('ult');
       } }
     if (inp.skillLHit) { inp.skillLHit = 0;
-      // L 追星弹：三枚追踪星点（260px 内锁最近敌，5rad/s 转向），y 依次 +2/+4/+6 错开
+      /* v19.3：L 由「三枚追星弹」换成「引力奇点」——丢一颗缓行的黑洞，0.5s 后停住，
+         1.1s 内把 100px 内敌人持续吸向中心，结束时 4 伤 + 击退。
+         换的理由：追星弹是自动锁敌，按完就不用管，和普攻几乎没有操作差；奇点要求玩家先想
+         「在哪引爆」，而且能和 O 陨星风暴打出连招（先吸成一坨再砸，6 颗陨星全中）。
+         实体走 game.wells（独立数组），推进在 _engUpdateWells。 */
       if (S.l <= 0 && !p.dead && _engSpendMana(M.l.mana)) {
         S.l = M.l.cd * game.cdMul; p.castT = 0.3;
-        /* v19.1：三枚在出膛时就摆成斜列（纵向 +2/+4/+6、横向各领先 5px），并按 0.07s 间隔依次出膛。
-           纵向只能给到 4px：玩家体积（h=14）+ 脚下地面把空间锁死，再往下弹体底边就贴住脚下瓦片顶行。
-           真正把三枚拉开的是时间差（0.07s × 230px/s ≈ 16px）+ 横向 5px 阶梯。
-           只改出生点与出生延迟（born），速度/追踪/伤害/寿命一律不动。 */
-        for (let i = 0; i < M.l.n; i++) {
-          _engPushShot({ kind: 'seek', x: p.x + p.w / 2 - 3 + p.face * (6 + i * 5),
-            y: p.y + Math.min(2 + i * 2, p.h - 8), born: i * 0.07,
-            w: 6, h: 6, vx: p.face * M.l.v, vy: 0, life: M.l.life,
-            base: M.l.dmg, dmg: M.l.dmg, crit: 0, pierce: 0, hitList: [],
-            homeR: M.l.homeR, homeDeg: 0, turn: M.l.turn, face: p.face,
-            manaGain: BAL.heroes.mage.manaPerHit });
-        }
-        game.sfxQueue.push('seek');
-        _engAddParts(p.x + p.w / 2 + p.face * 6, p.y + 8, 8, '#8ae8ff', 70, 60);
-        _engAddParts(p.x + p.w / 2 + p.face * 6, p.y + 8, 5, '#d8b8ff', 64, 50); // v19.1：紫出膛（与长矛的白蓝分开）
-        _engFx(p.x + p.w / 2 + p.face * 8, p.y + 7, { ring: 1, r: 2, r1: 12, life: 0.22, life0: 0.22, color: '#b090f8' });
+        const W = game.wells || (game.wells = []);
+        W.push({ x: p.x + p.w / 2 - M.l.w / 2 + p.face * 10, y: p.y + p.h / 2 - M.l.h / 2,
+          w: M.l.w, h: M.l.h, vx: p.face * M.l.v, vy: 0, t: 0, stopped: false,
+          life: M.l.hold, r: M.l.radius, pull: M.l.pull, dmg: M.l.dmg,
+          stopT: M.l.stopT, face: p.face, fx: 0, trail: 0 });
+        game.sfxQueue.push('well');
+        _engAddParts(p.x + p.w / 2 + p.face * 8, p.y + 7, 8, '#b090f8', 60, 40);
       } }
     return;
   }
@@ -3427,7 +3435,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
    弹体字段：kind('bolt'|'lance'|'seek') / base(基础伤害) / dmg(上一次结算值，ui 只读) /
    pierce(剩余可命中目标数，含首个) / hitList(已命中目标，防同一发重复打同一目标) /
    homeR/homeDeg/turn(追踪) / face / manaGain(命中回蓝，仅 bolt/seek)。 */
-function _engShotHome(s, L, dt) { // 内部（v19）：追踪修正——bolt 只在 ±homeDeg 锥内做轻微垂直修正，seek 全向
+function _engShotHome(s, L, dt) { // 内部（v19）：追踪修正——只有普攻 bolt 用（±homeDeg 锥内轻微垂直修正）；冰锥 homeR=0 直接返回
   if (!(s.homeR > 0) || !(s.turn > 0)) return;
   const cx = s.x + s.w / 2, cy = s.y + s.h / 2;
   let tx = 0, ty = 0, best = s.homeR, found = false;
@@ -3442,7 +3450,7 @@ function _engShotHome(s, L, dt) { // 内部（v19）：追踪修正——bolt �
     const ex = e.x + e.w / 2, ey = e.y + e.h / 2, d = Math.hypot(ex - cx, ey - cy);
     if (d <= best) { best = d; tx = ex; ty = ey; found = true; }
   }
-  if (!found) return;                                  // 无目标：直飞淡出（L 的「无目标时直飞」语义）
+  if (!found) return;                                  // 无目标：直飞（普攻的默认手感）
   const cur = Math.atan2(s.vy, s.vx), want = Math.atan2(ty - cy, tx - cx);
   let da = want - cur;
   while (da > Math.PI) da -= Math.PI * 2;              // 归一化到 [-π, π]（否则跨 ±π 会甩头）
@@ -3459,12 +3467,11 @@ function _engShotHitEnemy(s, e) { // 内部（v19）：弹体命中敌人——�
   const dmg = s.dmg || s.base; // 出膛即定的实际伤害（Boss/敌人同读；不在命中时复算暴击）
   s.hitList.push(e);
   _engAddCombo();                                      // 连击按命中计（死活都 +1，同骑士）
-  if (s.kind === 'lance') {                            // v19.1：命中演出按弹种分色——冰矛炸冰屑，星弹炸紫星
-    _engAddParts(e.x + 6, e.y + 6, 6, '#d8f4ff', 120, 220);
-    _engAddParts(e.x + 6, e.y + 6, 4, '#48a8e0', 90, 180);
-  } else if (s.kind === 'seek') {
-    _engAddStars(e.x + 6, e.y + 6, 4, '#c8a8ff');
-    _engAddParts(e.x + 6, e.y + 6, 3, '#b090f8', 70, 200);
+  if (s.kind === 'shard') {                            // v19.3：冰锥命中 → 炸冰屑 + 冻结
+    _engAddParts(e.x + 6, e.y + 6, 5, '#d8f4ff', 110, 200);
+    _engAddParts(e.x + 6, e.y + 6, 3, '#7ad0f8', 80, 160);
+    e.novaSeq = s.novaSeq;                             // 记名：同一次新星不再二次结算
+    if (s.freeze > 0) e.freezeT = Math.max(e.freezeT || 0, s.freeze);
   }
   e.hp = (e.hp === undefined ? 1 : e.hp) - dmg;
   if (e.hp > 0) {                                      // 存活：击退 + 白闪 + 抖动
@@ -3510,6 +3517,94 @@ function _engMageMeteorHit(L, m) { // 内部（v19，spec §1.2/§2.7）：法�
   return false;
 }
 
+/* ==================== v19.3：引力奇点（game.wells，L 技能）====================
+   三段生命周期，全在一个函数里推：
+   ① 飞行：0.5s（或撞到实心瓦片）后停住，飞行段拖紫尾；
+   ② 停驻：存续 1.1s，每帧把半径内的敌人朝中心拉（直接改 e.x/e.y —— 敌 AI 本帧已经把速度积分过，
+      这里再叠一次位移就是「吸」；同时清 vx/vy，让被吸住的东西看起来是失去控制的）；
+   ③ 引爆：半径内敌人 dmg 伤 + 向外击退，Boss 走 _engBossHurt。碎片、光环、震屏一并给出。
+   为什么不用 game.hazards：hazards 有自己的一整套收尸/破盾规则（clone/core/mirror/totem），
+   塞进去会污染那四条分支；独立数组最省事，且换关/复活一并清空。 */
+function _engUpdateWells(dt) {
+  const arr = game.wells;
+  if (!arr || !arr.length) return;
+  const L = game.level;
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const w = arr[i];
+    const cx = w.x + w.w / 2, cy = w.y + w.h / 2;
+    if (!w.stopped) {
+      w.t += dt;
+      w.x += w.vx * dt;
+      const tx = Math.floor((w.x + w.w / 2) / _engTile), ty = Math.floor((w.y + w.h / 2) / _engTile);
+      if (w.t >= (w.stopT || 0.5) || L.solid(tx, ty, game.switchState)) {
+        w.stopped = true;
+        _engFx(cx, cy, { ring: 1, r: 4, r1: 34, life: 0.3, life0: 0.3, color: '#b090f8' });
+        game.sfxQueue.push('wellStop');
+      }
+      if (!w.stopped) {
+        w.trail = (w.trail || 0) - dt;
+        if (w.trail <= 0) { w.trail = 0.04;
+          _engFx(cx, cy, { vx: -w.vx * 0.2, vy: (Math.random() * 2 - 1) * 24, life: 0.26, color: '#8a58d8', size: 2 }); }
+        continue;
+      }
+    }
+    w.life -= dt;
+    /* ② 吸附：半径内的敌人每帧朝中心挪 pull·dt，并清零速度（失去控制感） */
+    for (const e of L.enemies) {
+      if (e.dead > 0) continue;
+      const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+      const dx = cx - ex, dy = cy - ey, d = Math.sqrt(dx * dx + dy * dy);
+      /* 收到 17px 就停：再往里会全部叠在黑洞核心上，玩家看不见自己打的是什么。
+         停在核外一圈，既看得出「被拢住」，又能逐个数清有几只。 */
+      if (d > w.r || d < 17) continue;
+      const f = Math.min(w.pull * dt, d - 17);
+      e.x += dx / d * f; e.y += dy / d * f;
+      e.vx = 0; e.vy = 0;
+    }
+    /* 吸力可视化：每 0.05s 在环上生一枚朝内飞的紫点（20/s，远低于 fx 上限 60） */
+    w.fx = (w.fx || 0) - dt;
+    if (w.fx <= 0) { w.fx = 0.05;
+      const a = Math.random() * Math.PI * 2, rr = w.r * (0.55 + Math.random() * 0.45);
+      const sx = cx + Math.cos(a) * rr, sy = cy + Math.sin(a) * rr;
+      _engFx(sx, sy, { vx: (cx - sx) * 1.8, vy: (cy - sy) * 1.8, life: 0.34,
+        color: Math.random() < 0.5 ? '#c8a8ff' : '#8a58d8', size: 2 }); }
+    if (w.life > 0) continue;
+    /* ③ 引爆 */
+    for (const e of L.enemies) {
+      if (e.dead > 0) continue;
+      const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+      const dx = ex - cx, dy = ey - cy, d = Math.sqrt(dx * dx + dy * dy);
+      if (d > w.r) continue;
+      e.hp = (e.hp === undefined ? 1 : e.hp) - w.dmg;
+      _engAddCombo();
+      if (e.hp > 0) {
+        e.kb = (_engSign(dx) || 1) * _engKbV * (e.elite ? BAL.elite.kbMul : 1);
+        e.flashT = 0.15; e.jitT = 0.15;
+        _engFloat(e.x + 6, e.y - 4, '' + w.dmg, '#c8a8ff', 0);
+        game.sfxQueue.push('hit');
+      } else {
+        _engKillEnemy(e);
+        e.dvx = (_engSign(dx) || 1) * 140; e.dvy = -160;
+        _engFloat(e.x + 6, e.y - 6, 'KO', '#c8a8ff', 0);
+        game.sfxQueue.push('kill');
+      }
+    }
+    if (game.boss && _engAabb({ x: cx - w.r, y: cy - w.r, w: w.r * 2, h: w.r * 2 }, game.boss)
+        && _engBossHurt(w.dmg)) {
+      _engFloat(game.boss.x + 26, game.boss.y - 4, '' + game.boss.lastDmg, '#c8a8ff', 0);
+      game.sfxQueue.push('hit');
+    }
+    _engAddParts(cx, cy, 22, '#b090f8', 150, 0);
+    _engAddParts(cx, cy, 12, '#e8d8ff', 110, 0);
+    _engAddStars(cx, cy, 8, '#c8a8ff');
+    _engFx(cx, cy, { ring: 1, r: 6, r1: w.r, life: 0.36, life0: 0.36, color: '#c8a8ff' });
+    _engShake(6, 0);
+    game.hitStop = _engHitStop;
+    game.sfxQueue.push('wellBoom');
+    arr.splice(i, 1);
+  }
+}
+
 function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateWorld ⑨⁗ 星刃之后、⑩ 玩家之前调用）
   const L = game.level, p = game.player;
   const arr = game.shots || (game.shots = []);
@@ -3529,23 +3624,12 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     if (s.life <= 0) { arr.splice(i, 1); continue; }   // 超时回收（射程 = v × life）
     _engShotHome(s, L, dt);                            // 追踪：先转向再位移
     s.x += s.vx * dt; s.y += s.vy * dt;
-    /* v19.1 拖尾（辨识度的另一半）：三种弹体各留各色尾迹——bolt 不拖（它是基准，有拖尾反而抢眼），
-       lance 拖白冰雾（宽、慢落），seek 拖紫星轨（细、带上扬），扫一眼就知道是哪一招在飞。
-       配额：fx 上限 60（BAL.guard.fx 不得放宽），lance 0.03s≈33/s、seek 0.05s×3≈60/s，存活量≈8/16，安全。 */
-    if (s.kind === 'seek') {                           // 追星弹：紫星轨 + 偶发亮紫碎屑
+    /* v19.3：冰锥不拖尾——一次新星 8 枚同时飞，再给拖尾会瞬间打满 fx 上限 60（BAL.guard.fx）。
+       辨识度靠「八向同爆 + 命中冻结的冰壳」，不靠尾迹。 */
+    if (s.kind === 'shard') {
       s.trail = (s.trail || 0) - dt;
-      if (s.trail <= 0) { s.trail = 0.05;
-        _engFx(s.x + 3, s.y + 3, { vx: -s.vx * 0.12, vy: -14, life: 0.24, color: '#b090f8', size: 2 });
-        if (Math.random() < 0.45)
-          _engFx(s.x + 3, s.y + 3, { vx: -s.vx * 0.08, vy: -8, life: 0.16, color: '#d8b8ff', size: 1 }); }
-    } else if (s.kind === 'lance') {                   // 冰晶长矛：白冰雾（从矛尾喷出，带一点下坠）
-      s.trail = (s.trail || 0) - dt;
-      if (s.trail <= 0) { s.trail = 0.03;
-        _engFx(s.x + (s.face > 0 ? 2 : s.w - 2), s.y + 3,
-          { vx: -s.face * 42, vy: (Math.random() * 2 - 1) * 22, life: 0.26, color: '#d8f4ff', size: 1 });
-        if (Math.random() < 0.5)
-          _engFx(s.x + (s.face > 0 ? 2 : s.w - 2), s.y + 4,
-            { vx: -s.face * 26, vy: 12, life: 0.3, color: '#7ad0f8', size: 2 }); }
+      if (s.trail <= 0) { s.trail = 0.09;             // 8 枚 × 11/s ≈ 88 枚/s，单枚活 0.2s ⇒ 同屏约 18，远低于上限 60
+        _engFx(s.x + 3, s.y + 3, { vx: -s.vx * 0.1, vy: -s.vy * 0.1, life: 0.2, color: '#cdeeff', size: 1 }); }
     }
     if (s.x < -24 || s.x > L.w * _engTile + 24 || s.y < -96 || s.y > L.h * _engTile + 48) {
       arr.splice(i, 1); continue;                      // 越界回收（左右各留 24px 余量）
@@ -3556,6 +3640,11 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     if (game.boss && _engAabb(s, game.boss)) {
       const crit = !!s.crit;                            // 出膛即锁（spec §2.3；命中不再复算）
       const dmg = s.dmg || s.base;
+      // v19.3：同一次霜爆新星对 Boss 也只结算一次（八道冰锥会同时插在 Boss 身上）
+      if (s.kind === 'shard') {
+        if (game.boss.novaSeq === s.novaSeq) { arr.splice(i, 1); continue; }
+        game.boss.novaSeq = s.novaSeq;
+      }
       if (_engBossHurt(dmg, !!s.isUlt)) {
         const b = game.boss;
         _engAddCombo(); _engAddCombo();                // 同骑士普攻：Boss 命中 +2 连击
@@ -3605,6 +3694,7 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     /* ④ 敌人：hitList 防重复；远程击杀同样走唯一 _engKillEnemy（封印/掉落/回蓝一致） */
     for (const e of L.enemies) {
       if (e.dead > 0 || s.hitList.indexOf(e) >= 0 || !_engAabb(s, e)) continue;
+      if (s.kind === 'shard' && e.novaSeq === s.novaSeq) continue;  // v19.3：同一次新星只结算一次
       if (_engShotHitEnemy(s, e)) { dead = true; break; }
     }
     if (dead) { arr.splice(i, 1); continue; }
@@ -3637,10 +3727,10 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         _engAddCombo(); game.sfxQueue.push('break');
         dead = true;
       } else if (L.solid(tx, ty, game.switchState)) {
-        if (s.kind === 'lance' && !s.hitWall) {         // v19.1：冰矛撞墙 = 冰屑炸开（原来静默消失，像"没打出去"）
+        if (s.kind === 'shard' && !s.hitWall) {        // v19.3：冰锥撞墙/砖 = 炸一小蓬冰屑（不是静默消失）
           s.hitWall = 1;
-          _engAddParts(s.x + (s.face > 0 ? s.w : 0), s.y + 3, 8, '#d8f4ff', 110, 240);
-          _engAddParts(s.x + (s.face > 0 ? s.w : 0), s.y + 3, 4, '#48a8e0', 80, 200);
+          _engAddParts(s.x + 3, s.y + 3, 4, '#d8f4ff', 100, 220);
+          _engAddParts(s.x + 3, s.y + 3, 2, '#48a8e0', 70, 180);
         }
         dead = true;
       }
@@ -4302,6 +4392,18 @@ function updateWorld(dt) {
       e.x += (e.dvx || 0) * dt; e.dvy = (e.dvy || 0) + 1200 * dt; e.y += e.dvy * dt;
       continue;
     }
+    /* v19.3：霜爆新星冻结——定身、停 AI、不吃重力（空中被冻就浮在冰里），冰壳由 ui 画。
+       冻结期间视为可穿过的物件：不结算接触伤害、也踩不上去（与骑士「时停」同一种手感）。
+       用 continue 而不是逐条分支置零，是因为敌人 AI 有 9 种类型，逐条改易漏。
+       注意位置：必须在 e.t += dt 之前，动画帧也一起冻住，否则冰壳里的敌人还在扭。 */
+    if (e.freezeT > 0) {
+      e.freezeT -= dt; e.vx = 0; e.vy = 0; e.kb = 0;  // kb 也清零：否则解冻瞬间补一次延迟击退
+      /* 闪白/抖动计时在 4589 行（AI 分支之后）衰减，这里 continue 会跳过
+         → 冰壳里的敌人会白闪整整 0.8s（看上去就是个白团，看不出是什么怪）。必须在这里补衰减。 */
+      if (e.flashT > 0) e.flashT -= dt;
+      if (e.jitT > 0) e.jitT -= dt;
+      continue;
+    }
     e.t += dt;
     // v7 §5.1/§5.4：枪虾/魂火为地面型——重力/落地/掉头与史莱姆同构（速度取 e.vx）
     // v8.0 任务4：铁甲虫/酸液花/跳跳蛛同为地面型，复用这条分支（工单要求：不另写一套重力/落地/掉头）
@@ -4681,6 +4783,10 @@ function updateWorld(dt) {
   /* ⑨⁗′ v19（spec §2.6）：法师远程弹体——与星刃同层（hitStop/ult 冻结语义自动继承）；
          必须在 ⑩ 玩家物理之前：玩家本帧起手发出的弹体从下一帧开始飞，不会在同一帧内「出膛即命中」。 */
   _engUpdateShots(dt);
+
+  /* ⑨⁗″ v19.3：引力奇点——必须排在 ⑨ 敌人 AI 之后：AI 本帧已按 e.vx 积分过位置，
+         这里再叠一层朝中心的位移才叫「吸」；若排在 AI 之前，AI 会当帧把位移走回去。 */
+  _engUpdateWells(dt);
 
   /* ⑩ 玩家物理（含死亡冻结计时、弹簧、平台吸附、攻击/冲刺） */
   _engUpdatePlayer(dt, L, p);

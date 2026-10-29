@@ -3039,51 +3039,39 @@ function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调
       g.fillStyle = _P_MG.w; g.fillRect(4, 2, 2, 1); }
     return _glow(c, '#d8f8ff');
   });
-  /* v19.1 辨识度重做（用户：「u 和 l 技能都不太具有辨识度」）。
-     原版 16×6 / 6×6 且只有单色青蓝——与 J 普攻的 8×6 青白星弹同色同量级，亮天空背景上
-     几乎看不出是「长矛」还是「追踪弹」，三个技能在屏幕上都是同一团青光。
-     改法一律**双色描边**：外层深色剪影（在亮天空/草皮上立起来）+ 内层纯白高光（在洞窟/
-     熔岩等暗关卡里也亮），并放大到 24×10 / 11×11；BAL 数值与判定框 w/h 一字未动。 */
-  SPR.iceLance = (function () { // v19.1：24×10 冰晶长矛（深蓝描边 + 纯白矛尖 + 上下倒刺 + 尾羽）
-    const c = _makeCanvas(24, 10), g = c.getContext('2d');
-    const K = '#14304f', C = '#d8f4ff', W = '#ffffff', B = '#8ad8f8', D = '#48a8e0';
-    g.fillStyle = K;                                  // ① 深蓝剪影：整支矛的外形（含倒刺）
-    g.fillRect(1, 3, 14, 4); g.fillRect(4, 1, 3, 2); g.fillRect(4, 7, 3, 2);
-    g.fillRect(14, 2, 3, 6); g.fillRect(17, 3, 3, 4); g.fillRect(20, 4, 4, 2);
-    g.fillStyle = B; g.fillRect(2, 4, 15, 2);         // ② 冰体（剪影内缩 1px）
-    g.fillStyle = C; g.fillRect(2, 4, 13, 1);         //    上沿亮
-    g.fillStyle = D; g.fillRect(2, 5, 12, 1);         //    下沿暗
-    g.fillStyle = C; g.fillRect(15, 3, 2, 4);         // ③ 矛头
-    g.fillStyle = W; g.fillRect(17, 4, 7, 2);         //    纯白尖端（最亮的对照物）
-    g.fillStyle = B; g.fillRect(4, 1, 2, 1); g.fillRect(4, 8, 2, 1);   // ④ 倒刺高光
-    g.fillStyle = D; g.fillRect(0, 4, 2, 2);          // ⑤ 尾羽
-    g.fillStyle = C; g.fillRect(0, 4, 1, 1);
-    g.fillStyle = W; g.fillRect(9, 4, 2, 1); g.fillRect(12, 5, 1, 1);  // ⑥ 冰晶裂纹
-    return c;                                         // 不做 _glow：会啃掉深蓝描边的上/左缘
-  })();
-  SPR.seeker = [0, 1].map(function (f) { // v19.2：11×11 紫色四芒星（1px 细臂 + 3×3 核 + 深紫描边；两帧明暗脉动）
-    // 前两版都栽在同一处：臂太粗。亮紫环套方块糊成小齿轮；3px 竖臂糊成一根竖条。
-    // 这版按距离场生成——3×3 核 + 四向 1px 臂，再沿八邻域描一圈深紫，小尺寸下剪影仍是"星"。
-    // 不用金色（金块在关卡里跟金币撞读）；紫是法师的魔法色，与普攻青白、长矛冰蓝三方分开。
-    const N = 11, C = 5, ARM = 4;
-    const star = function (x, y) {
-      const dx = Math.abs(x - C), dy = Math.abs(y - C);
-      return (dx <= 1 && dy <= 1) || (dx === 0 && dy <= ARM) || (dy === 0 && dx <= ARM);
-    };
+  /* v19.3：U/L 换了技能，弹体素材一起换——霜爆新星是八向冰锥、引力奇点是黑洞。
+     共同规则照旧：外层深色剪影（亮天空/草皮上立得住）+ 内层纯白高光（洞窟/熔岩里也亮）。
+     判定框 w/h 由 BAL 给，与素材尺寸解耦（素材只负责好看）。 */
+  SPR.iceShard = (function () { // 7×7 冰锥（菱形，|dx|+|dy| 分带：深蓝边 / 冰蓝体 / 白心）
+    const N = 7, C = 3;
     const c = _makeCanvas(N, N), g = c.getContext('2d');
-    g.fillStyle = f ? '#c79cff' : '#a868f0';
-    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (star(x, y)) g.fillRect(x, y, 1, 1);
-    g.fillStyle = '#2a1a4a';                          // 描边：邻域内有星体的空格
     for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-      if (star(x, y)) continue;
-      let near = false;
-      for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) {
-        const nx = x + dx, ny = y + dy;
-        if (nx >= 0 && nx < N && ny >= 0 && ny < N && star(nx, ny)) { near = true; break; }
-      }
-      if (near) g.fillRect(x, y, 1, 1);
+      const d = Math.abs(x - C) + Math.abs(y - C);
+      if (d > 3) continue;
+      g.fillStyle = d === 3 ? '#14304f' : (d === 0 ? '#ffffff' : (d === 1 && x <= C && y <= C ? '#e6f8ff' : '#a8e8ff'));
+      g.fillRect(x, y, 1, 1);
     }
-    g.fillStyle = '#ffffff'; g.fillRect(C, C, 1, 1);  // 白心
+    return c;
+  })();
+  SPR.singularity = [0, 1].map(function (f) { // 14×14 引力奇点（黑洞：纯黑视界 + 细光子环 + 稀疏螺旋吸积臂）
+    // 读数要点：外圈**留空**（不填深紫），才看得出是「螺旋的碎屑绕着一个黑洞转」；
+    // 早先整圈填满亮紫 → 在游戏里像个紫甘蓝，且和法师紫袍撞色。
+    const N = 14, C = 6.5;
+    const c = _makeCanvas(N, N), g = c.getContext('2d');
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const dx = x - C, dy = y - C, d = Math.sqrt(dx * dx + dy * dy), a = Math.atan2(dy, dx);
+      let col = null;
+      if (d <= 3.4) col = '#04020a';                              // 事件视界：全黑（吞光）
+      else if (d <= 4.2) col = dy < -0.6 ? '#f0dcff' : '#b48cff';  // 光子环：细一圈，左上受光更亮
+      else if (d <= 6.0) {                                        // 吸积臂：两条亮、两条暗，其余留空
+        const sn = Math.sin(a * 2.2 + (f ? 0.85 : 0) + d * 0.95);
+        if (sn > 0.55) col = '#7a48c8';
+        else if (sn > -0.1) col = '#3d1c70';
+      } else if (d <= 6.9) {                                      // 外圈碎屑（旋转感靠两帧相位差）
+        if (Math.sin(a * 3.4 - (f ? 1.1 : 0)) > 0.62) col = '#5a3a90';
+      }
+      if (col) { g.fillStyle = col; g.fillRect(x, y, 1, 1); }
+    }
     return c;
   });
   SPR.starMeteor = [0, 1].map(function (f) { // 10×12 青紫陨星（尾部随帧摆动）
@@ -3109,12 +3097,18 @@ function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调
     paint(g);
     return _glow(c, rim || '#8ae8ff');
   };
-  SPR.mgU = icon(function (g) { // 冰晶长矛：斜向 2px 矛身 + 白尖
-    g.fillStyle = _P_MG.O;
-    for (let i = 0; i < 7; i++) g.fillRect(2 + i, 9 - i, 2, 1);
-    g.fillStyle = _P_MG.w; g.fillRect(8, 2, 2, 2);
-    g.fillStyle = '#d8f8ff'; g.fillRect(5, 5, 2, 1);
-  });
+  SPR.mgU = icon(function (g) { // 霜爆新星：八向冰锥自中心炸开（尖向外，越外越细）
+    const cx = 6, cy = 6;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 - Math.PI / 2;
+      for (let r = 2; r <= 5; r++) {
+        g.fillStyle = r >= 5 ? '#ffffff' : '#8ae8ff';
+        g.fillRect(Math.round(cx + Math.cos(a) * r), Math.round(cy + Math.sin(a) * r), 1, 1);
+      }
+    }
+    g.fillStyle = '#ffffff'; g.fillRect(cx - 1, cy - 1, 2, 2);   // 中心白核
+    g.fillStyle = '#d8f8ff'; g.fillRect(cx - 2, cy, 1, 1); g.fillRect(cx + 1, cy, 1, 1);
+  }, '#d8f8ff');
   SPR.mgI = icon(function (g) { // 星辉屏障：六边盾
     g.fillStyle = _P_MG.O; g.fillRect(5, 2, 2, 1); g.fillRect(3, 3, 6, 1);
     g.fillRect(2, 4, 8, 4); g.fillRect(3, 8, 6, 1); g.fillRect(4, 9, 4, 1);
@@ -3127,14 +3121,17 @@ function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调
     g.fillStyle = _P_MG.y; g.fillRect(3, 6, 2, 1); g.fillRect(4, 7, 2, 1); g.fillRect(3, 8, 1, 2);
     g.fillStyle = '#f8a040'; g.fillRect(6, 5, 1, 2);
   }, '#f0d8ff');
-  SPR.mgL = icon(function (g) { // 追星弹：三枚小星斜列（紫身白心——与弹体同为紫，图标和飞行物对得上）
-    const star = function (x, y, big) {
-      g.fillStyle = '#c79cff'; g.fillRect(x, y - 1, 1, 3); g.fillRect(x - 1, y, 3, 1);
-      g.fillStyle = '#ffffff'; g.fillRect(x, y, 1, 1);
-      if (big) { g.fillStyle = '#a868f0'; g.fillRect(x - 1, y - 1, 3, 3); g.fillStyle = '#ffffff'; g.fillRect(x, y, 1, 1); }
-    };
-    star(3, 8, 0); star(6, 6, 1); star(8, 3, 0);
-  }, '#d8b8ff');
+  SPR.mgL = icon(function (g) { // 引力奇点：黑核 + 紫吸积环 + 两侧被吸进来的碎点
+    for (let a = 0; a < 360; a += 9) {                 // 外环（疏密交替，看得出在转）
+      const t = a * Math.PI / 180, r = (a / 9) % 2 ? 3.6 : 4.4;
+      g.fillStyle = (a / 9) % 2 ? '#8a58d8' : '#c8a8ff';
+      g.fillRect(Math.round(6 + Math.cos(t) * r), Math.round(6 + Math.sin(t) * r), 1, 1);
+    }
+    g.fillStyle = '#c8a8ff'; g.fillRect(4, 5, 4, 1); g.fillRect(4, 6, 4, 1);   // 环内亮带
+    g.fillStyle = '#0e0620'; g.fillRect(5, 5, 2, 2);                            // 黑核（吞光）
+    g.fillStyle = '#ffffff'; g.fillRect(1, 3, 1, 1); g.fillRect(9, 8, 1, 1);    // 被吸进来的碎点
+    g.fillStyle = '#d8b8ff'; g.fillRect(10, 2, 1, 1); g.fillRect(2, 8, 1, 1);
+  }, '#c8a8ff');
 }
 
 function buildSprites() { // 一次性构建全部精灵（幂等：重复调用直接返回，契约导出）

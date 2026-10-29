@@ -120,14 +120,15 @@ console.log('[T1] HEROES 注册表 / BAL.heroes.mage 完整性');
   ok(b.cd === 0.38 && b.dmg === 2 && b.v === 300 && b.life === 0.85 && b.w === 8 && b.h === 6
     && b.homeR === 110 && b.homeDeg === 26 && b.turn === 6,
     'bolt 表：0.38s / 2 伤 / 300px/s / 0.85s / 8×6 / 追踪 110px±26°', JSON.stringify(b));
-  ok(u.cd === 6 && u.mana === 30 && u.dmg === 3 && u.v === 420 && u.life === 0.9 && u.pierce === 3 && u.w === 16 && u.h === 6,
-    'u 表：6s / 30 蓝 / 3 伤 / 穿透 3 / 16×6', JSON.stringify(u));
+  ok(u.cd === 7 && u.mana === 25 && u.n === 8 && u.dmg === 3 && u.freeze === 0.8 && u.v === 300 && u.life === 0.36,
+    'u 表（v19.3 霜爆新星）：7s / 25 蓝 / 8 道 / 3 伤 / 冻结 0.8s / 300px/s / 0.36s', JSON.stringify(u));
   ok(i.cd === 10 && i.mana === 25 && i.dur === 2.5 && i.absorb === 2, 'i 表：10s / 25 蓝 / 2.5s / 吸 2 次', JSON.stringify(i));
   ok(o.cd === 20 && o.mana === 0 && o.n === 6 && o.dmg === 3 && o.aoe === 30 && o.fallV === 340 && o.gap === 0.08
     && Array.isArray(o.t) && o.t.join(',') === '0.35,0.9,1.2',
     'o 表：20s / 0 蓝 / 6 颗 / 3 伤 / AoE30 / 0.35-0.9-1.2', JSON.stringify(o));
-  ok(l.cd === 6 && l.mana === 25 && l.n === 3 && l.dmg === 2 && l.v === 230 && l.life === 1.6 && l.turn === 5 && l.homeR === 260,
-    'l 表：6s / 25 蓝 / 3 枚 / 2 伤 / 260px 追踪', JSON.stringify(l));
+  ok(l.cd === 8 && l.mana === 30 && l.dmg === 4 && l.v === 150 && l.stopT === 0.5 && l.hold === 1.1
+    && l.radius === 100 && l.pull === 90,
+    'l 表（v19.3 引力奇点）：8s / 30 蓝 / 4 伤 / 150px/s / 0.5s 停驻 / 1.1s 存续 / 半径 100 / 吸力 90', JSON.stringify(l));
 
   // 注册表必须引用 BAL 求值，不得另抄数字（改了 BAL 两处一起变）
   const hk = (H && H.mage && H.mage.skills) || {};
@@ -137,9 +138,9 @@ console.log('[T1] HEROES 注册表 / BAL.heroes.mage 完整性');
     && hk.o.cd === o.cd && hk.o.mana === o.mana
     && hk.l.cd === l.cd && hk.l.mana === l.mana,
     'HEROES.mage.skills 的 cd/mana 与 BAL 逐项相等（同一真值）');
-  ok(Object.keys(hk).join(',') === 'u,i,o,l' && hk.u.name === '冰晶长矛' && hk.i.name === '星辉屏障'
-    && hk.o.name === '陨星风暴' && hk.l.name === '追星弹' && hk.o.ult === true,
-    'mage 四技能名与 ult 标记正确（冰晶长矛/星辉屏障/陨星风暴/追星弹）');
+  ok(Object.keys(hk).join(',') === 'u,i,o,l' && hk.u.name === '霜爆新星' && hk.i.name === '星辉屏障'
+    && hk.o.name === '陨星风暴' && hk.l.name === '引力奇点' && hk.o.ult === true,
+    'mage 四技能名与 ult 标记正确（霜爆新星/星辉屏障/陨星风暴/引力奇点）');
 }
 
 /* ==================== T2 knight 回归 ==================== */
@@ -212,27 +213,50 @@ console.log('[T4] 远程击杀：seal.enemyKilled +1（唯一击杀入口）');
   ok(g.seal && g.seal.enemyKilled === 1, 'seal.enemyKilled 计数 +1（远程击杀计入封印）', g.seal && g.seal.enemyKilled);
 }
 
-/* ==================== T5 U 冰晶长矛 ==================== */
-console.log('[T5] U：扣 30 蓝 / 6s CD / 穿透 2 个并排敌人；0 蓝不扣不进 CD');
+/* ==================== T5 U 霜爆新星 ==================== */
+console.log('[T5] U：扣 25 蓝 / 7s CD / 八向冰锥 / 命中冻结 0.8s；0 蓝不扣不进 CD');
 {
   const g = fresh('mage');
   const p = g.player;
   g.mana = 100;
-  const a = putEnemy(g, 'slime', p.x + 60, 182, 6);
-  const b = putEnemy(g, 'slime', p.x + 110, 182, 6);
+  const a = putEnemy(g, 'slime', p.x + 26, 182, 9);
+  const b = putEnemy(g, 'slime', p.x - 26, 182, 9);
+  const c = putEnemy(g, 'slime', p.x + 2, 158, 9);      // 正上方：验证「身周」而不是「前方」
+  const hpA = a.hp, hpB = b.hp, hpC = c.hp;
   g.input.skillUHit = 1;
-  stepHold(g, 1, pins(pinE(a), pinE(b)));
-  const spent = 100 - g.mana;
-  ok(near(spent, 30, 0.2), 'U 扣 30 法力（100→' + g.mana.toFixed(2) + '）', spent.toFixed(2));
-  ok(g.skills.u > 5.9 && g.skills.u <= 6.0, 'U 进入 6s CD', g.skills.u);
-  ok(g.shots.length === 1 && g.shots[0].kind === 'lance' && g.shots[0].pierce === 3,
-    'U 生成 1 枚 lance 弹体（pierce=3）', g.shots.length + '/' + (g.shots[0] && g.shots[0].pierce));
-  ok(g.sfxQueue.indexOf('lance') >= 0, 'U 推送 lance 音效事件', g.sfxQueue.slice(-4).join(','));
+  stepHold(g, 1);
+  ok(near(100 - g.mana, 25, 0.2), 'U 扣 25 法力（100→' + g.mana.toFixed(2) + '）', (100 - g.mana).toFixed(2));
+  ok(g.skills.u > 6.9 && g.skills.u <= 7.0, 'U 进入 7s CD', g.skills.u);
+  const shards = g.shots.filter(s => s.kind === 'shard');
+  ok(shards.length === 8, 'U 一次炸出 8 枚 shard 弹体', shards.length);
+  ok(shards.every(s => Math.abs(Math.hypot(s.vx, s.vy) - 300) < 0.5), '八枚速度均为 300px/s',
+    shards.map(s => Math.hypot(s.vx, s.vy).toFixed(1)).join(','));
+  const angs = shards.map(s => Math.atan2(s.vy, s.vx)).sort((x, y) => x - y);
+  let maxGap = 0;
+  for (let i = 1; i < angs.length; i++) maxGap = Math.max(maxGap, angs[i] - angs[i - 1]);
+  ok(maxGap > 0 && maxGap < 0.80, '八枚方向均分（最大相邻夹角 ' + (maxGap * 180 / Math.PI).toFixed(1) + '°）', maxGap.toFixed(3));
+  ok(g.sfxQueue.indexOf('nova') >= 0, 'U 推送 nova 音效事件', g.sfxQueue.slice(-4).join(','));
 
-  stepHold(g, 40, pins(pinE(a), pinE(b)));
-  ok(a.hp === 3 && b.hp === 3, '长矛穿透两个并排敌人，各扣 3 伤（6→3 / 6→3）', a.hp + ' / ' + b.hp);
-  ok(g.shots.length === 1 && g.shots[0].pierce === 1, '两次命中后 pierce 3→1（仍可再穿 1 个）',
-    g.shots.length ? g.shots[0].pierce : 'shot gone');
+  stepHold(g, 10, pins(pinE(a), pinE(b), pinE(c)));
+  ok(a.hp === hpA - 3 && b.hp === hpB - 3 && c.hp === hpC - 3,
+    '左右 + 正上方三个敌人都吃 3 伤（身周 360°）', [a.hp, b.hp, c.hp].join('/'));
+  ok((a.freezeT || 0) > 0.6 && (b.freezeT || 0) > 0.6 && (c.freezeT || 0) > 0.6,
+    '命中即冻结（freezeT 剩余 >0.6s）', [a.freezeT, b.freezeT, c.freezeT].map(v => (v || 0).toFixed(2)).join('/'));
+
+  // 冻结必须真的定身：不钉坐标，走 20 帧看它会不会自己动
+  const fx0 = a.x, fy0 = a.y;
+  stepHold(g, 20);
+  ok(Math.abs(a.x - fx0) < 0.5 && Math.abs(a.y - fy0) < 0.5 && a.vx === 0,
+    '冻结期间敌人原地不动（x/y 位移 <0.5px、vx=0）', (a.x - fx0).toFixed(2) + '/' + (a.y - fy0).toFixed(2));
+
+  // 同一次新星对同一敌人只结算一次：把敌人怼在玩家身上，八枚全中也不该吃 8 份伤
+  const g3 = fresh('mage');
+  const p3 = g3.player;
+  g3.mana = 100;
+  const on = putEnemy(g3, 'slime', p3.x + 1, p3.y + 2, 30);
+  g3.input.skillUHit = 1;
+  stepHold(g3, 12, pinE(on));
+  ok(on.hp === 27, '贴身敌人只吃 1 份 3 伤（八枚冰锥不叠加，30→' + on.hp + '）', on.hp);
 
   // 0 蓝：不扣蓝、不进 CD、manaToast>0、推一次 nomana
   const g2 = fresh('mage');
@@ -242,7 +266,7 @@ console.log('[T5] U：扣 30 蓝 / 6s CD / 穿透 2 个并排敌人；0 蓝不�
   stepHold(g2, 1);
   ok(g2.mana < 1, '0 蓝按 U 不扣蓝（mana=' + g2.mana.toFixed(2) + '）', g2.mana);
   ok(g2.skills.u === 0, '0 蓝按 U 不进 CD', g2.skills.u);
-  ok(g2.shots.length === 0, '0 蓝按 U 不生成弹体', g2.shots.length);
+  ok(g2.shots.length === 0, '0 蓝按 U 不生成冰锥', g2.shots.length);
   ok(g2.manaToast > 0.8, '0 蓝按 U 置 manaToast=0.9', g2.manaToast);
   ok(g2.sfxQueue.slice(q0).indexOf('nomana') >= 0, '0 蓝按 U 推送 nomana 音效', g2.sfxQueue.slice(q0).join(','));
 }
@@ -273,44 +297,56 @@ console.log('[T6] I：2.5s 吸 2 次，第 3 次才掉血');
   ok(r3 === true && p.hp === hp0 - 1, '第三次受击：无盾掉 1 心（4→' + p.hp + '）', p.hp);
 }
 
-/* ==================== T7 L 追星弹 ==================== */
-console.log('[T7] L：3 枚追踪弹锁定 260px 内目标并命中');
+/* ==================== T7 L 引力奇点 ==================== */
+console.log('[T7] L：扣 30 蓝 / 8s CD / 0.5s 停驻 → 吸敌 → 1.1s 引爆 4 伤');
 {
   const g = fresh('mage');
   const p = g.player;
   g.mana = 100;
-  // 目标在右上前方 150px：直飞弹道打不到，必须靠转向（追踪）才能命中
-  const e = putEnemy(g, 'jelly', p.x + 150, p.y - 45, 12);
   g.input.skillLHit = 1;
-  stepHold(g, 1, pinE(e));
-  const seeks = g.shots.filter(s => s.kind === 'seek');
-  ok(seeks.length === 3, 'L 一次掷出 3 枚 seek 弹', seeks.length);
-  ok(near(100 - g.mana, 25, 0.2), 'L 扣 25 法力', (100 - g.mana).toFixed(2));
-  ok(g.skills.l > 5.9 && g.skills.l <= 6.0, 'L 进入 6s CD', g.skills.l);
-  // v19.2：三枚出膛即摆成斜列（横向各领先 5px、纵向 +2/+4/+6），保证屏幕上能数出三枚；
-  // 纵向夹在 p.h-8 以内（弹体底边离脚下瓦片顶行留 2px），只改出生点，速度/追踪/伤害不动
-  // ⇒ 下面「三枚全部命中」必须仍然成立。
-  ok(seeks.every(s => s.homeR === 260 && s.turn === 5 && Math.abs(s.vx) === 230)
-    && seeks.every(s => s.y >= p.y + 1.5 && s.y + s.h <= p.y + p.h - 1.5)
-    && Math.max.apply(null, seeks.map(s => s.y)) - Math.min.apply(null, seeks.map(s => s.y)) >= 3.5
-    && Math.max.apply(null, seeks.map(s => s.x)) - Math.min.apply(null, seeks.map(s => s.x)) >= 9,
-    'seek 弹参数：260px / 5rad/s / 230px/s / 三枚斜列且不贴地（纵向 ≥3px 横向 ≥9px）',
-    'y=' + seeks.map(s => (s.y - p.y).toFixed(1)).join(',') +
-    ' x=' + seeks.map(s => (s.x - p.x).toFixed(1)).join(','));
-  // 守门：站在地面上放 L，0.4s 后三枚必须都还在飞（出生点一旦下移贴地，这枚会被瓦片判定吃掉）
-  stepHold(g, 24, pinE(e));
-  ok(g.shots.filter(s => s.kind === 'seek').length === 3, '站地面放 L：0.4s 后仍是 3 枚在飞（不会被地面吃掉）',
-    g.shots.filter(s => s.kind === 'seek').length + ' 枚');
+  stepHold(g, 1);
+  ok(near(100 - g.mana, 30, 0.2), 'L 扣 30 法力', (100 - g.mana).toFixed(2));
+  ok(g.skills.l > 7.9 && g.skills.l <= 8.0, 'L 进入 8s CD', g.skills.l);
+  ok(g.wells.length === 1, 'L 生成 1 个奇点实体', g.wells.length);
+  const w0 = g.wells[0] || {};
+  ok(w0.w === 14 && w0.h === 14 && Math.abs(w0.vx) === 150 && w0.stopped === false && w0.r === 100,
+    '奇点初始：14×14 / ±150px/s / 飞行态 / 吸附半径 100',
+    JSON.stringify({ w: w0.w, vx: w0.vx, stopped: w0.stopped, r: w0.r }));
+  ok(g.sfxQueue.indexOf('well') >= 0, 'L 推送 well 音效事件', g.sfxQueue.slice(-4).join(','));
+
+  stepHold(g, 32);                                   // 0.5s（31 帧起算有浮点余量）：飞行 75px 后停驻
+  const ws = g.wells[0] || {};
+  ok(ws.stopped === true, '0.5s（150px/s×0.5≈75px）后停驻', JSON.stringify({ t: (ws.t || 0).toFixed(2), stopped: ws.stopped }));
+  const sx = ws.x, sy = ws.y;
+  stepHold(g, 4);
+  ok(g.wells[0] && g.wells[0].x === sx && g.wells[0].y === sy, '停驻后位置不再漂移');
+
+  // 吸附：站桩敌人（spitter 不巡逻）放在 90px 外，0.33s 后应被拉近 ≥20px
+  const e = putEnemy(g, 'spitter', sx + 90, sy, 30);
+  const d0 = Math.abs((e.x + e.w / 2) - (sx + 7));
+  stepHold(g, 20);
+  const d1 = Math.abs((e.x + e.w / 2) - (sx + 7));
+  ok(d1 < d0 - 20, '奇点把 90px 外的敌人拉近（' + d0.toFixed(0) + '→' + d1.toFixed(0) + 'px）',
+    d0.toFixed(1) + '→' + d1.toFixed(1));
+
+  // 引爆：存续 1.1s 到点 → 半径内 4 伤 + 实体清空
   const hp0 = e.hp;
-  let hitF = -1;
-  for (let f = 0; f < 110; f++) {
-    stepHold(g, 1, pinE(e));
-    if (e.hp < hp0) { hitF = f + 1; break; }
-  }
-  ok(hitF > 0, '至少 1 枚 seek 在 1.6s 内追上目标（第 ' + hitF + ' 帧）', hitF);
-  stepHold(g, 80, pinE(e));
-  ok(e.hp === hp0 - 6, '三枚 seek 全部命中（12→' + e.hp + '，应 3×2=6 伤）', e.hp);
-  ok(g.shots.filter(s => s.kind === 'seek').length === 0, '命中后 seek 弹清空', g.shots.length);
+  stepHold(g, 46);
+  ok(e.hp === hp0 - 4, '引爆对半径内敌人结算 4 伤（30→' + e.hp + '）', e.hp);
+  ok(g.wells.length === 0, '引爆后奇点实体清空', g.wells.length);
+  ok(g.sfxQueue.indexOf('wellBoom') >= 0, '引爆推送 wellBoom 音效', g.sfxQueue.slice(-4).join(','));
+
+  // 半径外不吃伤：引爆时把敌人放到 140px 外
+  const g2 = fresh('mage');
+  g2.mana = 100;
+  g2.input.skillLHit = 1;
+  stepHold(g2, 1);
+    // 放在奇点「背后」140px：奇点会往前飞 75px，只会越飞越远，永进不了半径 100
+  const far = putEnemy(g2, 'spitter', g2.wells[0].x - 140, g2.wells[0].y, 20);
+  const farHp = far.hp;
+  stepHold(g2, 105);                                  // 0.5s 飞行 + 1.1s 存续 = 1.6s（96 帧）+ 余量
+  ok(far.hp === farHp, '半径 100 外的敌人不吃引爆伤害（仍 ' + far.hp + '）', far.hp);
+  ok(g2.wells.length === 0, '第二个奇点同样按时引爆', g2.wells.length);
 }
 
 /* ==================== T8 O 陨星风暴 + Boss ==================== */

@@ -819,14 +819,17 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 `_engShotHitEnemy()`、`_engMageMeteorHit()`。
 
 ### sfx 事件表追加
-- `'bolt','lance','seek','storm','nomana'`（engine 只 push，ui 消费）。骑士原事件名不变。
+- `'bolt','nova','well','wellStop','wellBoom','storm','nomana'`（engine 只 push，ui 消费）。骑士原事件名不变。
+  v19.3 起 `lance`/`seek` 两个事件名随技能一起删除，不再 push。
 
 ### art.js 新 SPR 键（第 4 节追加）
 - 帧（16×16，右向基准，均带 `L` 翻转版）：`mgIdle1, mgIdle2, mgRun[6], mgJump, mgFall, mgAttack,
   mgCast, mgDash, mgDashWind, mgSquash`。**必须 `mg` 前缀**——`_v77_skins_art.js` 用 `/^hero[A-Z]/`
   推导皮肤帧集合，`hero` 前缀会把法师帧算成第 21 套皮肤。
-- 弹体/图标：`arcaneBolt[2]` 8×6、`iceLance` 16×6、`seeker[2]` 6×6、`starMeteor[2]` 10×12、
-  `mgU/mgI/mgO/mgL` 12×12、`cover.mageSil` 24×28。
+- 弹体/图标：`arcaneBolt[2]` 8×6、`iceShard` 7×7（v19.3 霜爆新星，菱形三带：`#14304f` 边 /
+  `#a8e8ff` 体 / `#ffffff` 心）、`singularity[2]` 14×14（v19.3 引力奇点：纯黑视界 + 细光子环 +
+  稀疏螺旋吸积臂，外圈留空）、`starMeteor[2]` 10×12、`mgU/mgI/mgO/mgL` 12×12、`cover.mageSil` 24×28。
+  v19.3 起 `iceLance`/`seeker` 两个键已删除（旧 U/L 的素材，随技能一起下线）。
 - `HERO_SKINS` 仍恰 20 套；法师不吃换色皮肤。
 
 ### ui.js 契约（第 5 节以外的界面口径）
@@ -838,13 +841,25 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
   （否则与 Boss 血条 y=29 相撞）。
 - `renderSlash` 对法师直接 return；`renderUlt` 按 hero 分派；技能卡/CD 分母读 `HEROES`。
 - `renderShots()`（新增，内部）：`renderSlash()` 之后、世界空间内绘制 `game.shots`
-  （bolt 取 `SPR.arcaneBolt[(tick>>2)%2]` / lance 取 `SPR.iceLance` / seek 取 `SPR.seeker[(tick>>2)%2]`，
+  （bolt 取 `SPR.arcaneBolt[(tick>>2)%2]` / shard 取 `SPR.iceShard`（**不旋转**——八向冰锥要看清朝向），
   `s.vx<0` 水平翻转，尾段 0.12s 渐隐，素材缺失时程序化兜底）。**引擎不画弹体、UI 不判命中**。
+- `renderWells()`（v19.3 新增，内部）：绘制 `game.wells`，**调用点在敌人循环（含冻结冰壳）之后**——
+  被吸成一坨的敌人会正好盖住黑洞核心。三层：① 吸力场 = 以真实吸附半径 `w.r` 的**径向渐变**
+  （中心暗、边缘全透明，脉冲 0.9±0.18；✗ 不要整圈平铺半透明紫，会在地面上糊成灰雾）；
+  ② 两圈反向旋转弧（半径 13/17，放在本体**外部**，套在内侧会被素材盖住）；
+  ③ 本体 `SPR.singularity[(tick>>2)%2]`，飞行 `grow=0.62` / 停驻 `grow=1.4`，末 0.2s 闪烁预警。
+- 冻结冰壳（v19.3）：`renderEnemies` 里敌人主循环**之后**单独第二遍画——避免 9 个 `e.type` 分支各改一次。
+  半透明 `#9ae0ff` 填充 0.22 + 1px `#e8fbff` 亮边 + 两道斜裂纹，末 0.2s 交替 0.12/0.26 提示解冻。
 
 ### 与设计书的偏差（已实装，后果已知）
-- L 追星弹出膛 y：设计书 `+4/+7/+10`，实装 `Math.min(4+i*3, p.h-6)`（第三枚钳到 +8）。
-  原因：站立时第三枚 6px 高、底边 `p.y+16` 伸进脚下地板，出膛当帧被瓦片判定回收，L 只剩 2 发。
-  钳制后三发齐全（`_v19_mage_test.js` 按「3 枚全部命中」断言，防回退）。
+- （v19.3 已作废）L 追星弹出膛 y 的 `Math.min(4+i*3, p.h-6)` 钳制——追星弹整体下线，改黑洞。
+- 霜爆新星一次性结算靠 `novaSeq`：同一次新星对同一敌人/Boss 只吃一次伤害，否则贴脸会吃到 8×3=24 伤秒杀。
+  `e.novaSeq`/`game.boss.novaSeq` 记「最后一次命中它的新星序号」，`_engShotHitEnemy` 里写、命中循环前判。
+- 冻结用 `continue` 跳过 9 种敌人 AI，**必须放在 `e.t += dt` 之前**（动画帧一起冻住），
+  且必须在分支里补 `flashT/jitT` 的衰减——它们在 AI 分支之后才衰减，`continue` 会跳过，
+  否则冰壳里的敌人白闪整整 0.8s（实机看就是个白团）。
+  同理 `kb = 0`：否则解冻瞬间补一次延迟击退。
+- 奇点吸附停在 `d < 17` 的外圈，不把敌人叠到核心上（叠上去数不清有几个，且黑洞被完全遮住）。
 - 法师帧注册键：`_mgSprite('idle1')` 必须落到 `SPR.mgIdle1`（首版误注册成 `SPR.idle1`，
   UI 回落骑士帧——实机截图发现，已修；`mg` 前缀同时规避皮肤推导）。
 
