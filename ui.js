@@ -3314,23 +3314,39 @@ function renderSlash(){
 }
 
 // v19 §3.3：法师远程弹体（game.shots，引擎只写位置/判定，不绘制）——在 renderSlash 之后、世界空间调用。
-// 取帧：bolt 8×6 两帧脉动 / lance 16×6 冰矛 / seek 6×6 星点；素材缺失时程序化兜底（同 renderSlash 口径）。
-// 朝向：素材均为右向基准，s.vx<0 时水平翻转；尾段 0.12s 渐隐，避免弹体「啪」地消失。
+// v19.1 辨识度：lance 加三道速度线（看得出"快而直"）、seek 加脉动紫环（看得出"在追"）；
+// 素材尺寸 bolt 8×6 / lance 24×10 / seek 11×11，一律以判定框中心为锚点居中，判定框本身没变。
 function renderShots(){
   const arr=game.shots;
   if(!arr||!arr.length)return;
   const t=game.tick;
   for(const s of arr){
+    if(s.born>0)continue;                             // v19.1：尚未出膛（追星弹 0.07s 连发间隔）不画
     let img=null;
     if(s.kind==='bolt')img=SPR.arcaneBolt&&SPR.arcaneBolt[(t>>2)%2];
     else if(s.kind==='lance')img=SPR.iceLance;
     else if(s.kind==='seek')img=SPR.seeker&&SPR.seeker[(t>>2)%2];
     const w=s.w||8,h=s.h||6;
+    const fade=clamp(s.life/0.12,0,1);
     ctx.save();
-    ctx.globalAlpha=clamp(s.life/0.12,0,1);
+    ctx.globalAlpha=fade;
     ctx.translate(px(s.x)+Math.round(w/2),px(s.y)+Math.round(h/2));
     if((s.vx||0)<0)ctx.scale(-1,1);
-    if(img)ctx.drawImage(img,-Math.round(img.width/2),-Math.round(img.height/2));
+    if(s.kind==='lance'){                             // 速度线（矛尾方向拖三条，长短随帧错开）
+      const o=(t>>1)%3;
+      ctx.globalAlpha=fade*0.5;ctx.fillStyle='#eafcff';
+      ctx.fillRect(-20-o*2,-4,8+o*3,1);
+      ctx.fillRect(-25-o*3,-1,7+o*2,1);
+      ctx.fillRect(-17-o*2,2,6+o*2,1);
+      ctx.globalAlpha=fade;
+    } else if(s.kind==='seek'){                       // 外扩紫环（6→8px 呼吸，圈在四芒星外面当光晕，别压住星体）
+      const pu=0.5+0.5*Math.sin(t*0.5+(s.x+s.y)*0.07);
+      ctx.globalAlpha=fade*(0.30+0.40*pu);
+      ctx.strokeStyle='#c8a8ff';ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(0,0,6+2*pu,0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=fade;
+    }
+    if(img)ctx.drawImage(img,-(img.width>>1),-(img.height>>1));
     else if(s.kind==='lance'){ctx.fillStyle='#48c8f8';ctx.fillRect(-8,-3,16,6);ctx.fillStyle='#ffffff';ctx.fillRect(4,-2,4,4);}
     else{const r=s.kind==='seek'?3:4;ctx.fillStyle='#8ae8ff';ctx.fillRect(-1,-r,2,r*2);ctx.fillRect(-r,-1,r*2,2);ctx.fillStyle='#ffffff';ctx.fillRect(-1,-1,2,2);}
     ctx.restore();

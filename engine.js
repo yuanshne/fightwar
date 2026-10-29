@@ -2764,6 +2764,8 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
           homeR: 0, homeDeg: 0, turn: 0, face: p.face, manaGain: 0 }); // 长矛不回蓝（防穿透一击回满）
         game.sfxQueue.push('lance');
         _engAddParts(p.x + p.w / 2 + p.face * 8, p.y + 7, 6, '#8ae8ff', 70, 60);
+        _engAddParts(p.x + p.w / 2 + p.face * 8, p.y + 7, 4, '#ffffff', 50, 40); // v19.1：出膛白闪，长矛起手一眼可辨
+        _engFx(p.x + p.w / 2 + p.face * 10, p.y + 6, { ring: 1, r: 2, r1: 14, life: 0.24, life0: 0.24, color: '#d8f4ff' });
       } }
     if (inp.skillIHit) { inp.skillIHit = 0;
       // I 星辉屏障：复用骑士护盾实现（shieldT/shieldHp），只换参数（2.5s / 吸 2 次）
@@ -2780,12 +2782,16 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
         game.sfxQueue.push('ult');
       } }
     if (inp.skillLHit) { inp.skillLHit = 0;
-      // L 追星弹：三枚追踪星点（260px 内锁最近敌，5rad/s 转向），y 依次 +4/+7/+10 错开
-      // （上限钳到 p.h-6：第三枚 +10 会伸进脚下地面 2px，出膛当帧被瓦片判定回收——实测只剩 2 枚）
+      // L 追星弹：三枚追踪星点（260px 内锁最近敌，5rad/s 转向），y 依次 +2/+4/+6 错开
       if (S.l <= 0 && !p.dead && _engSpendMana(M.l.mana)) {
         S.l = M.l.cd * game.cdMul; p.castT = 0.3;
+        /* v19.1：三枚在出膛时就摆成斜列（纵向 +2/+4/+6、横向各领先 5px），并按 0.07s 间隔依次出膛。
+           纵向只能给到 4px：玩家体积（h=14）+ 脚下地面把空间锁死，再往下弹体底边就贴住脚下瓦片顶行。
+           真正把三枚拉开的是时间差（0.07s × 230px/s ≈ 16px）+ 横向 5px 阶梯。
+           只改出生点与出生延迟（born），速度/追踪/伤害/寿命一律不动。 */
         for (let i = 0; i < M.l.n; i++) {
-          _engPushShot({ kind: 'seek', x: p.x + p.w / 2 - 3 + p.face * 6, y: p.y + Math.min(4 + i * 3, p.h - 6),
+          _engPushShot({ kind: 'seek', x: p.x + p.w / 2 - 3 + p.face * (6 + i * 5),
+            y: p.y + Math.min(2 + i * 2, p.h - 8), born: i * 0.07,
             w: 6, h: 6, vx: p.face * M.l.v, vy: 0, life: M.l.life,
             base: M.l.dmg, dmg: M.l.dmg, crit: 0, pierce: 0, hitList: [],
             homeR: M.l.homeR, homeDeg: 0, turn: M.l.turn, face: p.face,
@@ -2793,6 +2799,8 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
         }
         game.sfxQueue.push('seek');
         _engAddParts(p.x + p.w / 2 + p.face * 6, p.y + 8, 8, '#8ae8ff', 70, 60);
+        _engAddParts(p.x + p.w / 2 + p.face * 6, p.y + 8, 5, '#d8b8ff', 64, 50); // v19.1：紫出膛（与长矛的白蓝分开）
+        _engFx(p.x + p.w / 2 + p.face * 8, p.y + 7, { ring: 1, r: 2, r1: 12, life: 0.22, life0: 0.22, color: '#b090f8' });
       } }
     return;
   }
@@ -3451,6 +3459,13 @@ function _engShotHitEnemy(s, e) { // 内部（v19）：弹体命中敌人——�
   const dmg = s.dmg || s.base; // 出膛即定的实际伤害（Boss/敌人同读；不在命中时复算暴击）
   s.hitList.push(e);
   _engAddCombo();                                      // 连击按命中计（死活都 +1，同骑士）
+  if (s.kind === 'lance') {                            // v19.1：命中演出按弹种分色——冰矛炸冰屑，星弹炸紫星
+    _engAddParts(e.x + 6, e.y + 6, 6, '#d8f4ff', 120, 220);
+    _engAddParts(e.x + 6, e.y + 6, 4, '#48a8e0', 90, 180);
+  } else if (s.kind === 'seek') {
+    _engAddStars(e.x + 6, e.y + 6, 4, '#c8a8ff');
+    _engAddParts(e.x + 6, e.y + 6, 3, '#b090f8', 70, 200);
+  }
   e.hp = (e.hp === undefined ? 1 : e.hp) - dmg;
   if (e.hp > 0) {                                      // 存活：击退 + 白闪 + 抖动
     e.kb = (_engSign(s.vx) || s.face || 1) * _engKbV * (e.elite ? BAL.elite.kbMul : 1);
@@ -3507,14 +3522,30 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     if (!Number.isFinite(s.x) || !Number.isFinite(s.y) || !Number.isFinite(s.vx) || !Number.isFinite(s.vy)) {
       arr.splice(i, 1); continue;
     }
+    /* v19.1：出生延迟（born，仅 seek 用）——倒计时期间不动、不判定、不扣寿命（射程不变），
+       ui 侧跳过渲染。三枚因此按 0.07s 依次出膛，屏幕上拉开约 16px，一眼数得出「三枚」。 */
+    if (s.born > 0) { s.born -= dt; continue; }
     s.life -= dt;
     if (s.life <= 0) { arr.splice(i, 1); continue; }   // 超时回收（射程 = v × life）
     _engShotHome(s, L, dt);                            // 追踪：先转向再位移
     s.x += s.vx * dt; s.y += s.vy * dt;
-    if (s.kind === 'seek') {                           // 追星弹拖尾（青白细点，fx 层）
+    /* v19.1 拖尾（辨识度的另一半）：三种弹体各留各色尾迹——bolt 不拖（它是基准，有拖尾反而抢眼），
+       lance 拖白冰雾（宽、慢落），seek 拖紫星轨（细、带上扬），扫一眼就知道是哪一招在飞。
+       配额：fx 上限 60（BAL.guard.fx 不得放宽），lance 0.03s≈33/s、seek 0.05s×3≈60/s，存活量≈8/16，安全。 */
+    if (s.kind === 'seek') {                           // 追星弹：紫星轨 + 偶发亮紫碎屑
       s.trail = (s.trail || 0) - dt;
       if (s.trail <= 0) { s.trail = 0.05;
-        _engFx(s.x + 3, s.y + 3, { vx: -s.vx * 0.1, vy: -16, life: 0.2, color: '#8ae8ff', size: 1 }); }
+        _engFx(s.x + 3, s.y + 3, { vx: -s.vx * 0.12, vy: -14, life: 0.24, color: '#b090f8', size: 2 });
+        if (Math.random() < 0.45)
+          _engFx(s.x + 3, s.y + 3, { vx: -s.vx * 0.08, vy: -8, life: 0.16, color: '#d8b8ff', size: 1 }); }
+    } else if (s.kind === 'lance') {                   // 冰晶长矛：白冰雾（从矛尾喷出，带一点下坠）
+      s.trail = (s.trail || 0) - dt;
+      if (s.trail <= 0) { s.trail = 0.03;
+        _engFx(s.x + (s.face > 0 ? 2 : s.w - 2), s.y + 3,
+          { vx: -s.face * 42, vy: (Math.random() * 2 - 1) * 22, life: 0.26, color: '#d8f4ff', size: 1 });
+        if (Math.random() < 0.5)
+          _engFx(s.x + (s.face > 0 ? 2 : s.w - 2), s.y + 4,
+            { vx: -s.face * 26, vy: 12, life: 0.3, color: '#7ad0f8', size: 2 }); }
     }
     if (s.x < -24 || s.x > L.w * _engTile + 24 || s.y < -96 || s.y > L.h * _engTile + 48) {
       arr.splice(i, 1); continue;                      // 越界回收（左右各留 24px 余量）
@@ -3606,6 +3637,11 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         _engAddCombo(); game.sfxQueue.push('break');
         dead = true;
       } else if (L.solid(tx, ty, game.switchState)) {
+        if (s.kind === 'lance' && !s.hitWall) {         // v19.1：冰矛撞墙 = 冰屑炸开（原来静默消失，像"没打出去"）
+          s.hitWall = 1;
+          _engAddParts(s.x + (s.face > 0 ? s.w : 0), s.y + 3, 8, '#d8f4ff', 110, 240);
+          _engAddParts(s.x + (s.face > 0 ? s.w : 0), s.y + 3, 4, '#48a8e0', 80, 200);
+        }
         dead = true;
       }
     });

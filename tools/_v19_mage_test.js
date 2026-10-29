@@ -287,11 +287,20 @@ console.log('[T7] L：3 枚追踪弹锁定 260px 内目标并命中');
   ok(seeks.length === 3, 'L 一次掷出 3 枚 seek 弹', seeks.length);
   ok(near(100 - g.mana, 25, 0.2), 'L 扣 25 法力', (100 - g.mana).toFixed(2));
   ok(g.skills.l > 5.9 && g.skills.l <= 6.0, 'L 进入 6s CD', g.skills.l);
+  // v19.2：三枚出膛即摆成斜列（横向各领先 5px、纵向 +2/+4/+6），保证屏幕上能数出三枚；
+  // 纵向夹在 p.h-8 以内（弹体底边离脚下瓦片顶行留 2px），只改出生点，速度/追踪/伤害不动
+  // ⇒ 下面「三枚全部命中」必须仍然成立。
   ok(seeks.every(s => s.homeR === 260 && s.turn === 5 && Math.abs(s.vx) === 230)
-    && seeks.every(s => s.y >= p.y + 3.5 && s.y <= p.y + 10.5)
-    && Math.max.apply(null, seeks.map(s => s.y)) - Math.min.apply(null, seeks.map(s => s.y)) <= 6.5,
-    'seek 弹参数：260px / 5rad/s / 230px/s / y 在 +4~+10 三档错开',
-    seeks.map(s => (s.y - p.y).toFixed(1)).join(','));
+    && seeks.every(s => s.y >= p.y + 1.5 && s.y + s.h <= p.y + p.h - 1.5)
+    && Math.max.apply(null, seeks.map(s => s.y)) - Math.min.apply(null, seeks.map(s => s.y)) >= 3.5
+    && Math.max.apply(null, seeks.map(s => s.x)) - Math.min.apply(null, seeks.map(s => s.x)) >= 9,
+    'seek 弹参数：260px / 5rad/s / 230px/s / 三枚斜列且不贴地（纵向 ≥3px 横向 ≥9px）',
+    'y=' + seeks.map(s => (s.y - p.y).toFixed(1)).join(',') +
+    ' x=' + seeks.map(s => (s.x - p.x).toFixed(1)).join(','));
+  // 守门：站在地面上放 L，0.4s 后三枚必须都还在飞（出生点一旦下移贴地，这枚会被瓦片判定吃掉）
+  stepHold(g, 24, pinE(e));
+  ok(g.shots.filter(s => s.kind === 'seek').length === 3, '站地面放 L：0.4s 后仍是 3 枚在飞（不会被地面吃掉）',
+    g.shots.filter(s => s.kind === 'seek').length + ' 枚');
   const hp0 = e.hp;
   let hitF = -1;
   for (let f = 0; f < 110; f++) {
