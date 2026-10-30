@@ -721,23 +721,25 @@ const BAL = {
     p2Add: ['nova'], contactDmg: 1, drop1: 'maw1', drop2: 'maw2' },
 
   boss11: { // 终末之钟（L24，bell）——「只有休止符吃伤害」
-    // 机制：8s 曲谱循环（score），四拍各 1.6s + 休止符 1.6s。
-    //   非休止符期间承伤 ×0.12（近乎无敌）；休止符期间 ×1.6（明确的"该打了"）。
+    // 机制：曲谱循环（score），三拍（钟摆→声波→钟锤）+ 休止符 3s，一轮约 7~8s（含出招收招）。
+    //   非休止符期间**完全免伤**（_engBossHurt 开头 return false，不是减伤）；休止符期间 ×4.0。
     //   曲谱固定不变——第一轮瞎躲，第二轮就能背。这是全作唯一一只「可以背下来」的 Boss。
-    hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 52,
+    // v20.2：血量对标牛魔王（630=210×3 每段同规格）——地图二终关不能比地图一终关脆；
+    //   时长用窗口补偿而不是砍血：休止 2s→3s（够走过去打），×2.2→×4.0（每刀分量补回来）。
+    //   机器人实测：满装 TTK ~90s（牛魔王 79.5s 同档），无装 ~180s（< 350s 判定线）。
+    hp: 630, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 52,
     windup: { pendulum: 0.50, chime: 0.55, hammer: 0.65, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.44, 0.32], walk: [20, 26],
     barrage: { v: 122, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },
     /* score 曲谱：beats 是每拍的招式名（null=休止符）。
-       四拍一轮：pendulum → chime → hammer → 休止（null）。三招各约 2.2s，休止 1.6s，一轮约 8.2s。
-       承伤：非休止**完全免伤**（写在 _engBossHurt 开头，不是减伤）、休止 ×1.6。
-       血量按「只打得动 1.6s」定：360 ÷ (约 15 伤/轮) ≈ 24 轮 ≈ 197s——
-       比 map1 终章（约 120s）长，但那 120s 里玩家一直在挨打，这里有一半时间是安全的，体感不一样。 */
-    score: { beat: 1.0, restBeat: 2.0,
+       四拍一轮：pendulum → chime → hammer → 休止（null）。休止 3s 是输出窗口。
+       承伤：非休止**完全免伤**（写在 _engBossHurt 开头，不是减伤）、休止 ×4.0。
+       beat 字段目前未参与推进（留作 schema 占位）；休止时长只由 restBeat 控制（_engUpdateBoss 的 rest 分支）。 */
+    score: { beat: 1.0, restBeat: 3.0,
              beats: ['pendulum', 'chime', 'hammer', null],
-             idleMul: 0.12, restMul: 2.2 },
+             idleMul: 0.12, restMul: 4.0 },
     /* pendulum 钟摆：以自身为轴横扫 140° 的弧（h=16，贴地→跳）。
        弧心固定在它脚下，所以躲法是「跑到弧外面」而不是「跳」——与 lash 相反。 */
     pendulum: { r: 78, h: 16, dmg: 1, sweep: 2.2 },
