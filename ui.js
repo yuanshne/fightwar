@@ -580,7 +580,7 @@ function bagUpgrade(){ // 升阶（C / 升阶钮）：同槽任意稀有度碎�
 const q=new URLSearchParams(location.search);
 const GOD=q.get('god')==='1';
 let uiState='title',menuSel=0,fade=1,fadeDir=-1,hintT=0,lastLevelIdx=-1; // hintT：进关置 3.0（秒），倒数至 0 后提示条隐藏
-let clearStars=0,clearShown=0,creditsT=0; // v3 §E：致谢屏计时
+let clearStars=0,clearShown=0,failShown=0,creditsT=0; // v3 §E：致谢屏计时；v20.5：failShown 失败界面入场
 // v7.7：衣橱面板（title/select 两态可开；打开期间独占输入与悬停，世界本就不在跑）
 let wardrobeOpen=false,wardrobeSel=0;
 // v19 §3.1：选角面板（同衣橱模式；与衣橱互斥，绝不重叠）
@@ -1334,6 +1334,7 @@ function render(){
     if(GOD)drawPixelText('GOD MODE',VIEW_W/2,VIEW_H-16,1,'#f8d020','center');
     if(game.paused)renderPause();
     if(uiState==='clear')renderClear(tick);
+    if(uiState==='fail')renderFail(tick); // v20.5：死亡三振失败界面
     if(puzzle.open)renderPuzzleOverlay(tick); // v4 §界面②：谜题覆盖层（世界之上、渐变遮罩之下）
     else if(bagOpen)renderBag(tick);          // v6 波2 §C：背包覆盖层（世界之上；与谜题层互斥）
     renderBagFloats();                        // v6 波2 §B：背包浮字（最顶层；关包拾取提示同样可见）
@@ -3817,7 +3818,8 @@ function renderSpeedLines(){
 // v2 P1：挥击弧光——画师 slashArc 就位后自动启用，此前程序化弧兜底。
 // v5 §C：四帧时间轴（p.atkAnim=挥击总动画 0.25→0，v5 引擎写入）：流逝 el<0.05 起手帧 idx0；
 // 0.05~0.17 帧1→2 随进度插值（0.11 分界）；0.17~0.25 帧3 余韵。位置/翻转/透明度沿现状。
-// v4 引擎无 atkAnim → 整体走下方现行 atkT 逻辑（H4 静默降级到 v2 三帧/程序化弧表现）。
+// v20.5：勇者普攻改「剑」（判定框 18→32px）——弧光中心前移 13→18、精灵整体 ×1.55 拉伸、
+// 程序化兜底弧半径 8+prog*6 → 13+prog*8 并补一道剑刃线，视觉范围与剑判定框一致。
 function renderSlash(){
   if(game.hero==='mage')return; // v19 §3.3：法师无近战弧光（远程弹体由引擎渲染 shots，无需挥击弧）
   const p=game.player;
@@ -3831,8 +3833,9 @@ function renderSlash(){
     if(!img)return;
     const prog=clamp(el/0.25,0,1);
     ctx.save();
-    ctx.translate(px(p.x+p.w/2+p.face*13),px(p.y+p.h/2));
+    ctx.translate(px(p.x+p.w/2+p.face*18),px(p.y+p.h/2));
     if(p.face<0)ctx.scale(-1,1);
+    ctx.scale(1.55,1.55);
     ctx.globalAlpha=clamp(0.9-prog*0.55,0,1);
     ctx.drawImage(img,-img.width/2,-img.height/2);
     ctx.restore();
@@ -3842,18 +3845,21 @@ function renderSlash(){
   if(!(p.atkT>0))return;
   const prog=clamp(1-p.atkT/0.12,0,1); // 判定框存在期 0.12s 内的进度 0→1
   ctx.save();
-  ctx.translate(px(p.x+p.w/2+p.face*13),px(p.y+p.h/2));
+  ctx.translate(px(p.x+p.w/2+p.face*18),px(p.y+p.h/2));
   if(p.face<0)ctx.scale(-1,1);
   ctx.globalAlpha=clamp(0.9-prog*0.55,0,1);
   if(SPR.slashArc&&SPR.slashArc.length){
     const arc=SPR.slashArc;
     const img=arc[Math.min(arc.length-1,(prog*arc.length)|0)];
+    ctx.scale(1.55,1.55);
     ctx.drawImage(img,-img.width/2,-img.height/2);
   }else{
+    // 剑刃线：从持剑手到剑尖的一道白残影（v20.5「用剑攻击」的最低限度可读性）
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(4,2);ctx.lineTo(16+prog*14,2);ctx.stroke();
     ctx.strokeStyle=prog<0.5?'#ffffff':'#48d8e8';
-    ctx.lineWidth=2;
     ctx.beginPath();
-    ctx.arc(0,0,8+prog*6,-1.25+prog*1.5,0.45+prog*1.5);
+    ctx.arc(0,0,13+prog*8,-1.25+prog*1.5,0.45+prog*1.5);
     ctx.stroke();
   }
   ctx.restore();
@@ -4786,6 +4792,22 @@ function renderClear(tick){
   }
 }
 
+// v20.5：失败界面——死亡三振判负（engine failLevel 置 state='fail'）。Esc 返回选关（用户指定），
+// 不做重试键：选关屏双击/R 本就能重进，避免双入口语义分叉。面板风格与暂停/结算同族。
+function renderFail(tick){
+  failShown+=1/60;
+  const a=clamp(failShown*2,0,0.88);
+  ctx.fillStyle='rgba(8,8,16,'+(a*0.8)+')';ctx.fillRect(0,0,VIEW_W,VIEW_H);
+  ctx.save();ctx.globalAlpha=a;
+  _panel(72,64,240,92,{titleBar:1});
+  ctx.restore();
+  if(failShown>0.3){
+    drawCNText('关卡失败',VIEW_W/2,86,18,'#f87858','center');
+    drawCNText('阵亡 '+game.deaths+'/3　本关未通过',VIEW_W/2,112,11,'#f0f4ff','center');
+    if(failShown>1&&tick%50<32)drawPixelText('ESC: MENU',VIEW_W/2,134,1,'#a8b4d8','center');
+  }
+}
+
 // ---------- v5 封面队 §B：标题封面素材与确定性数据（SPR.cover 缺失时全程序化兜底，H3） ----------
 function _mul32(seed){ // mulberry32（确定性星表/云团用；与 art.js 内部实现同算法，避免跨模块依赖）
   let a=seed>>>0;
@@ -5665,14 +5687,16 @@ function step(dt){
       else{uiState='credits';creditsT=0;fade=1;fadeDir=-1;} // v3 §E3：L7 结算不再进 victory，进致谢屏
     }
     if(hit('back')){uiState='select';fade=1;fadeDir=-1;}
+  }else if(uiState==='fail'){ // v20.5：失败界面——Esc 返回选关（0.5s 输入延迟防死亡连按误触）
+    game.failT+=dt;
+    if(hit('back')&&game.failT>0.5){uiState='select';fade=1;fadeDir=-1;}
   }else if(uiState==='credits'){ // v3 §E3：致谢屏计时与退场
     creditsT+=dt;
     if(hit('confirm')&&creditsT>1){SFX.select();uiState='title';fade=1;fadeDir=-1;}
   }
 
   // 检测引擎置 clear
-  if(game.state==='clear'&&lastState!=='clear'){
-    uiState='clear';game.clearT=0;clearShown=0;
+  if(game.state==='clear'&&lastState!=='clear'){    uiState='clear';game.clearT=0;clearShown=0;
     clearStars=1+(game.coins>=game.level.totalCoin?1:0)+(game.time<=game.level.par?1:0);
     // v7.7：通关只掉「本关对应色」的皮肤——首次通关才有反馈（已解锁/art 未合入 → null，不弹提示）。
     // 只在通关分支执行：死亡/中途退出永远到不了这里；全关开放直打 L16 也只按 idx=15 映射掉一件。
@@ -5685,6 +5709,8 @@ function step(dt){
     saveProgress(progress);
   }
   if(game.state==='play'&&lastState==='clear'&&!fadeDir)fadeDir=-1;
+  // v20.5：检测引擎置 fail（死亡三振）——切失败界面；世界冻结由 uiState!=='play' 自然达成（同 clear 流转）
+  if(game.state==='fail'&&lastState!=='fail'){uiState='fail';game.failT=0;failShown=0;}
   lastState=game.state;
 
   // 音效队列

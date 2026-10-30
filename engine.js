@@ -302,7 +302,7 @@ const BAL = {
   fall:  { fast: 360 },                       // §F 速降上限（=旧 maxFall，按住↓恢复精准落地）
   player:{ hpBase: 5, atkBase: 2, critMul: 2, critMod: 4,
            stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
-  atk:   { cd: 0.35, boxW: 18, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 },
+  atk:   { cd: 0.35, boxW: 32, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 }, // v20.5：boxW 18→32——勇者改「剑」：攻击距离=剑的范围（用户实测原范围太小）
   // v7.7 手感：cd 0.8→0.5（对照空洞骑士 0.45~0.55s；dur/v 不动 ⇒ 冲刺距离 59.53px 不变）
   // v7.9：冲刺追加无敌帧。0.10s（6 帧）刚好覆盖「看到攻击抬手 → 按 K 穿过判定框」的反应窗口，
   // 又远短于 dash 总时长 0.28 —— 不会变成「一直按 K 无敌」。取 0.10 而非 0.18 是玩家明确要求：
@@ -836,7 +836,7 @@ const HEROES = {
    v6 §B：数值收编进 BAL.atk/dash/combo（此处仅保留内部符号名，供既有调用点零改动引用）。 */
 const _engAtkCd = BAL.atk.cd;   // 内部：攻击冷却（s）
 const _engAtkDur = BAL.atk.dur;  // 内部：攻击判定框存在时长（s）
-const _engAtkW = BAL.atk.boxW, _engAtkH = BAL.atk.boxH; // 内部：攻击判定框尺寸（身前 18×14）
+const _engAtkW = BAL.atk.boxW, _engAtkH = BAL.atk.boxH; // 内部：攻击判定框尺寸（身前 32×14，v20.5 剑范围）
 const _engDashCd = BAL.dash.cd;   // 内部：冲刺冷却（s）
 const _engDashDur = BAL.dash.dur; // 内部：冲刺总时长（s）——v5 三段：蓄力 0.05/爆发 0.18/滑行 0.05（原 0.18）
 const _engDashV = BAL.dash.v;    // 内部：冲刺水平速度
@@ -854,6 +854,7 @@ const _engKbV = 220, _engKbFric = 600; // 内部：击退速度/摩擦（220²/(
 const _engWindUp = 1900, _engWindCap = 170; // 内部：上升气流加速度/上升终速（净 -400px/s²，设计 §4.1）
 const _engAtkAnim = 0.25;             // 内部：攻击总动画时长（起手 0.05+判定 0.12+余韵 0.08，设计 §2#8）
 const _engAtkWind = 0.05;             // 内部：攻击起手时长（期间无判定）
+const _engDeathMax = 3;               // 内部：v20.5 死亡三振——本关累计阵亡 3 次判负（用户：「一直复活有点赖」）
 
 /* ==================== v7.7 手感常量（内部；对照空洞骑士「动作衔接」逐项） ====================
    攻击输入缓冲：冷却中按下不再直接吞键（原来 0.35s 冷却里狂按只剩「没反应」），
@@ -1165,7 +1166,7 @@ const game = {
   cam: { x: 0, y: 0 }, shake: 0,
   time: 0, deaths: 0, coins: 0, keys: 0, switchState: 0,
   bullets: [], parts: [], sfxQueue: [],
-  respawnAt: null, clearT: 0,
+  respawnAt: null, clearT: 0, failT: 0, // v20.5：failT——失败界面入场/输入延迟计时（同 clearT 语义）
   // v2 P1：input 新增 attack/dash 边沿与持键（ui 写入，engine 只读并消费边沿）
   // v3：追加技能边沿 skillUHit/skillIHit/skillOHit（ui 写、engine 消费并清零，同 attackHit/dashHit）
   // v6：追加 down（按住↓速降，ui 桥接持键）与 skillLHit（技能4 边沿）
@@ -1440,6 +1441,14 @@ function levelClear() {
   // 星级/解锁/存档由 ui 层负责，engine 不碰 localStorage
 }
 
+/* v20.5：失败判负（死亡三振）——本关累计阵亡满 _engDeathMax 次后，死亡演出结束不再 respawn，
+   置 state='fail'，ui 检测后切失败界面（Esc 返回选关，同 clear 的 uiState 流转模式）。
+   存档/星级零接触：失败不是通关，不进结算、不解锁、不计星。 */
+function failLevel() {
+  if (game.state !== 'play') return;
+  game.state = 'fail'; game.failT = 0;
+}
+
 /* ==================== v11：终点封印（内部） ====================
    玩家反馈：「小关可以什么都不干直接位移到最后」——v7.9 把谜题门拆掉后，终点判定退化成
    「碰到旗就过关」，敌人/金币/神龛全部变成可跳过的装饰。这里补一层「封印」，但**不做单条件**：
@@ -1478,9 +1487,11 @@ function _engSealTick(dt) { // 内部：每帧刷新封印计数/开放位 + 防
   const s = game.seal, L = game.level, p = game.player;
   if (!s || !L) return;
   if (s.blockT > 0) s.blockT = Math.max(0, s.blockT - dt); // 弹回提示计时递减
-  /* v11 防卡关兜底：本关死满 5 次说明「这条线他真打不过」——两条硬指标各降 20%（只降一次）。
-     封印是引导玩家体验内容，不是惩罚玩家；继续卡只会劝退。 */
-  if (!s.relaxed && game.deaths >= 5) {
+  /* v11 防卡关兜底：死太多说明「这条线他真打不过」——两条硬指标各降 20%（只降一次）。
+     封印是引导玩家体验内容，不是惩罚玩家；继续卡只会劝退。
+     v20.5：三振制下死满 5 次永远到不了（第 3 次即判负），兜底提前到第 2 次阵亡触发——
+     第 3 次死亡前玩家仍有一次「松绑后翻盘」的机会。 */
+  if (!s.relaxed && game.deaths >= 2) {
     s.relaxed = true;
     s.enemyNeed = Math.max(1, Math.floor(s.enemyNeed * 0.8));
     s.coinNeed = Math.max(1, Math.floor(s.coinNeed * 0.8));
@@ -4499,7 +4510,7 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
 /* ==================== 玩家物理（契约第 3 节算法 1/2/3/7） ==================== */
 function _engUpdatePlayer(dt, L, p) {
   // 死亡冻结 0.9s 后重生（契约算法 12）
-  if (p.dead) { p.deadT += dt; if (p.deadT >= 0.9) respawn(); return; }
+  if (p.dead) { p.deadT += dt; if (p.deadT >= 0.9) { if (game.deaths >= _engDeathMax) failLevel(); else respawn(); } return; } // v20.5：三振判负
 
   /* ---- v19（spec §2.8）：法师法力自然回复 3/s（v20.4：5→3）+ 「法力不足」提示计时 ----
      骑士 usesMana=false ⇒ 本块整段跳过（mana 恒 0，零行为变化/零浮点累加）。 */
