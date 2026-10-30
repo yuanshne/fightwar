@@ -3700,6 +3700,214 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     arm: _whiteVariant(SPR.boss6.arm),
     jaw: _whiteVariant(SPR.boss6.jaw[1])
   };
+
+  /* ==================== v20 地图二 · 五个 Boss 身体 ====================
+     与地图一同一套 _mkV7Boss 装配（body/arm/jaw/eye/core 键集合完全一致，白剪影同构），
+     只换体建器。但体建器**不从网格走**：地图一的六只是动物（龙/判官/牛），必须逐像素搭轮廓；
+     地图二的五只都不是生物形态——炭团、天平、蛹、巨口、铜钟——它们的辨识点就是轮廓本身，
+     用椭圆/梯形/线段三个原语直接画，40 行代码抵 200 行字符串网格，而且改尺寸不用重排。
+
+     五个轮廓刻意在「剪影层面」就互不相同（不看颜色也能分辨）：
+       烬 = 下宽上窄的炭块 + 头顶三缕火；天秤 = 一根立柱挑着横梁与两只盘；
+       茧 = 竖椭圆 + 底部六足；喉 = 横椭圆 + 中央黑洞巨口；钟 = 上窄下宽的钟形 + 钟口摆锤。 */
+  function _m2Tool(W, H) { // 内部：几何原语（全部整数坐标 + 硬边，保持像素感）
+    const c = _makeCanvas(W, H), g = c.getContext('2d');
+    const R = function (x, y, w, h, col) {
+      if (w <= 0 || h <= 0) return;
+      g.fillStyle = col; g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    };
+    const E = function (cx, cy, rx, ry, col) { // 实心椭圆（逐行 fillRect：边缘是 1px 台阶，不是抗锯齿）
+      g.fillStyle = col;
+      for (let y = -ry; y <= ry; y++) {
+        const tt = 1 - (y * y) / (ry * ry); if (tt <= 0) continue;
+        const w = Math.round(rx * Math.sqrt(tt));
+        g.fillRect(Math.round(cx - w), Math.round(cy + y), w * 2 + 1, 1);
+      }
+    };
+    const L = function (x0, y0, x1, y1, col, t) { // Bresenham 线段（t=线宽，1~3）
+      g.fillStyle = col;
+      let x = Math.round(x0), y = Math.round(y0);
+      const xe = Math.round(x1), ye = Math.round(y1);
+      const dx = Math.abs(xe - x), dy = Math.abs(ye - y);
+      const sx = x < xe ? 1 : -1, sy = y < ye ? 1 : -1;
+      let err = dx - dy, guard = 0;
+      while (guard++ < 400) {
+        g.fillRect(x, y, t || 1, t || 1);
+        if (x === xe && y === ye) break;
+        const e2 = err * 2;
+        if (e2 > -dy) { err -= dy; x += sx; }
+        if (e2 < dx) { err += dx; y += sy; }
+      }
+    };
+    return { c: c, g: g, R: R, E: E, L: L };
+  }
+
+  function _m2Pal(main, dark, lite, glow, hot) { // 内部：一套 body 调色板（常态 + 狂暴自动派生）
+    return {
+      b:  { k: '#0a0810', d: dark, m: main, l: lite, g: glow, y: hot, w: '#fff8e8' },
+      // 狂暴：主色直接换成 hot —— 地图一的狂暴是"更红"，这里保持同一口径（换色不换形）
+      bR: { k: '#06040a', d: dark, m: hot, l: glow, g: '#ffffff', y: '#ffffff', w: '#ffffff' },
+      e:  { k: '#0a0810', e: glow, w: '#fff8e8' },
+      eR: { k: '#06040a', e: hot, w: '#ffffff' },
+      u:  { k: '#0a0810', p: '#06040a' },
+      c1: { k: '#0a0810', C: glow, c: main, W: '#fff8e8' },
+      c2: { k: '#0a0810', C: main, c: dark, W: glow },
+      c1r: { k: '#06040a', C: hot, c: main, W: '#ffffff' },
+      c2r: { k: '#06040a', C: main, c: hot, W: '#ffffff' },
+      // 眼/核心的内缘描边色（_glow 的 rim 参数；缺了只会"不发光"，不报错，所以必须显式给）
+      eyeRim: glow, coreRim: hot
+    };
+  }
+
+  function _buildEmberBody(pal) { // 烬 44×40：下宽上窄的炭块 + 头顶三缕火 + 胸口裂纹
+    const t = _m2Tool(44, 40), R = t.R, E = t.E, L = t.L;
+    // ① 火苗（身后层）：三缕，芯白 → 金 → 橙
+    const fl = [[13, 5, 6], [21, 0, 8], [29, 4, 6]];
+    for (let i = 0; i < fl.length; i++) {
+      R(fl[i][0], fl[i][1] + 4, 2, fl[i][2], pal.g);
+      R(fl[i][0], fl[i][1] + 1, 2, fl[i][2] - 3, pal.y);
+      R(fl[i][0] + 1, fl[i][1], 1, 2, '#fff0c0');
+    }
+    // ② 身体：四层椭圆叠出炭块的堆叠感（越上越亮）
+    E(22, 33, 15, 7, pal.k);
+    E(22, 30, 14, 9, pal.d);
+    E(22, 26, 12, 10, pal.m);
+    E(20, 23, 9, 8, pal.l);
+    // ③ 头：与身体连成一体（不做脖子——炭块是一坨，分开画就成了雪人）
+    E(22, 14, 8, 7, pal.m);
+    E(20, 12, 5, 4, pal.l);
+    // ④ 眼：两条横向白热缝。✗ 不用圆眼——圆眼在 3× 下会被读成史莱姆
+    R(16, 13, 5, 2, pal.g); R(24, 13, 5, 2, pal.g);
+    R(17, 13, 4, 1, pal.y); R(25, 13, 4, 1, pal.y);
+    // ⑤ 裂纹：胸口往下三道橙缝（第三条向右下分叉）
+    L(22, 20, 20, 28, pal.g); L(20, 28, 17, 35, pal.g); L(21, 25, 27, 33, pal.g);
+    L(22, 20, 21, 26, pal.y);
+    // ⑥ 臂：短炭臂，末端带一点未熄的火
+    R(4, 24, 5, 8, pal.d); R(5, 23, 4, 2, pal.m);
+    R(35, 24, 5, 8, pal.d); R(35, 23, 4, 2, pal.m);
+    R(4, 31, 5, 3, pal.g); R(35, 31, 5, 3, pal.g);
+    return t.c;
+  }
+
+  function _buildScaleBody(pal) { // 双生天秤 48×44：底座 + 立柱 + 横梁 + 两只盘 + 中央一只眼
+    const t = _m2Tool(48, 44), R = t.R, E = t.E, L = t.L;
+    // ① 底座：四层递减石台（吃地面）
+    R(9, 42, 30, 2, pal.k);
+    R(11, 40, 26, 2, pal.d);
+    R(14, 38, 20, 2, pal.m);
+    R(17, 36, 14, 2, pal.l);
+    // ② 立柱 + 受光棱
+    R(22, 14, 4, 22, pal.d); R(22, 14, 1, 22, pal.l);
+    // ③ 横梁（金）：两端各压一点暗，读作"被盘坠着"
+    R(5, 12, 38, 2, pal.y); R(5, 12, 38, 1, '#fff0b0');
+    R(5, 13, 6, 1, pal.d); R(37, 13, 6, 1, pal.d);
+    // ④ 吊链 + 秤盘
+    R(7, 14, 1, 6, pal.m); R(40, 14, 1, 6, pal.m);
+    E(7, 22, 5, 2, pal.y); E(40, 22, 5, 2, pal.y);
+    R(2, 20, 11, 1, pal.k); R(35, 20, 11, 1, pal.k);
+    // ⑤ 中央独眼（横缝 + 竖瞳）：天秤没有脸，这一只眼就是它的"人格"
+    R(18, 19, 12, 5, pal.k);
+    R(20, 20, 8, 3, pal.g);
+    R(23, 19, 2, 5, pal.k);
+    R(21, 21, 2, 1, pal.y);
+    return t.c;
+  }
+
+  function _buildHuskBody(pal) { // 茧 56×48：竖椭圆 + 底部六足 + 缠绕丝线 + 中缝发光
+    const t = _m2Tool(56, 48), R = t.R, E = t.E, L = t.L;
+    // ① 六足（底层，先画）
+    const legs = [[16, 38, 7, 47], [21, 41, 16, 47], [26, 43, 24, 47],
+                  [30, 43, 32, 47], [35, 41, 40, 47], [40, 38, 49, 47]];
+    for (let i = 0; i < legs.length; i++) L(legs[i][0], legs[i][1], legs[i][2], legs[i][3], pal.k, 2);
+    // ② 茧体：四层竖椭圆
+    E(28, 27, 17, 18, pal.k);
+    E(28, 26, 16, 17, pal.d);
+    E(27, 24, 14, 15, pal.m);
+    E(24, 20, 9, 10, pal.l);
+    // ③ 丝线：三道横向缠绕（暗线 + 亮线成对，才有"缠"的体积）
+    for (const yy of [16, 26, 35]) {
+      L(12, yy + 3, 44, yy - 3, pal.k, 2);
+      L(13, yy + 3, 43, yy - 2, pal.l);
+    }
+    // ④ 中缝：竖向锯齿，缝里发光（这是"里面在孵"的唯一视觉证据）
+    const zz = [[28, 8], [25, 14], [29, 20], [26, 27], [28, 34]];
+    for (let i = 0; i < zz.length - 1; i++) {
+      L(zz[i][0], zz[i][1], zz[i + 1][0], zz[i + 1][1], '#1a0a10', 3);
+      L(zz[i][0], zz[i][1] + 1, zz[i + 1][0], zz[i + 1][1], pal.g, 1);
+    }
+    // ⑤ 眼：缝上端两点金黄（藏在裂缝里，不额外开脸）
+    R(23, 12, 3, 2, pal.y); R(30, 12, 3, 2, pal.y);
+    return t.c;
+  }
+
+  function _buildMawBody(pal) { // 喉 56×44：横椭圆肉团 + 中央黑洞巨口 + 一圈牙 + 侧眼
+    const t = _m2Tool(56, 44), R = t.R, E = t.E, L = t.L;
+    // ① 触须（底层）
+    L(10, 30, 2, 41, pal.d, 2); L(15, 33, 7, 43, pal.d, 2);
+    L(46, 30, 54, 41, pal.d, 2); L(41, 33, 49, 43, pal.d, 2);
+    // ② 肉团：四层横椭圆（比茧更扁更宽——"喉咙"应该是横向的）
+    E(28, 27, 23, 15, pal.k);
+    E(28, 25, 22, 14, pal.d);
+    E(26, 22, 18, 11, pal.m);
+    E(21, 18, 10, 6, pal.l);
+    // ③ 巨口：纯黑洞（不画底），上下两排牙
+    E(28, 27, 13, 9, '#060208');
+    E(28, 27, 10, 6, '#000000');
+    for (let i = 0; i < 6; i++) {
+      R(17 + i * 4, 19, 2, 3, pal.w);          // 上排
+      R(17 + i * 4, 33, 2, 3, pal.w);          // 下排
+      R(18 + i * 4, 21, 1, 1, pal.k);
+      R(18 + i * 4, 33, 1, 1, pal.k);
+    }
+    // ④ 侧眼：两只很小的金点（大眼会抢掉巨口的注意力）
+    R(8, 15, 4, 3, pal.k); R(9, 16, 2, 2, pal.g);
+    R(44, 15, 4, 3, pal.k); R(45, 16, 2, 2, pal.g);
+    return t.c;
+  }
+
+  function _buildBellBody(pal) { // 钟 48×52：吊环 + 梯形钟体 + 钟口 + 内部摆锤
+    const t = _m2Tool(48, 52), R = t.R, E = t.E, L = t.L;
+    // ① 吊环
+    R(20, 0, 8, 2, pal.k); R(21, 2, 6, 3, pal.d); R(22, 3, 4, 2, pal.l);
+    // ② 钟体：逐行梯形（k^0.7 让下摆外扩更急，读作"钟"而不是"金字塔"）
+    for (let y = 6; y < 44; y++) {
+      const k = (y - 6) / 38;
+      const half = Math.round(6 + 16 * Math.pow(k, 0.7));
+      R(24 - half, y, half * 2, 1, (y < 13 || (y > 20 && y < 24)) ? pal.l : (y > 37 ? pal.d : pal.m));
+    }
+    // ③ 左右缘：左受光 1px / 右阴影 2px（没有这两条，梯形在暗底上是一块死板）
+    for (let y = 8; y < 42; y++) {
+      const k = (y - 6) / 38, half = Math.round(6 + 16 * Math.pow(k, 0.7));
+      R(24 - half, y, 1, 1, pal.y);
+      R(24 + half - 1, y, 2, 1, pal.k);
+    }
+    // ④ 钟口：底缘外扩 + 内部全黑（摆锤要能看见，所以口内不能填满）
+    R(4, 44, 40, 2, pal.d); R(2, 46, 44, 2, pal.k);
+    R(8, 42, 32, 2, '#0a0810');
+    // ⑤ 摆锤：从钟内垂下的金杆 + 锤头
+    R(23, 30, 2, 13, pal.y); E(24, 43, 5, 4, pal.y);
+    R(22, 41, 4, 2, '#fff0b0');
+    // ⑥ 钟身中央一只竖眼（符文孔）：它"看"得见你在哪一侧
+    R(21, 16, 6, 7, '#0a0810'); R(23, 17, 2, 5, pal.g); R(23, 18, 2, 1, pal.y);
+    return t.c;
+  }
+
+  /* 装配：键集合与 SPR.boss2~6 逐字一致（body/bodyRage/arm/jaw/eye/core 全套），
+     ui 侧 renderBoss 的取键路径不需要为地图二开分支。 */
+  SPR.boss7 = _mkV7Boss(_buildEmberBody, _m2Pal('#3a2a30', '#241a20', '#5a4448', '#f86038', '#f8a030'));
+  SPR.boss8 = _mkV7Boss(_buildScaleBody, _m2Pal('#6a6878', '#3a3a48', '#9a98b0', '#f8d048', '#fff0a0'));
+  SPR.boss9 = _mkV7Boss(_buildHuskBody, _m2Pal('#5a6838', '#3a4028', '#8a9058', '#a8d048', '#e8f0a0'));
+  SPR.boss10 = _mkV7Boss(_buildMawBody, _m2Pal('#3a1830', '#22101e', '#5a2848', '#8a58d8', '#c8a0f0'));
+  SPR.boss11 = _mkV7Boss(_buildBellBody, _m2Pal('#6a5428', '#3a2e18', '#a88838', '#f8d048', '#fff0a0'));
+  // 白剪影三件（受击闪白）：五只同构，缺了会在受击帧露出原色——地图一的六只都有，这里补齐
+  for (const k of ['boss7', 'boss8', 'boss9', 'boss10', 'boss11']) {
+    const S = SPR[k];
+    SPR[k + 'White'] = {
+      body: _whiteVariant(S.body[0]),
+      arm: _whiteVariant(S.arm),
+      jaw: _whiteVariant(S.jaw[1])
+    };
+  }
   // v13：三件新危险物素材（spec §七 尺寸逐字：16×16 / 24×32 / 24×64）——生成后立即冻结；
   //   既有 SPR 键一律不动（ui 侧按 (SPR.xxx || 程序化兜底) 取用）。
   SPR.bomb = _frozenSpr(_makeSprite(_BOMB, _P_BOMB));
@@ -3758,7 +3966,22 @@ const THEMES = {
   sea: _th('东海龙宫', '#1a5ac8', '#7ed8f0', '#2a7ac0', '#d8c8a0', '#6a4a30', '#ffd870',
     ['coral', 'shell', 'kelp'], '#c8f0ff', '#a8e0f0', { speck: '#f8f0c8' }),
   nether: _th('幽冥地府', '#101828', '#2c3448', '#3a3450', '#68e8a0', '#5a4a6a', '#f86048',
-    ['ghostflame', 'bone', 'skull'], '#88e8b0', '#3a9a6c', { dark: true })
+    ['ghostflame', 'bone', 'skull'], '#88e8b0', '#3a9a6c', { dark: true }),
+  /* ---- v20 地图二·回响之厅：五关各一套主题 ----
+     五关都是纯 Boss 场，主题只承担「进关第一眼就知道换地方了」这一件事，
+     所以全部复用已有母题（_TILE_MOTIF 按 key 取，缺 key 有兜底），只换色板与装饰。
+     刻意不新增母题函数：五套新母题要写五次 16×16 像素循环，收益只有"瓦片图案不同"，
+     而这五关的视觉重心 100% 在 Boss 身上（体型 44~56px，占屏 1/8）。 */
+  ember: _th('余烬回廊', '#2a0e18', '#5a2018', '#3a2630', '#c85028', '#6a3028', '#f8a030',
+    ['torch', 'skull', 'boulder', 'flamepillar', 'stalagmite', 'torch'], '#f8b078', '#f86038', { dark: true }),
+  aether: _th('天秤圣所', '#3a3a58', '#9a98b8', '#6a6878', '#e8d8a8', '#8a7860', '#f8d048',
+    ['chain', 'lamp', 'crystal', 'barrel', 'gear', 'chain'], '#e8e0c8', '#f8d048'),
+  husk: _th('孵化之室', '#1a2418', '#3a4a2c', '#3a4030', '#5a7838', '#4a3a28', '#a8d048',
+    ['stalagmite', 'mushroom', 'glowworm', 'chain', 'stalagmite'], '#b8e878', '#68a038', { dark: true }),
+  maw: _th('无声之喉', '#080a12', '#182030', '#22283a', '#3a4a5a', '#2a2a38', '#58e8f0',
+    ['chain', 'skull', 'stalagmite', 'glowworm', 'chain'], '#88c8d8', '#58e8f0', { dark: true }),
+  bell: _th('终末钟楼', '#10141c', '#2a3038', '#3a3630', '#8a7038', '#5a4a30', '#f8d048',
+    ['lamp', 'chain', 'gear', 'barrel', 'lamp'], '#d8c890', '#f8d048', { dark: true })
 };
 
 /* ==================== 内部：主题材质母题（画进瓦片本体，v5 三阶 cel 硬边） ==================== */

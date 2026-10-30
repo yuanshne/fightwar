@@ -26,7 +26,8 @@ function need(src, names, label) {
 // 返回 null=levels.js 契约块未合入（CHAPTERS.push 会 ReferenceError，禁止拼接）。
 function chapterState() {
   const hasContract = /const CHAPTERS/.test(read('levels.js'));
-  const files = ['chapter2.js', 'chapter3.js'].filter(f => fs.existsSync(path.join(ROOT, f)));
+  // v20：chapter4.js（地图二 · 回响之厅，5 关全 Boss）——同一拼接口径，文件不存在则整章跳过
+  const files = ['chapter2.js', 'chapter3.js', 'chapter4.js'].filter(f => fs.existsSync(path.join(ROOT, f)));
   return { hasContract: hasContract, n: files.length, src: files.map(f => read(f)).join('\n') };
 }
 // ---- v4 数独校验辅助（界面队；仅 gate 内部使用，不属游戏导出） ----
@@ -176,8 +177,8 @@ try {
     for (const bi of bossIdxs) {
       const meta = sandbox.ALL_LEVELS[bi];
       const kind = meta.boss === true ? 1 : meta.boss; // v7 §6.1：boss:true≡kind1
-      if (!(kind >= 1 && kind <= 6)) {   // v7.9：值域扩到 5（4=冥古龙 5=曜光·圣裁者，终章双 Boss）；v12：再扩到 6（L19 牛魔王）
-        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2|3|4|5|6）');
+      if (!(kind >= 1 && kind <= 11)) {   // v7.9：扩到 5；v12：扩到 6（L19 牛魔王）；v20：扩到 11（地图二 L20~L24）
+        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2..11）');
         process.exit(1);
       }
       sandbox.loadLevel(bi, false);
@@ -196,7 +197,8 @@ try {
         console.error('L' + (bi + 1) + ' Boss kind 违约: 实际 ' + g.boss.kind + '（应 ' + kind + '）');
         process.exit(1);
       }
-      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3, SBAL.boss4, SBAL.boss5, SBAL.boss6][kind - 1].hp; // v7 §1.5：maxHp 与参数表一致（v7.9 扩到 5 表，v12 扩到 6 表）
+      const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3, SBAL.boss4, SBAL.boss5, SBAL.boss6,
+                      SBAL.boss7, SBAL.boss8, SBAL.boss9, SBAL.boss10, SBAL.boss11][kind - 1].hp; // v7.9：扩到 5 表；v12：扩到 6；v20：扩到 11
       if (g.boss.maxHp !== wantHp) {
         console.error('L' + (bi + 1) + ' Boss maxHp 违约: 实际 ' + g.boss.maxHp + '（应 BAL 表 ' + wantHp + '）');
         process.exit(1);

@@ -897,3 +897,58 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 ### 测试
 - `tools/_v19_mage_test.js`（12 组）+ `tools/_v19_shots.py`（5 张实机截图）；
   `gate.js` Boss 冒烟 `hp < 5` → `hp < (g.player.maxHp || 5)`（knight 等价，mage 4 血不误报）。
+
+## v20 · 地图二「回响之厅」（L20~L24，五关全 Boss）
+
+设计真值：`docs/specs/2026-10-30-v20-map2-boss.md`。这里只列**契约级**约束。
+
+### 章节与关卡数据
+
+- `chapter4.js` 顶层 `CHAPTERS.push({id:4,name:'地图二·回响之厅',levels:[L20..L24]})`，
+  由 `levels.js` 的 `aggregateLevels()` 统一聚合（幂等）；`index.html` 的 script 顺序为
+  `art → levels → chapter2/3/4 → engine → ui`，**chapter4 必须在 engine 之前**。
+- `meta.boss` 值域 `[true,2,...,11]`：`levels.js` 白名单与 `tools/gate.js` 的 kind 判断必须同步扩。
+  加一章不改这两处 = `validateLevels` 与 engine 门禁双红。
+- 五关场地口径统一：全场地板（Boss 战不许踩空）、锚点距出生点 > `actDist`（保持 dormant）、
+  中间不放柱子/高台（两只 Boss 的解法依赖绕场跑）、检查点 1 个在 Boss 门前、3 只 `'W'` 史莱姆作 O 充能饲料。
+
+### Boss 表（`BAL.boss7`~`boss11`）
+
+- 逐字表见 spec §二；`_engBossTable(kind)` 单点选表，**禁止第二份状态机 switch**（R4）。
+- 公共层不变：`barrage` + `nova`。五只彼此之间、以及与 boss1~6 的池求交集，除这两招外必须为空。
+- 新增 `poolNear/poolFar` 只允许出现本表登记过的招名。
+
+### 机制挂点（只有两处，别加第三处）
+
+1. **承伤侧** `_engBossHurt(dmg,isUlt)`：攻击/星陨/连斩/法师弹体四条支线全走它。
+   - kind7：`game.heat += real × heat.perDmg`
+   - kind8：按玩家相对 Boss 中心方位累计 `b.skew`（换边 ×goodMul / 同侧到 ±max 偷回 healPct% 总血）
+   - kind11：谱上非休止拍 `return false`（完全免伤）；休止拍 ×restMul
+   - ⚠️ 该函数内 `const p = game.player` 此前漏声明（kind8 分支引用 `p` 会 ReferenceError），
+     v20 已补——以后在这个函数里用玩家位置，直接用这个 `p`，别再另起。
+2. **出招侧** `_engBossPick` 顶部 `if (b.kind === 11) { _engBossScore(b); return; }`。
+   曲谱固定可背，连 P2 连段也不许插进来（`comboQ` 写成单招，长度 1）。
+
+### hazards 类型清单（v20 追加）
+
+`meteor / spike / homing / clone / pull / ward / pillar / core / quellBlast / mirror / pushwall / bomb / mist / totem`
+**＋ `laser / weight / hammer / crawler / egg / web`**。
+
+- 一律进 `game.hazards`，**不许新建数组**——跨段清场、Boss 死亡清场、玩家复活清场三条规则要自动继承。
+- 落点在**前摇结束那一帧**锁定（`landX` / `pendDir`），与 `leap` 同口径。
+- `egg` 的受击分工：攻击路径只扣 `hp`（白名单加 `'egg'`，**绝不 splice**），收尸/进化在 `_engUpdateHazards`。
+- 减速只能复用 `p.mistT`/`p.mistSlow`（唯一乘数），`web` 额外置 `p.webNoJump`；再开一条通道就是叠乘 bug。
+
+### UI 对齐
+
+- `_bossIdx` 上限 5→10；`BOSS_NAME`/`BOSS_P2TIP`/三处部件表扩到 11 项，逐档回落。
+- `renderBossWindupFx` 新增 15 个 case；`renderBossCastFx`（新增）负责持续型 Cast 态的形体
+  （前摇一结束就整块不画 = 玩家看不到摆锤）。
+- 选关屏 4 章走压缩档（`CH_HEAD_Y4`/`CH_CARD_Y4`，章头 10px、卡 46×30、行距 44）；
+  原 62 行距在 224 画布上放不下第 4 行。`_chLayout()` 是渲染与命中共用的唯一版式来源。
+- 五种新 hazards 各有绘制函数（`_hzLaser/_hzDrop/_hzCrawler/_hzEgg/_hzWeb`），图形本身要说清躲法。
+
+### 测试
+
+- `tools/_v20_boss_test.js`（44 条：去同质化矩阵 / 热量 / 方位 / 卵 / 吞弹 / 曲谱 / 清场）。
+- `tools/_v20_shots.py`（零 pageerror + 四章选关 / 五只本体 / 12 个前摇 / 五种实体）。

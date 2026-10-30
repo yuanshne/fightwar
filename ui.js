@@ -1188,7 +1188,7 @@ function computeHover(){
     chsLoop:for(const ch of _chapters()){
       for(let j=0;j<ch.len;j++){
         const xy=_cardXY(ch,j);
-        if(ptIn(mx,my,xy[0],xy[1],46,44)){hover='select:'+(ch.first+j);break chsLoop;}
+        if(ptIn(mx,my,xy[0],xy[1],46,_chLayout().h)){hover='select:'+(ch.first+j);break chsLoop;}
       }
     }
   }else if(uiState==='play'&&game.level){
@@ -1915,6 +1915,11 @@ function renderHazards(tick,camX,camY){
     else if(h.kind==='bomb')_hzBomb(h,tick,ox,oy);           // v13 §六：弹跳炸弹
     else if(h.kind==='mist')_hzMist(h,tick,ox,oy);           // v13 §六：水雾区
     else if(h.kind==='totem')_hzTotem(h,tick,ox,oy);         // v16 §三：圣像审判（地面物件，画在上层）
+    else if(h.kind==='laser')_hzLaser(h,tick,ox,oy);         // v20 §二：灼视线 / 横梁
+    else if(h.kind==='weight'||h.kind==='hammer')_hzDrop(h,tick,ox,oy); // v20 §二：砝码 / 钟锤
+    else if(h.kind==='crawler')_hzCrawler(h,tick,ox,oy);     // v20 §二：虫群
+    else if(h.kind==='egg')_hzEgg(h,tick,ox,oy);             // v20 §二：虫卵（三阶同体）
+    else if(h.kind==='web')_hzWeb(h,tick,ox,oy);             // v20 §二：蛛网（减速+禁跳）
   }
 }
 
@@ -2191,7 +2196,11 @@ function _hzQuellBlast(h,tick){
 function _hzBossParts(){ // 内部：Boss 部件组（与 renderBoss 同一档回落链，缺失返回 null 不抛）
   try{
     const P=[SPR.boss,SPR.boss2,SPR.boss3,SPR.boss4||SPR.boss3,SPR.boss5||SPR.boss4||SPR.boss3,
-             SPR.boss6||SPR.boss4||SPR.boss3][_bossIdx((game.boss||{}).kind)];
+             SPR.boss6||SPR.boss4||SPR.boss3,
+             // v20：地图二五只（逐档回落口径不变——素材缺失时退到最近一只，绝不返回 undefined）
+             SPR.boss7||SPR.boss6||SPR.boss3, SPR.boss8||SPR.boss6||SPR.boss3,
+             SPR.boss9||SPR.boss6||SPR.boss3, SPR.boss10||SPR.boss6||SPR.boss3,
+             SPR.boss11||SPR.boss6||SPR.boss3][_bossIdx((game.boss||{}).kind)];
     return P||SPR.boss||null;
   }catch(e){return null;}
 }
@@ -2489,6 +2498,205 @@ function _hzTotem(h,tick,ox,oy){
   ctx.restore();
 }
 
+/* ==================== v20 地图二 · 五种新场地实体 ====================
+   引擎把 laser / weight / hammer / crawler / egg / web 全塞进 game.hazards（继承跨段·死亡·复活三条清场），
+   ui 侧零绘制等于玩家看不见——这些必须画，而且图形要自己说清「怎么躲」：
+     激光 = 一条横线（离开那条线 / 跳过去）· 落物 = 影子先到（离开影子）· 虫 = 贴地小点（跳）
+     卵 = 会变的东西（早打只是提前放出来）· 网 = 一片地面区域（别进去）
+   全部只读字段，不改引擎状态；字段缺失一律按默认值兜底，绝不抛。 */
+
+// ① 激光（sear 灼视线 / beam 横梁）：细长矩形，存续 dur。t/dur 是唯一时间读数。
+// sear 是「从眼里射出的一段」（发射端带聚能点），beam 是「整屏压下来的一条」（两端加铆钉），
+// 同实体两种画法——玩家一眼能分出「该左右闪」还是「该跳」。
+function _hzLaser(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),y=px(h.y-(+oy||0));
+  const w=Math.max(2,+h.w||2),hh=Math.max(2,+h.h||10);
+  const t=Math.max(0,+h.t||0),dur=Math.max(0.05,+h.dur||0.4);
+  const k=clamp(t/dur,0,1);                  // 0=刚射出 1=快消失
+  const fade=k>0.75?clamp((1-k)/0.25,0,1):1; // 最后 25% 淡出（硬消失会让玩家以为漏帧）
+  const warm=h.beam?'#f8d048':'#f86038';     // 横梁金 / 灼视橙红
+  ctx.save();
+  ctx.globalAlpha=0.16*fade;ctx.fillStyle=warm;              // 外层光晕（硬边，不用 shadowBlur）
+  ctx.fillRect(x,y-hh*0.5,w,hh*2);
+  ctx.globalAlpha=(0.55+0.35*Math.sin((+tick||0)*1.4))*fade; // 抖动：读成「能量」而不是「墙」
+  ctx.fillStyle=warm;ctx.fillRect(x,y,w,hh);
+  ctx.globalAlpha=0.95*fade;ctx.fillStyle='#fff4d0';         // 白热芯：只占中间 40%
+  ctx.fillRect(x,y+Math.round(hh*0.3),w,Math.max(1,Math.round(hh*0.4)));
+  ctx.globalAlpha=fade;
+  if(h.beam){ctx.fillStyle='#a88010';ctx.fillRect(x,y-1,2,hh+2);ctx.fillRect(x+w-2,y-1,2,hh+2);}
+  else{const d=(+h.dir||1)>0?0:w;ctx.fillStyle='#ffd0a0';ctx.fillRect(x+d-2,y-2,4,hh+4);}
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ② 落物（weight 砝码 / hammer 钟锤）：warnT>0 时本体还在天上看不见，**影子就是全部信息**——
+// 影子从大收到 r、颜色从淡到实，地面再给一圈落点环；fall 后画本体 + 竖直尾迹。
+function _hzDrop(h,tick,ox,oy){
+  if(!h)return;
+  const isH=h.kind==='hammer',r=Math.max(4,+h.r||12);
+  const cx=px(h.x-(+ox||0));
+  const gy=px(_hzGroundAt(h.x,0)-(+oy||0));   // 落点地面线（h.y 在天上，不能拿来当地面）
+  const warm=isH?'#f8d048':'#c8a8ff',dark=isH?'#8a6810':'#6a4a9a';
+  ctx.save();
+  const wt=+h.warnT||0;
+  if(wt>0){                                            // 预警：影缩 + 落点环 + 下坠虚线
+    const k=clamp(wt/Math.max(0.05,+h.warn||0.7),0,1); // 1→0（越近落地 k 越小）
+    const rr=r*(0.55+0.45*k);
+    ctx.globalAlpha=0.30+0.42*(1-k);ctx.fillStyle=dark;   // 影子是「落点」的唯一读数，压得实一点
+    ctx.beginPath();
+    if(ctx.ellipse)ctx.ellipse(cx,gy,rr,Math.max(1,rr*0.34),0,0,Math.PI*2);
+    else ctx.arc(cx,gy,rr,0,Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha=0.55+0.40*(1-k);ctx.strokeStyle=dark;ctx.lineWidth=1;   // 1px 暗描边：亮地面也抠得出轮廓
+    ctx.stroke();
+    ctx.globalAlpha=0.45+0.45*(1-k);ctx.strokeStyle=warm;ctx.lineWidth=1.5;
+    if(ctx.setLineDash)ctx.setLineDash([3,2]);
+    ctx.beginPath();ctx.arc(cx,gy,r+3+k*5,0,Math.PI*2);ctx.stroke();
+    if(ctx.setLineDash)ctx.setLineDash([]);
+    ctx.globalAlpha=0.30+0.30*(1-k);ctx.fillStyle=warm;  // 竖直下坠虚线：把「从上面来」说清
+    for(let i=0;i<4;i++)ctx.fillRect(cx-1,gy-14-i*9,2,4);
+    ctx.globalAlpha=1;return ctx.restore();
+  }
+  const cy=px((+h.y||0)-(+oy||0))+r;                    // 本体圆心（y 是顶边）
+  ctx.globalAlpha=0.30;ctx.fillStyle=warm;              // 尾迹
+  for(let i=1;i<=3;i++)ctx.fillRect(cx-r*0.5,cy-r*0.5-i*7,Math.max(1,r*0.5),6);
+  ctx.globalAlpha=1;
+  if(isH){                                              // 钟锤：锤头 + 锤柄 + 高光
+    ctx.fillStyle='#4a4230';ctx.fillRect(cx-1,cy-r-8,3,8);
+    ctx.fillStyle=warm;ctx.fillRect(cx-r,cy-r*0.5,r*2,r);
+    ctx.fillStyle='#ffe89a';ctx.fillRect(cx-r+2,cy-r*0.5+2,r*2-4,2);
+    ctx.fillStyle=dark;ctx.fillRect(cx-r,cy+r*0.5-3,r*2,3);
+  }else{                                                // 砝码：圆盘 + 提钮（与天秤同色系）
+    ctx.fillStyle=dark;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=warm;ctx.beginPath();ctx.arc(cx,cy,r-2,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f0e4ff';ctx.beginPath();ctx.arc(cx-r*0.3,cy-r*0.3,r*0.34,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=dark;ctx.fillRect(cx-2,cy-r-3,4,3);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ③ 虫群（茧·swarm）：10×8 贴地爬，腿按 t 摆（t 由引擎累加，自然不同步）。
+// 判定框宽 10，视觉画到 12 宽——宁可视宽，别让玩家觉得「明明没碰到」。
+function _hzCrawler(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),y=px(h.y-(+oy||0));
+  const w=Math.max(4,+h.w||10),hh=Math.max(4,+h.h||8);
+  const t=+h.t||0,dir=(+h.vx||1)>=0?1:-1;
+  const cx=x+w/2,cy=y+hh/2;
+  ctx.save();
+  ctx.globalAlpha=0.22;ctx.fillStyle='#68c060';                 // 贴地暗影：读成「踩在地上」
+  ctx.fillRect(x-1,y+hh-1,w+2,2);
+  ctx.globalAlpha=1;
+  ctx.fillStyle='#3a5a30';ctx.fillRect(cx+(dir>0?w*0.4:-w*0.4),cy-hh*0.5,2,3); // 尾钩
+  ctx.fillStyle='#68c060';                                      // 身体
+  ctx.beginPath();ctx.arc(cx,cy,hh*0.5,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#8ae07a';ctx.beginPath();ctx.arc(cx+dir*2,cy-1,hh*0.32,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#2a3a22';                                      // 三对足（按 t 摆）
+  for(let i=0;i<3;i++){const ph=Math.sin(t*22+i*2.1)*1.5;ctx.fillRect(cx+(i-1)*3,cy-2+i*2+ph,1,3);}
+  ctx.fillStyle='#f86048';ctx.fillRect(cx+dir*3,cy-2,2,1);      // 红眼：唯一的暖色点＝危险标记
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+// ④ 虫卵（茧·spawn）：三阶同体——0 卵 / 1 幼虫 / 2 成虫。
+// 关键读数是「还要多久蜕变」（t/stageT），画一整圈进度弧；快蜕变时弧闪，闪完就升级。
+// hp 用 3px 点（2/3/5 血都数得清），受击 flashT 压白——与圣像同一套读数语言。
+function _hzEgg(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),y=px(h.y-(+oy||0));
+  const w=Math.max(6,+h.w||16),hh=Math.max(6,+h.h||16);
+  const cx=x+w/2,cy=y+hh/2,stage=clamp(+h.stage|0,0,2);
+  const t=Math.max(0,+h.t||0),st=Math.max(0.2,+h.stageT||3);
+  const k=clamp(t/st,0,1),T=+tick||0;
+  ctx.save();
+  ctx.globalAlpha=0.25;ctx.fillStyle='#2a2016';                 // 落地影
+  ctx.beginPath();ctx.arc(cx,y+hh-1,w*0.36,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;
+  if(stage===0){                                                // 卵：椭球 + 裂纹
+    ctx.fillStyle='#7a6a50';ctx.beginPath();ctx.arc(cx,cy,w*0.40,0,Math.PI*2);ctx.fill(); // 暗底：亮背景也不糊
+    ctx.fillStyle='#c8b898';ctx.beginPath();ctx.arc(cx,cy,w*0.34,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#e8dcc0';ctx.beginPath();ctx.arc(cx-1,cy-1,w*0.22,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#5a4a30';                                    // 三道裂纹（随 k 变长＝要裂了）
+    ctx.fillRect(cx-3,cy-4,1,2+Math.round(k*2));
+    ctx.fillRect(cx+2,cy-2,1,2+Math.round(k*3));
+    ctx.fillRect(cx-1,cy+2,1,1+Math.round(k*2));
+  }else if(stage===1){                                          // 幼虫：扁身 + 背线 + 单眼
+    ctx.fillStyle='#9ad070';
+    ctx.beginPath();
+    if(ctx.ellipse)ctx.ellipse(cx,cy,w*0.34,hh*0.26,0,0,Math.PI*2);
+    else ctx.arc(cx,cy,w*0.30,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle='#c8e070';ctx.fillRect(cx-w*0.3,cy-2,w*0.6,2);
+    ctx.fillStyle='#2a3a22';ctx.fillRect(cx+w*0.22,cy-1,2,2);
+  }else{                                                        // 成虫：深琥珀宽身 + 双颚 + 翅纹
+    // ✗ 不要用亮金 #f8c048 当主色：场景里金币/史莱姆也是金球，成虫会读成"又一枚金币"。
+    // 深琥珀底 + 亮脊 + 两个黑颚三角，剪影上先读成"虫"，再读成"值钱的虫"。
+    ctx.fillStyle='#8a6a20';
+    ctx.beginPath();
+    if(ctx.ellipse)ctx.ellipse(cx,cy,w*0.46,hh*0.30,0,0,Math.PI*2);
+    else ctx.arc(cx,cy,w*0.42,0,Math.PI*2);
+    ctx.fill();
+    ctx.fillStyle='#f8c048';ctx.fillRect(cx-w*0.4,cy-4,w*0.8,2);      // 亮脊
+    ctx.fillStyle='#3a2a08';                                          // 双颚（三角，剪影上读得出）
+    for(let s=-1;s<=1;s+=2){
+      ctx.beginPath();
+      ctx.moveTo(cx+s*w*0.40,cy-1);ctx.lineTo(cx+s*w*0.56,cy-3);ctx.lineTo(cx+s*w*0.40,cy+2);
+      ctx.closePath();ctx.fill();
+    }
+    ctx.fillStyle='#7a5a10';                                          // 三对足
+    for(let i=0;i<3;i++)ctx.fillRect(cx-w*0.28+i*4,cy+hh*0.22,1,3);
+    ctx.fillStyle='#ffe89a';ctx.fillRect(cx+w*0.10,cy-3,2,2);         // 眼
+  }
+  if(stage<2){                                                  // 蜕变进度弧（成虫不留窗口）
+    ctx.globalAlpha=0.35+0.45*Math.sin(T*0.35+k*6);             // 越接近蜕变闪得越快
+    ctx.strokeStyle=k>0.75?'#f86048':'#c8e070';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(cx,cy,w*0.62,-Math.PI/2,-Math.PI/2+Math.PI*2*k);ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+  const maxHp=Math.max(1,(+h.maxHp|0)||1),hp=clamp(h.hp===undefined?maxHp:+h.hp,0,maxHp);
+  const pw=maxHp*3+(maxHp-1),p0=cx-Math.round(pw/2);
+  ctx.fillStyle='#2a2016';ctx.fillRect(p0-1,y-5,pw+2,4);       // 血点底板
+  for(let i=0;i<maxHp;i++){ctx.fillStyle=i<hp?'#c8e070':'#4a4030';ctx.fillRect(p0+i*4,y-4,3,2);}
+  if(+h.flashT>0){                                              // 受击压白（与 totem 同口径）
+    ctx.globalAlpha=clamp(+h.flashT/0.22,0,1)*0.5;ctx.fillStyle='#ffffff';
+    ctx.fillRect(x,y,w,hh);ctx.globalAlpha=1;
+  }
+  ctx.restore();
+}
+
+// ⑤ 蛛网（茧·web）：一片地面减速区（-60% 且禁跳）。画成「贴地的网」不是「墙」——
+// 半透底 + 斜丝汇聚 + 两道横丝 + 四角锚点，只勾上沿（下沿留空＝贴着地面）；最后 1s 闪＝要散了。
+function _hzWeb(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),y=px(h.y-(+oy||0));
+  const w=Math.max(8,+h.w||64),hh=Math.max(4,+h.h||12);
+  const life=Math.max(0.05,+h.life||5),t=Math.max(0,+h.t||0);
+  const left=Math.max(0,life-t),T=+tick||0;
+  ctx.save();
+  const fl=(left<1.0)?(0.45+0.45*Math.sin(T*1.3)):1;
+  ctx.globalAlpha=0.16*fl;ctx.fillStyle='#e8e0ff';ctx.fillRect(x,y,w,hh);
+  ctx.globalAlpha=0.55*fl;ctx.strokeStyle='#d8d0f0';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(x,y+0.5);ctx.lineTo(x+w,y+0.5);ctx.stroke();  // 上沿
+  ctx.beginPath();                                                          // 四根斜丝往中间汇
+  for(let i=0;i<4;i++){
+    const sx=x+2+i*Math.max(4,Math.round(w/3.4));
+    ctx.moveTo(sx,y);ctx.lineTo(sx+Math.round(w*0.16),y+hh);
+  }
+  ctx.stroke();
+  ctx.globalAlpha=0.42*fl;ctx.strokeStyle='#f0ecff';
+  ctx.beginPath();                                                          // 两道横丝（起伏，别成格子）
+  for(let i=0;i<2;i++){
+    const yy=y+hh*(i?0.62:0.30);
+    for(let j=0;j<=6;j++){const xx=x+w*j/6,dy=Math.sin(j*1.7+i)*1.2;
+      if(j)ctx.lineTo(xx,yy+dy);else ctx.moveTo(xx,yy+dy);}
+  }
+  ctx.stroke();
+  ctx.globalAlpha=0.7*fl;ctx.fillStyle='#ffffff';                           // 四角锚点
+  ctx.fillRect(x,y-1,2,2);ctx.fillRect(x+w-2,y-1,2,2);
+  ctx.fillRect(x,y+hh-2,2,2);ctx.fillRect(x+w-2,y+hh-2,2,2);
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+
 // v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
 // 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
 // 悬浮型中心对齐（'mid'）；alpha 由调用方给（含死亡渐隐/幽灵 0.78）。BAL 缺省回退 1.75。
@@ -2587,8 +2795,10 @@ function tintOf(img,color){
 // v7 §9.3：Boss 名/提示/刻度参数化（kind：0/1=星核巨兽、2=蛟龙·敖渊、3=幽冥判官；旧引擎无 kind → 0 零回归）。
 // BOSS_P2FRAC=P2 阶段刻度占条宽比例（=设计书 §6.4 的 50%/40%/40%）。
 // v12：追加第 6 只「烈焰·牛魔王」（kind 6，L19）；上限随表扩到 5，否则 kind 6 会被夹回 4 顶冥古龙的名字。
-const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜光·圣裁者','烈焰·牛魔王'];
-const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决','末段·烈焰焚天'];
+const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜光·圣裁者','烈焰·牛魔王',
+  '余烬回响','双生天秤','孵化之间','无声之喉','终末之钟'];
+const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决','末段·烈焰焚天',
+  '热量满了会自燃','同侧连打它会偷血','卵长老了才值钱','它张嘴时别喂它','只在钟声间隙受伤'];
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
 // v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
 // （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
@@ -2596,7 +2806,9 @@ const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥�
 // v7.9：表扩到 5 个（4=冥古龙、5=曜光·圣裁者），仍按 kind 1 基换算——上限随之 2→4，
 // 否则 kind 4/5 会被夹到 2 取到判官的名字（新 Boss 顶个旧名字，比没名字更误导）。
 // v12：上限 4→5（6=烈焰·牛魔王），三张表（名字/阶段提示/刻度比例）同步 6 项，避免暂停提示卡出现 undefined。
-const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(5,n-1):0;};
+// v20：上限 5→10（kind 7~11 = 地图二五只）。夹取口径不变：越界一律落到最后一档，
+// 宁可让新 Boss 顶个旧名字，也不要 undefined（v7.8 踩过：L16 血条显示 "undefined"）。
+const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(10,n-1):0;};
 const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5,0.5];
 // v7.9：Boss 三段血进度**唯一口径**。HUD 三段条、条上方剩余段方块、血条悬停提示卡三处全部从这里取数，
 // 禁止各处再自算一遍（旧版 bar 用 hp/maxHp、提示卡另说一套，三段化后必然漂移）。
@@ -2876,11 +3088,275 @@ function renderBossWindupFx(b,bimg,bx,by){
       drawCNText('圣',cx,px(top)-14,8,'#f8d048','center');
       break;
     }
+    /* ==================== v20 §二：地图二五只的前摇 ====================
+       判据与 v12/v13 一致——图形必须自己说清「这一拍该做什么」，且不能与 map1 的 26 种起手撞形。
+       下面 15 例无一复用上面的画法：炽热环 / 瞄准线 / 贴地波 / 落点影 / 换位轴 / 横梁线 /
+       蛋形框 / 网面 / 虫点排 / 吸入弧 / 嘴内光 / 咬合弧 / 摆动弧 / 环弹向 / 垂落虚线。 */
+    case 'flare':{                                   // 烬·引燃：热量环绕身一周，填满即引爆
+      const T=_bossCfg(b)||{},HC=Math.max(20,+((T.heat&&T.heat.cap)||100));
+      const heat=clamp(+(typeof game!=='undefined'?(game.heat||0):0),0,HC)/HC;
+      const R=Math.max(10,+((T.flare&&T.flare.r)||34)),cy0=top+b.h*0.5;
+      ctx.globalAlpha=0.08+0.16*heat;ctx.fillStyle='#f86038';   // 爆炸范围预演（半径=真实判定 34）
+      ctx.beginPath();ctx.arc(px(cx),px(cy0),R,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.35+0.35*k;ctx.strokeStyle='#f86038';ctx.lineWidth=1;ctx.stroke();
+      ctx.globalAlpha=1;ctx.strokeStyle=heat>0.8?'#ff5030':'#f8a030';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(px(cx),px(cy0),R+4,-Math.PI/2,-Math.PI/2+Math.PI*2*heat);ctx.stroke();
+      ctx.globalAlpha=0.45+0.45*Math.sin((+b.t||0)*22);         // 三缕火星（热度越高越密）
+      ctx.fillStyle='#ffd0a0';
+      for(let i=0;i<3;i++){
+        const yy=cy0-6-(((+b.t||0)*40+i*13)%22);
+        ctx.fillRect(px(cx+(i-1)*7),px(yy),1,2);
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'sear':{                                    // 灼视线：眼高处一条虚线瞄准线（离开这条线）
+      const T=_bossCfg(b)||{},LEN=Math.max(40,+((T.sear&&T.sear.len)||220));
+      const pp=game.player,dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1;
+      const y0=top+b.h-12,x0=dir>0?cx:cx-LEN;
+      ctx.globalAlpha=0.30+0.45*k;ctx.strokeStyle='#ff8040';ctx.lineWidth=1;
+      if(ctx.setLineDash)ctx.setLineDash([4,3]);
+      ctx.beginPath();ctx.moveTo(px(x0),px(y0));ctx.lineTo(px(x0+dir*LEN),px(y0));ctx.stroke();
+      if(ctx.setLineDash)ctx.setLineDash([]);
+      ctx.globalAlpha=0.5+0.5*k;ctx.fillStyle='#fff0c0';       // 眼端聚能点
+      ctx.fillRect(px(cx)+dir*10-1,px(y0)-1,3,3);
+      ctx.globalAlpha=1;break;
+    }
+    case 'lash':{                                    // 火鞭：贴地波浪线（跳，跑不赢 235px/s）
+      const pp=game.player,dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1,gy=top+b.h;
+      ctx.globalAlpha=0.5+0.4*k;ctx.strokeStyle='#ff6030';ctx.lineWidth=2;
+      ctx.beginPath();
+      for(let i=0;i<=7;i++){
+        const xx=cx+dir*(4+i*5),yy=gy-4-Math.sin(i*1.1+(+b.t||0)*14)*2.5*k;
+        if(i)ctx.lineTo(px(xx),px(yy));else ctx.moveTo(px(xx),px(yy));
+      }
+      ctx.stroke();
+      ctx.globalAlpha=0.8;ctx.fillStyle='#ffd0a0';ctx.fillRect(px(cx+dir*38)-2,px(gy-6),4,2);
+      ctx.globalAlpha=1;break;
+    }
+    case 'weight':{                                  // 砝码：三处落点影一次给出（离开它正前扇形）
+      const T=_bossCfg(b)||{},SP=(T.weight&&T.weight.spread)||[26,0,-26];
+      const gy=top+b.h,rr0=5+3*Math.sin(clamp(k,0,1)*Math.PI);  // 收放一次：读成「要来了」
+      for(let i=0;i<SP.length;i++){
+        const xx=px(cx+SP[i]);
+        ctx.globalAlpha=0.30+0.35*k;ctx.strokeStyle='#c8a8ff';ctx.lineWidth=1;
+        ctx.beginPath();ctx.arc(xx,px(gy)-1,rr0,0,Math.PI*2);ctx.stroke();
+        ctx.globalAlpha=0.22+0.28*k;ctx.fillStyle='#6a4a9a';ctx.fillRect(xx-2,px(gy)-1,5,2);
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'swap':{                                    // 换位：两端对称虚线 + 双向箭头（它要和你换位置）
+      const pp=game.player;
+      if(pp){
+        const a1=px(cx),a2=px(pp.x+pp.w/2),yy=px(top+b.h*0.4),s=a1<a2?1:-1,mid=(a1+a2)/2;
+        ctx.globalAlpha=0.28+0.32*k;ctx.strokeStyle='#f8d048';ctx.lineWidth=1;
+        if(ctx.setLineDash)ctx.setLineDash([3,3]);
+        ctx.beginPath();ctx.moveTo(a1,yy);ctx.lineTo(a2,yy);ctx.stroke();
+        if(ctx.setLineDash)ctx.setLineDash([]);
+        ctx.globalAlpha=0.6+0.4*k;ctx.fillStyle='#f8d048';
+        ctx.beginPath();ctx.moveTo(mid,px(top+b.h*0.4)-3);
+        ctx.lineTo(mid+s*4,yy+3);ctx.lineTo(mid-s*4,yy+3);ctx.closePath();ctx.fill();
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('换',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    case 'beam':{                                    // 横梁：压到站立头线的长线 + 向上箭头（跳过去）
+      const gy=top+b.h-26;
+      ctx.globalAlpha=0.30+0.38*k;ctx.strokeStyle='#f8d048';ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(px(cx)-140,px(gy));ctx.lineTo(px(cx)+140,px(gy));ctx.stroke();
+      ctx.globalAlpha=0.5+0.5*k;ctx.fillStyle='#ffe89a';
+      for(let i=0;i<3;i++){
+        const ax=cx+(i-1)*18,ay=gy-6;
+        ctx.fillRect(px(ax)-1,px(ay),2,4);ctx.fillRect(px(ax)-2,px(ay),4,1);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('跳',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    case 'spawn':{                                   // 产卵：地面三枚蛋形空框（两枚在你两侧）
+      const pp=game.player;
+      if(pp){
+        const gy=px(top+b.h),hh2=Math.round(5+k*4);
+        for(const sx of [px(pp.x+pp.w/2-40),px(pp.x+pp.w/2+40),px(cx)]){
+          ctx.globalAlpha=0.28+0.38*k;ctx.strokeStyle='#c8e070';ctx.lineWidth=1;
+          ctx.beginPath();
+          if(ctx.ellipse)ctx.ellipse(sx,gy-hh2,4,hh2,0,0,Math.PI*2);
+          else ctx.arc(sx,gy-hh2,4,0,Math.PI*2);
+          ctx.stroke();
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('卵',cx,px(top)-14,8,'#c8e070','center');
+      break;
+    }
+    case 'web':{                                     // 蛛网：Boss 与玩家之间的那块地面先变白（别走进去）
+      const T=_bossCfg(b)||{},pp=game.player;
+      const ww=Math.max(24,+((T.web&&T.web.w)||64)),hh3=Math.max(6,+((T.web&&T.web.h)||12));
+      const c2=pp?((cx+pp.x+pp.w/2)/2):cx,gy=top+b.h;
+      ctx.globalAlpha=0.08+0.14*k;ctx.fillStyle='#e8e0ff';
+      ctx.fillRect(px(c2-ww/2),px(gy-hh3),ww,hh3);
+      ctx.globalAlpha=0.32+0.36*k;ctx.strokeStyle='#d8d0f0';ctx.lineWidth=1;
+      ctx.strokeRect(px(c2-ww/2)+0.5,px(gy-hh3)+0.5,ww-1,hh3-1);
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('网',cx,px(top)-14,8,'#d8d0f0','center');
+      break;
+    }
+    case 'swarm':{                                   // 虫群：脚下一排小点朝你铺开（跳）
+      const pp=game.player,dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1,gy=top+b.h;
+      ctx.globalAlpha=0.42+0.42*k;ctx.fillStyle='#8ae07a';
+      for(let i=0;i<5;i++){
+        const xx=cx+dir*(6+i*9),yy=gy-3-Math.abs(Math.sin((+b.t||0)*12+i))*2;
+        ctx.fillRect(px(xx),px(yy),2,2);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('虫',cx,px(top)-14,8,'#8ae07a','center');
+      break;
+    }
+    case 'inhale':{                                  // 吸气：向内收的弧 + 张开的嘴（要么跑，要么喂它）
+      const T=_bossCfg(b)||{},R=Math.max(30,+((T.inhale&&T.inhale.r)||120));
+      const my=top+b.h-22;
+      ctx.globalAlpha=0.07+0.12*k;ctx.fillStyle='#8a58d8';    // 吞弹范围（很浅，不糊地面）
+      ctx.beginPath();ctx.arc(px(cx),px(my),R,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.40+0.35*k;ctx.strokeStyle='#a878f0';ctx.lineWidth=1.5;
+      for(let i=0;i<3;i++){                                    // 弧口朝内＝在吸
+        ctx.beginPath();ctx.arc(px(cx),px(my),R*(0.45+i*0.26),1.9,4.4);ctx.stroke();
+      }
+      ctx.globalAlpha=0.65+0.35*k;ctx.fillStyle='#d8b0ff';     // 嘴
+      ctx.fillRect(px(cx)-6,px(my)-4,12,8);
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('吸',cx,px(top)-14,8,'#d8b0ff','center');
+      break;
+    }
+    case 'roar':{                                    // 反刍：嘴里先亮，三颗待喷（喂多了的代价）
+      const my=top+b.h-22;
+      ctx.globalAlpha=0.30+0.45*k;ctx.fillStyle='#8a58d8';
+      ctx.beginPath();ctx.arc(px(cx),px(my),4+k*6,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.40+0.40*k;ctx.fillStyle='#f0d0ff';
+      for(let i=0;i<3;i++)ctx.fillRect(px(cx+(i-1)*5),px(my-16-k*4-i*2),2,2);
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('吐',cx,px(top)-14,8,'#d8b0ff','center');
+      break;
+    }
+    case 'bite':{                                    // 咬：身前一圈咬合弧 + 上下齿列（别贴脸）
+      const T=_bossCfg(b)||{},R=Math.max(10,+((T.bite&&T.bite.r)||34));
+      const dir=b.face>0?1:-1,fx=cx+dir*6,gy=top+b.h*0.55;
+      ctx.globalAlpha=0.10+0.16*k;ctx.fillStyle='#f84848';
+      ctx.beginPath();ctx.arc(px(fx),px(gy),R,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.45+0.40*k;ctx.strokeStyle='#ff8070';ctx.lineWidth=1.5;ctx.stroke();
+      ctx.globalAlpha=0.70+0.25*k;ctx.fillStyle='#ffe0d0';     // 上下齿列
+      for(let i=0;i<4;i++){
+        const ax=fx+dir*(6+i*6);
+        ctx.fillRect(px(ax),px(gy-R+3),2,3);ctx.fillRect(px(ax),px(gy+R-6),2,3);
+      }
+      ctx.globalAlpha=1;break;
+    }
+    case 'pendulum':{                                // 钟摆：脚下 140° 弧线（跑到弧外 / 绕到背后，不是跳）
+      const T=_bossCfg(b)||{},R=Math.max(20,+((T.pendulum&&T.pendulum.r)||78));
+      const ay=top+b.h-6,pp=game.player;
+      const dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1;        // 扇面朝玩家那一侧（与引擎 pendDir 同口径）
+      ctx.globalAlpha=0.26+0.32*k;ctx.strokeStyle='#f8d048';ctx.lineWidth=1.5;
+      if(ctx.setLineDash)ctx.setLineDash([4,3]);
+      ctx.beginPath();
+      if(dir>0)ctx.arc(px(cx),px(ay),R,-70*Math.PI/180,70*Math.PI/180);
+      else ctx.arc(px(cx),px(ay),R,Math.PI-70*Math.PI/180,Math.PI+70*Math.PI/180);
+      ctx.stroke();
+      if(ctx.setLineDash)ctx.setLineDash([]);
+      const a0=dir*((-70+140*clamp(k,0,1))*Math.PI/180);   // 摆动指针：读得到「扫到哪了」
+      ctx.globalAlpha=0.7+0.3*k;ctx.fillStyle='#fff0b0';
+      ctx.fillRect(px(cx+Math.cos(a0)*R)-1,px(ay+Math.sin(a0)*R)-1,3,3);
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('摆',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    case 'chime':{                                   // 声波：两圈同向环 + 六个出弹方向（穿缝）
+      const T=_bossCfg(b)||{},n=Math.max(4,+((T.chime&&T.chime.n)||6));
+      const cy1=top+b.h*0.45,rr=6+k*16;
+      for(let i=0;i<2;i++){
+        ctx.globalAlpha=0.22+0.32*k-i*0.07;ctx.strokeStyle='#f8e8a0';ctx.lineWidth=1;
+        ctx.beginPath();ctx.arc(px(cx),px(cy1),rr+i*5,0,Math.PI*2);ctx.stroke();
+      }
+      ctx.globalAlpha=0.5+0.4*k;ctx.fillStyle='#fff8c8';
+      for(let i=0;i<n;i++){
+        const a=i*Math.PI*2/n+0.2;
+        ctx.fillRect(px(cx+Math.cos(a)*rr)-1,px(cy1+Math.sin(a)*rr)-1,2,2);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('声',cx,px(top)-14,8,'#f8e8a0','center');
+      break;
+    }
+    case 'hammer':{                                  // 钟锤：你头顶垂落的虚线 + 地面大影（砸的是脚下）
+      const pp=game.player;
+      if(pp){
+        const sx2=px(pp.x+pp.w/2),gy2=px(top+b.h);
+        ctx.globalAlpha=0.22+0.32*k;ctx.strokeStyle='#f8d048';ctx.lineWidth=1;
+        if(ctx.setLineDash)ctx.setLineDash([2,3]);
+        ctx.beginPath();ctx.moveTo(sx2,px(top)-8);ctx.lineTo(sx2,gy2);ctx.stroke();
+        if(ctx.setLineDash)ctx.setLineDash([]);
+        ctx.globalAlpha=0.16+0.22*k;ctx.fillStyle='#8a6810';
+        ctx.beginPath();
+        const rw=14*(0.6+0.4*k);
+        if(ctx.ellipse)ctx.ellipse(sx2,gy2,rw,rw*0.36,0,0,Math.PI*2);
+        else ctx.arc(sx2,gy2,rw,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('锤',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
   }
 }
 
-// v10 §任务2.2/§2.3：Boss 头顶状态标签（世界坐标，画在本体之上）。
-// 连段 = 还没打完，别急着上前（红「连N」+ 呼吸红边）；破绽 = 唯一输出窗口（金「破绽」+ 身上淡黄描边）。
+/* v20 §二：持续型 Cast 态自己的形体。
+   前摇特效只在 state==='windup' 期间画，一旦进入 Cast 态就整块消失——
+   钟摆的摆锤、吸入的气流这类「持续 1~2 秒且还在判定」的东西必须自己有一层绘制，
+   否则玩家看到的是「抬了下手，然后莫名掉血」。只读 b 的字段，不改引擎状态。 */
+function renderBossCastFx(b,tick){
+  if(!b)return;
+  const T=_bossCfg(b)||{};
+  const cx=px(b.x+b.w/2),top=px(b.y),gy=px(b.y+b.h);
+  if(b.state==='pendulumCast'){                       // 钟摆：一根摆杆 + 摆锤 + 已扫过的扇形
+    const TP=T.pendulum||{},R=Math.max(20,+TP.r||78),dir=+b.pendDir||1;
+    const a=((+b.pendA||0))*Math.PI/180;
+    const bx=cx+Math.cos(a)*R,by=gy-6+Math.sin(a)*R;
+    ctx.globalAlpha=0.14;                              // 已扫过的扇面（读「它刚经过哪」）
+    ctx.fillStyle='#f8d048';
+    ctx.beginPath();ctx.moveTo(cx,gy-6);
+    ctx.arc(cx,gy-6,R,dir>0?0:Math.PI,a);
+    if(dir<0)ctx.arc(cx,gy-6,R,a,Math.PI);
+    ctx.closePath();ctx.fill();
+    ctx.globalAlpha=0.7;                               // 摆杆
+    ctx.strokeStyle='#c8a030';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(cx,gy-6);ctx.lineTo(bx,by);ctx.stroke();
+    ctx.globalAlpha=0.95;ctx.fillStyle='#f8d048';      // 摆锤
+    ctx.beginPath();ctx.arc(bx,by,5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#fff6c0';ctx.beginPath();ctx.arc(bx-1,by-1,2,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=1;
+  }else if(b.state==='inhaleCast'){                    // 吸气：嘴前的气流线（向嘴收）
+    const TI=T.inhale||{},R=Math.max(30,+TI.r||120),my=top+b.h-22;
+    ctx.globalAlpha=0.45;ctx.strokeStyle='#b890f8';ctx.lineWidth=1;   // 0.30/8px 太淡，实机几乎看不见
+    for(let i=0;i<3;i++){
+      const yy=my-9+i*9,off=((+tick||0)*3+i*40)%R;                    // 三股向内平移＝读数就是「被吸」
+      for(const s of [1,-1]){
+        const x0=cx+s*off*0.9,x1=x0+s*11;
+        ctx.beginPath();ctx.moveTo(x0,yy);ctx.lineTo(x1,yy);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(x1-s*4,yy-2);ctx.lineTo(x1,yy);ctx.lineTo(x1-s*4,yy+2);ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+}
+
+// v10 §任务2.2/§2.3：Boss 头顶状态标签（世界坐标，画在本体之上）。// 连段 = 还没打完，别急着上前（红「连N」+ 呼吸红边）；破绽 = 唯一输出窗口（金「破绽」+ 身上淡黄描边）。
 // 两者同时在时连段上移一行，互不遮挡；comboN/comboQ 缺失时整块不画（旧引擎零回归）。
 function renderBossTags(b,tick){
   if(!b)return;
@@ -3009,7 +3485,10 @@ function renderBoss(tick){
   // v12：扩到 6 个（6=烈焰·牛魔王 56×48，美术并行交付中）——缺 boss6 → 借 boss4 → boss3，绝不隐形。
   const _bi=_bossIdx(b.kind);
   const P=[SPR.boss,SPR.boss2,SPR.boss3,SPR.boss4||SPR.boss3,SPR.boss5||SPR.boss4||SPR.boss3,
-           SPR.boss6||SPR.boss4||SPR.boss3][_bi];
+           SPR.boss6||SPR.boss4||SPR.boss3,
+           SPR.boss7||SPR.boss6||SPR.boss3, SPR.boss8||SPR.boss6||SPR.boss3,
+           SPR.boss9||SPR.boss6||SPR.boss3, SPR.boss10||SPR.boss6||SPR.boss3,
+           SPR.boss11||SPR.boss6||SPR.boss3][_bi];
   if(!P)return; // 连回落档都没有（art 全缺）→ 整块不画（既有兜底保留）
   if(b.state==='blinkCast'&&b.hidden)return; // v7 §9.3：blink 隐身期整帧跳过渲染（免伤免接触由引擎管）
   const p=game.player,R=b.phase===2;                 // 换装组选择
@@ -3097,7 +3576,10 @@ function renderBoss(tick){
   ctx.globalAlpha=baseA;
   if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
   const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White,SPR.boss4White||SPR.boss3White,SPR.boss5White||SPR.boss4White||SPR.boss3White,
-            SPR.boss6White||SPR.boss4White||SPR.boss3White][_bi]; // v12：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
+            SPR.boss6White||SPR.boss4White||SPR.boss3White,
+            SPR.boss7White||SPR.boss6White||SPR.boss3White, SPR.boss8White||SPR.boss6White||SPR.boss3White,
+            SPR.boss9White||SPR.boss6White||SPR.boss3White, SPR.boss10White||SPR.boss6White||SPR.boss3White,
+            SPR.boss11White||SPR.boss6White||SPR.boss3White][_bi]; // v12：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
   if(b.flashT>0&&PW){                                         // 白闪：同偏移再画一遍
     ctx.globalAlpha=baseA*clamp(b.flashT/0.12,0,1);
     ctx.drawImage(PW.body,px(bdx),px(bdy+dy));
@@ -3108,6 +3590,7 @@ function renderBoss(tick){
   ctx.globalAlpha=1;
   // v10 §任务2.1：新招式前摇特效（世界坐标，画在本体之上；bimg/bdx/bdy+dy 供 clone 残影复用本体帧）
   renderBossWindupFx(b,bimg,px(bdx),px(bdy+dy));
+  renderBossCastFx(b,tick);   // v20：持续型 Cast 态自身也要有形体（前摇画完就消失=玩家看不到摆锤）
   // v10 §任务2.2/§2.3：头顶状态标签（连段红「连N」/ 破绽金「破绽」+ 身上淡黄描边）
   renderBossTags(b,tick);
 }
@@ -4489,9 +4972,13 @@ function renderTitleCover(tick){
 // v12：末章改为「吃掉剩余关」——原表第三章声明 5 关（idx 13~17），加 L19 后 idx18 没有卡位，
 // 选关屏画不出第 19 关（光标 clamp 到 18 却停在空白处），玩家只能靠通关 L18 后回车一次进，等于"找不到牛魔王"。
 // 现在末章 len=min(7, n-章首)，一行上限 7 卡：x=6+6*53=324，右缘 370 < 384 不越界。
-const CH_HEAD=[[0,7],[7,6],[13,5]];
-const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章'];
+const CH_HEAD=[[0,7],[7,6],[13,5],[19,5]];   // v20：第四章=地图二（L20~L24，5 关全 Boss）
+const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章','第四章·回响之厅'];
 const CH_HEAD_Y=[24,86,148],CH_CARD_Y=[34,96,158],CH_ROW_MAX=7; // 单行卡位上限（画布宽 384 内）
+// v20：4 章压缩档。原档（3 章）行距 62：章头 12px + 卡 44，第 3 章卡底已到 202，
+// 加第 4 行必然越出 224 画布。压缩档行距 44：章头 10px + 卡 46×30，
+// 四行卡底 61/105/149/191，距底部操作行（y=204）13px，留白不憋。
+const CH_HEAD_Y4=[20,64,108,152],CH_CARD_Y4=[31,75,119,163];
 function _chapters(){
   const n=ALL_LEVELS.length,out=[];
   if(n<=10)return[{i:0,first:0,len:n,wrap:7}];
@@ -4503,9 +4990,20 @@ function _chapters(){
   }
   return out;
 }
+// 版式档：章数>3 走压缩档（卡高/字号/卡内三行偏移/行距全在这张表里，渲染与命中同源，改一处即一致）
+let _layChs=null,_layN=-1,_layObj=null;
+function _chLayout(){
+  if(_layObj&&_layN===ALL_LEVELS.length&&_layChs===_chapters().length)return _layObj;
+  const chs=_chapters(),big=chs.length>3;
+  _layChs=chs.length;_layN=ALL_LEVELS.length;
+  return(_layObj=big
+    ?{chs,headY:CH_HEAD_Y4,cardY:CH_CARD_Y4,h:30,fs:10,st:9,dyName:2,dyStar:11,dyIdx:21,pitch:44}
+    :{chs,headY:CH_HEAD_Y,cardY:CH_CARD_Y,h:44,fs:12,st:12,dyName:5,dyStar:22,dyIdx:34,pitch:62});
+}
 function _cardXY(ch,j){ // 卡左上角：多章=单行 x=6+j*53；单章过渡=7 列换行（行距 62）
-  if(ch.wrap){const col=j%ch.wrap,row=(j/ch.wrap)|0;return[6+col*53,CH_CARD_Y[ch.i]+row*62];}
-  return[6+j*53,CH_CARD_Y[ch.i]];
+  const L=_chLayout();
+  if(ch.wrap){const col=j%ch.wrap,row=(j/ch.wrap)|0;return[6+col*53,L.cardY[ch.i]+row*62];}
+  return[6+j*53,L.cardY[ch.i]];
 }
 const _cardName=n=>String(n).replace(/^\d+\s*·\s*/,''); // 卡面关名去序号前缀（序号另画 y+34；'7 · BOSS·星核巨兽'→'BOSS·星核巨兽'）
 
@@ -4542,39 +5040,40 @@ function renderMenu(th,tick){
       _panelPath(252,20,60,13,2);ctx.stroke();}
     if(progress.unlockAll===true)drawCNText('全关开放',6,2,9,'#f8d048'); // 顶栏状态标（y=2，不压章头 y=24）
   }
-  for(const ch of _chapters()){
-    const hy=CH_HEAD_Y[ch.i];
+  const L=_chLayout();
+  for(const ch of L.chs){
+    const hy=L.headY[ch.i];
     const chLocked=chapterLocked(ch); // v7.7：章锁定（全关开放时恒 false，不改 unlocked 本身）
-    drawCNText(CH_NAME[ch.i],6,hy,12,chLocked?'#3a4468':'#f0f4ff');
+    drawCNText(CH_NAME[ch.i],6,hy,L.fs,chLocked?'#3a4468':'#f0f4ff');
     if(chLocked){ // 章名后挂锁形 6×8 程序化（锁钩+锁体）
-      const lx=6+Math.ceil(_textW(CH_NAME[ch.i],12))+6,ly=hy+1;
+      const lx=6+Math.ceil(_textW(CH_NAME[ch.i],L.fs))+6,ly=hy+1;
       ctx.strokeStyle='#3a4468';ctx.lineWidth=1;
       ctx.beginPath();ctx.arc(lx+3,ly+3,2,Math.PI,0);ctx.stroke();
       ctx.fillStyle='#3a4468';ctx.fillRect(lx,ly+3,6,5);
     }
     for(let j=0;j<ch.len;j++){
-      const i=ch.first+j,xy=_cardXY(ch,j),x=xy[0],y=xy[1];
+      const i=ch.first+j,xy=_cardXY(ch,j),x=xy[0],y=xy[1],h=L.h;
       const locked=levelLocked(i)||chLocked,sel=menuSel===i; // v7.7：全关开放时所有卡一律按已解锁渲染
       const boss=!!ALL_LEVELS[i].boss;
-      _panel(x,y,46,44,{alpha:locked?0.7:0.85,cut:3});
-      if(boss){ctx.strokeStyle='#f86048';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,45,43);} // Boss 卡红描边
-      if(sel){ctx.strokeStyle='#fff8c8';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,44,42);
-        if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-6,y+21,4,2);ctx.fillRect(x+48,y+21,4,2);}}
+      _panel(x,y,46,h,{alpha:locked?0.7:0.85,cut:3});
+      if(boss){ctx.strokeStyle='#f86048';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,45,h-1);} // Boss 卡红描边
+      if(sel){ctx.strokeStyle='#fff8c8';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,44,h-2);
+        if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-6,y+(h>>1)-1,4,2);ctx.fillRect(x+48,y+(h>>1)-1,4,2);}}
       else if(hover==='select:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮
-        ctx.strokeRect(x+0.5,y+0.5,45,43);}
+        ctx.strokeRect(x+0.5,y+0.5,45,h-1);}
       // v12：卡宽 46（可用 ~42），'BOSS·双生终焉' 7px 要 49px，会压到右邻卡上；
       // 按实测宽度自动降字号到 7/6/5，保证关名不越卡。
       const cardNm = locked ? '???' : _cardName(ALL_LEVELS[i].name);
       let nmSz = 7;
       while (nmSz > 5 && _textW(cardNm, nmSz) > 42) nmSz--;
-      drawCNText(cardNm,x+23,y+5,nmSz,
-        locked?'#5a6488':(boss?'#f8d048':'#f0f4ff'),'center');              // 关名 7px（Boss 金色）
+      drawCNText(cardNm,x+23,y+L.dyName,nmSz,
+        locked?'#5a6488':(boss?'#f8d048':'#f0f4ff'),'center');            // 关名 7px（Boss 金色）
       const st=progress.stars[i]||0;
-      drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+23,y+22,12,
+      drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+23,y+L.dyStar,L.st,
         locked?'#3a4468':'#f8d048','center');
-      drawPixelText(''+(i+1),x+23,y+34,1,locked?'#5a6488':'#a8b4d8','center');
-      if(boss)drawPixelText('BOSS',x+43,y+35,1,'#f86048','right');          // 卡底 BOSS 角标
-      if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+3,2,2);}        // 新关金点（L11~L16）
+      drawPixelText(''+(i+1),x+23,y+L.dyIdx,1,locked?'#5a6488':'#a8b4d8','center');
+      if(boss)drawPixelText('BOSS',x+43,y+L.dyIdx+1,1,'#f86048','right');  // 卡底 BOSS 角标
+      if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+2,2,2);}        // 新关金点（L11+）
     }
   }
   drawCNText('←→↑↓ 选择　回车 进入　C 角色　G 衣橱　Esc 返回',VIEW_W/2,204,10,'#a8b4d8','center'); // v19：加 C 角色入口

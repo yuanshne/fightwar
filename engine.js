@@ -591,6 +591,169 @@ const BAL = {
     poolFar: ['barrage', 'charge', 'bomb', 'pillar'],
     p2Add: ['nova'],
     contactDmg: 1, drop1: 'niu1', drop2: 'niu2' },
+
+  /* ==================== v20：地图二·回响之厅（kind 7~11）====================
+     与 map1 六只的分水岭是「威胁从哪来」，不是数值或弹种：
+       map1：威胁从 Boss 飞向玩家 —— 弹 / 墙 / 雾 / 小怪。玩家动作恒为「躲」和「打」。
+       map2：威胁由玩家的行为生成 —— 打多快 / 打谁 / 什么时候打 / 用什么打 / 什么时候能打。
+     因此下面五只的招牌招（flare / weight / spawn / inhale / score）**都不产生新弹种**，
+     而是读取玩家侧状态再惩罚。新增的普通招（sear/lash/swap/beam/web/swarm/bite/
+     pendulum/chime/hammer）才有实体，且逐个避开 map1 已用的 26 种交互：
+     没有第二份陨石雨、没有第二个地刺、没有第二种火柱、没有第二个推进墙。
+     每只 Boss 只配 3 招招牌 + barrage 普攻 + P2 nova（沿用 §二 的池口径）。 */
+
+  boss7: { // 余烬回响（L20，ember）——「打太快会烧到自己」
+    // 机制：玩家的伤害被它记成「热量」（playerHeat 0..100，engine 每帧在 _engUpdateBoss 里维护）。
+    //   flare 抬手时若热量 ≥ minHeat 就当场引爆，伤害随热量线性上升；引爆后热量清零。
+    //   这是全作第一次要求玩家「停手」——map1 的六只都是「越快越好」。
+    hp: 504, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 40,
+    windup: { flare: 0.72, sear: 0.55, lash: 0.46, barrage: 0.42, nova: 0.55,
+              meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+    p2WindMul: 0.85, idleT: [0.46, 0.34], walk: [22, 28],
+    barrage: { v: 118, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-10, 10] },
+    /* flare 引燃：范围 34px 的圆形爆炸（比 nova 环小得多，是"点名"不是"清场"）。
+       minHeat=30 是门槛——低于 30 它抬了手也炸不起来，这是玩家能主动运营的空间
+       （想安全输出就压在 30 以下）。gainMul 是「伤害→热量」的换算：1 点伤害 = 0.9 热量。 */
+    flare: { r: 34, dmg: 2, minHeat: 30 },
+    /* heat 热量表（玩家侧 game.heat 0..cap 的维护参数，见 _engM2Heat）：
+       perDmg 每点伤害换多少热量——玩家满装约 5.7 hp/s，扣掉 cool 后净增 ≈11/s，打满要 9s；
+       cool 是"边打边散"的基础散热（12/s）；idleCool 是停手 idleAfter 秒后的加速散热（40/s，
+       即停 2.5s 清空）。两者同时给，才让「打三秒停一拍」比「一直输出」更省心——
+       只有 base 的话热量降得比涨得还慢，玩家会觉得"停了也没用"。 */
+    heat: { perDmg: 4, cool: 12, idleCool: 40, idleAfter: 0.6, cap: 100, burstDmg: 2 },
+    /* sear 灼视线：横贯 220px 的细激光（w=10），warn 0.55s 预警 + 0.42s 存续。
+       map1 没有任何一条「直线激光」——barrage 是点弹、breath 是推进波、halo 是环。
+       激光的躲法是「离开那条线」，与躲点弹的「走出落点」是两种肌肉记忆。 */
+    sear: { len: 220, w: 10, warn: 0.55, dur: 0.42, dmg: 1 },
+    /* lash 火鞭：贴地短波（h=14，跳即躲），速度 235 快于玩家跑速 120——
+       看到再跑来不及，必须提前跳。这是本战唯一的"反应"招，其余都考耐心。 */
+    lash: { w: 26, h: 14, v: 235, life: 0.85, dmg: 1 },
+    nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
+    stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
+    recover: { flare: 0.6, sear: 0.5, lash: 0.45, barrage: 0.45, nova: 0.6 },
+    // 招牌：flare 引燃 / sear 灼视线 / lash 火鞭
+    poolNear: ['flare', 'lash', 'barrage'],
+    poolFar: ['barrage', 'sear', 'flare'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'ember1', drop2: 'ember2' },
+
+  boss8: { // 双生天秤（L21，aether）——「一直打同一侧是打不动的」
+    // 机制：skew 记录玩家连续从同一侧命中的次数（-3..3）。同侧连击会把血"偷"回去
+    //   （|skew| 达 3 触发回血），左右交替则承伤 ×1.25（"对秤"奖励）。
+    //   判定唯一依据是「玩家相对 Boss 中心的方位」——所以玩家的动作是「穿到另一边打」。
+    hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,
+    windup: { weight: 0.62, swap: 0.58, beam: 0.70, barrage: 0.45, nova: 0.55,
+              meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+    p2WindMul: 0.85, idleT: [0.50, 0.36], walk: [24, 30],
+    barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-12, 12] },
+    skew: { max: 3, healPct: 4.5, goodMul: 1.25 },   // 回血 = 4.5% 总血；对秤承伤 ×1.25
+    /* weight 砝码：三枚从上方砸落，落点各自带 0.7s 影子预警。
+       ✗ 不是 meteor 的复用：meteor 是"跟着玩家跑的三连"，这招落点是**固定扇形**，
+       逼玩家离开 Boss 正前方——和"绕到另一侧打"的机制是同一件事的两面。 */
+    weight: { n: 3, gap: 0.30, warn: 0.70, vy: 300, r: 12, dmg: 1, spread: [26, 0, -26] },
+    /* swap 换位：与玩家交换 x（唯一一只敢这么做的 Boss）。玩家会突然站到它原来的位置，
+       而它出现在玩家刚站的地方——"穿到另一边"的动作被它反将一军。 */
+    swap: { warn: 0.58, after: 0.30 },
+    /* beam 横梁：天平横梁横扫，水平细长激光（高 12px，跳过去）。
+       与 boss7 的 sear 都是直线，但 sear 是垂直眼线（要左右闪），beam 是水平横梁（要跳）——动作不重合。 */
+    beam: { warn: 0.70, dur: 0.50, h: 12, dmg: 1 },
+    nova: { v: 108, t: [0.55, 0.95], endT: 1.2 },
+    stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
+    recover: { weight: 0.55, swap: 0.5, beam: 0.6, barrage: 0.45, nova: 0.6 },
+    // 招牌：weight 砝码 / swap 换位 / beam 横梁
+    poolNear: ['weight', 'swap', 'barrage'],
+    poolFar: ['barrage', 'weight', 'beam', 'swap'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'scale1', drop2: 'scale2' },
+
+  boss9: { // 孵化之间（L22，husk）——「打早了是亏的」
+    // 机制：虫卵（game.eggs）每 3s 进化一级（0 卵 → 1 幼虫 → 2 成虫）。
+    //   打卵只爆幼虫；打成虫掉能量核（回蓝）。卵到期未清 → 成虫爬回 Boss 处喂它回血。
+    //   玩家的动作从「怎么打」变成「什么时候打」——这是 map1 完全没有的一层。
+    hp: 480, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,
+    windup: { spawn: 0.65, web: 0.60, swarm: 0.62, barrage: 0.48, nova: 0.55,
+              meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+    p2WindMul: 0.85, idleT: [0.55, 0.40], walk: [14, 18],   // 本体笨重（蛹），走得慢
+    barrage: { v: 110, rounds: 3, pairGap: 0.20, endT: 0.5, deg: [-14, 0, 14] },
+    /* spawn 产卵：在玩家左右各产 1 枚 + Boss 脚下 1 枚（共 3）。
+       卵的进化链与收益见 engine 的 _engUpdateEggs（3s 一级，两跳成虫）。
+       cap=6：场上最多 6 枚，满了不再产——否则玩家一个走位失误就被卵海淹掉。 */
+    spawn: { n: 3, cap: 6, cd: 7.0, stageT: 3.0, hp: 2, larvaHp: 3, adultHp: 5, feed: 3.0 },
+    /* web 蛛网：地面铺一片减速区（-60%），并且**禁跳**——地图一的减速雾（mist）不挡跳，
+       这招挡跳，所以"被网住 + 火鞭/落锤"才是组合技，而不是单纯走得慢。 */
+    web: { w: 64, h: 12, life: 5.0, slow: 0.4, noJump: true },
+    /* swarm 虫群：一排小虫自 Boss 侧向玩家横穿（低矮、可跳），逼玩家跳起——
+       跳起时正好看不见脚下的网/网外的卵。 */
+    swarm: { n: 5, gap: 0.12, v: 130, w: 10, h: 8, dmg: 1, life: 3.0 },
+    nova: { v: 100, t: [0.55, 0.95], endT: 1.2 },
+    stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
+    recover: { spawn: 0.6, web: 0.55, swarm: 0.55, barrage: 0.5, nova: 0.6 },
+    // 招牌：spawn 产卵 / web 蛛网 / swarm 虫群
+    poolNear: ['spawn', 'web', 'swarm', 'barrage'],
+    poolFar: ['barrage', 'spawn', 'swarm'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'husk1', drop2: 'husk2' },
+
+  boss10: { // 无声之喉（L23，maw）——「喂它东西等于给它回血」
+    // 机制：inhale 张嘴吸气，飞行物（玩家弹体/法师法术）被吸进嘴（b.mouth 数组）并转成它的血。
+    //   打嘴（x 在嘴框内且嘴张开）会把积食打爆，一次结算 3 伤 × 积食数——
+    //   喂得越多、爆得越疼，但喂太多它会 roar 反刍成弹幕。玩家的动作是「挑窗口输出」。
+    hp: 576, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 44,
+    windup: { inhale: 0.60, roar: 0.75, bite: 0.50, barrage: 0.55, nova: 0.55,
+              meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+    p2WindMul: 0.85, idleT: [0.58, 0.42], walk: [16, 20],   // 扎根型，移动极慢
+    barrage: { v: 108, rounds: 3, pairGap: 0.22, endT: 0.55, deg: [-16, 0, 16] },
+    /* inhale 吸气：dur=1.6s 持续，吞弹半径 120。吞 1 发回 0.6% 总血（cap 6%）。
+       ✗ 不要做成"全屏吞"——那会让法师完全无法输出，是要玩家换位置而不是换角色。 */
+    inhale: { dur: 1.6, r: 120, pull: 60, healPct: 0.6, capPct: 6, mouthW: 26, mouthH: 18 },
+    /* roar 反刍：把嘴里的积食全吐回去（每颗 1 发弹，速度 140、朝玩家）。
+       吐完嘴空——喂得越狠，这一下越像弹幕地狱。这是"喂弹"的代价。 */
+    roar: { v: 140, dmg: 1, spread: 22 },
+    /* bite 咬：近身 34px，2 伤，前摇 0.5s。它唯一的高伤害招，逼玩家别贴脸。 */
+    bite: { r: 34, dmg: 2 },
+    nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
+    stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
+    recover: { inhale: 0.6, roar: 0.6, bite: 0.5, barrage: 0.5, nova: 0.6 },
+    // 招牌：inhale 吞弹 / roar 反刍 / bite 咬
+    poolNear: ['inhale', 'bite', 'roar', 'barrage'],
+    poolFar: ['barrage', 'inhale', 'roar'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'maw1', drop2: 'maw2' },
+
+  boss11: { // 终末之钟（L24，bell）——「只有休止符吃伤害」
+    // 机制：8s 曲谱循环（score），四拍各 1.6s + 休止符 1.6s。
+    //   非休止符期间承伤 ×0.12（近乎无敌）；休止符期间 ×1.6（明确的"该打了"）。
+    //   曲谱固定不变——第一轮瞎躲，第二轮就能背。这是全作唯一一只「可以背下来」的 Boss。
+    hp: 360, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 52,
+    windup: { pendulum: 0.50, chime: 0.55, hammer: 0.65, barrage: 0.45, nova: 0.55,
+              meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+    p2WindMul: 0.85, idleT: [0.44, 0.32], walk: [20, 26],
+    barrage: { v: 122, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },
+    /* score 曲谱：beats 是每拍的招式名（null=休止符）。
+       四拍一轮：pendulum → chime → hammer → 休止（null）。三招各约 2.2s，休止 1.6s，一轮约 8.2s。
+       承伤：非休止**完全免伤**（写在 _engBossHurt 开头，不是减伤）、休止 ×1.6。
+       血量按「只打得动 1.6s」定：360 ÷ (约 15 伤/轮) ≈ 24 轮 ≈ 197s——
+       比 map1 终章（约 120s）长，但那 120s 里玩家一直在挨打，这里有一半时间是安全的，体感不一样。 */
+    score: { beat: 1.0, restBeat: 1.6,
+             beats: ['pendulum', 'chime', 'hammer', null],
+             idleMul: 0.12, restMul: 1.6 },
+    /* pendulum 钟摆：以自身为轴横扫 140° 的弧（h=16，贴地→跳）。
+       弧心固定在它脚下，所以躲法是「跑到弧外面」而不是「跳」——与 lash 相反。 */
+    pendulum: { r: 78, h: 16, dmg: 1, sweep: 2.2 },
+    /* chime 声波：两圈同向环弹（v=96，慢），圈间 0.4s。慢弹才能"穿缝"，快环是必吃。 */
+    chime: { v: 96, t: [0.30, 0.70], endT: 1.05, n: 6 },
+    /* hammer 钟锤：从上方砸落，落点=玩家当前位置（warn 0.75s），落地溅两片横向冲击波。
+       与 meteor 的区别：meteor 是三连小陨石，这是一记大锤 + 落地横向扩散——躲法不同（要离地）。 */
+    hammer: { warn: 0.75, vy: 420, r: 20, dmg: 2, splash: 90 },
+    nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
+    stagger: 1.5, enrage: 1.2, dying: 2.8, revive: 0.9,
+    recover: { pendulum: 0.5, chime: 0.55, hammer: 0.6, barrage: 0.45, nova: 0.6 },
+    // 招牌：pendulum 钟摆 / chime 声波 / hammer 钟锤（+ 曲谱决定何时能打）
+    poolNear: ['pendulum', 'chime', 'hammer', 'barrage'],
+    poolFar: ['barrage', 'chime', 'hammer'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'bell1', drop2: 'bell2' },
+
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 42 }, ghost: { hp: 36 }, // v7 §8：精英怪
     // v8.0：三种新敌的精英血量（工厂 _engMkEnemy 会读 BAL.elite[type].hp，缺键会在 elite=true 时 TypeError）。
     // 口径沿用既有两条：≈4 倍基础血（lancer 3→14、ghost 3→12）。
@@ -613,6 +776,14 @@ const BAL = {
     // v12 L19 牛魔王掉落（权重和=100，序=白/绿/蓝/紫/金）：Boss6 表 drop1/drop2 指向本两键，
     // 缺键会让 _engBossHurt 的 _engRollTier(undefined) 抛错（drop1 是必掉分支）。
     niu1:  [18, 28, 26, 20, 8],  niu2:  [8, 20, 30, 26, 16],
+    // v20 地图二五只（权重和=100，序=白/绿/蓝/紫/金）。地图二是纯 Boss 图，没有小怪供给，
+    // 装备全靠这 5 场——所以整体比 map1 高半档（紫+金占比 44%~60%），
+    // 否则玩家打完 5 场可能还凑不齐一次升阶的 3 碎片。
+    ember1: [14, 26, 28, 22, 10], ember2: [6, 18, 30, 28, 18],
+    scale1: [12, 24, 28, 24, 12], scale2: [5, 16, 30, 29, 20],
+    husk1:  [10, 22, 28, 26, 14], husk2:  [4, 14, 30, 30, 22],
+    maw1:   [8, 20, 28, 28, 16],  maw2:   [3, 12, 28, 32, 25],
+    bell1:  [4, 14, 28, 30, 24],  bell2:  [2, 8, 26, 34, 30],
     hidden: [15, 25, 25, 22, 13], eliteK: [25, 30, 25, 20, 0],
     // v7.8：普通怪掉落（补齐装备供给）。此前装备只有 Boss 必掉 + 10% 精英掉，而前 6 关没有 Boss，
     // 玩家打完 L1~L6 背包仍是空的——升阶要 3 碎片，碎片只能靠分解装备，整条养成链压根跑不起来。
@@ -1037,7 +1208,13 @@ const game = {
   manaMax: 0,            // 法力上限（knight 恒 0 ⇒ 法力条不画、回蓝/耗蓝全空转）
   manaToast: 0,          // 「法力不足」提示剩余秒（0.9s；ui 在技能槽上方画红字）
   shots: [],             // 法师远程弹体（**不复用 game.bullets**：后者全部按「敌方」结算伤害）
-  wells: []              // v19.3：法师「引力奇点」实体（飞行 → 停驻吸附 → 引爆）
+  wells: [],             // v19.3：法师「引力奇点」实体（飞行 → 停驻吸附 → 引爆）
+  /* ---- v20 地图二（kind 7~11）：玩家侧状态与场地实体 ----
+     全部沿用「扩展字段」先例，不新增顶层全局符号。四组各自独立、互不读对方，
+     所以只有对应 Boss 在场时才有内容；其余关卡恒为空数组/0，读侧一律带守卫。 */
+  heat: 0,               // 烬：玩家身上的热量 0..100（造成伤害累积、静止散去、flare 引爆清零）
+  heatT: 0,              // 烬：距上次造成伤害的秒数（>0.6s 才开始散热——「打三秒停一拍」的判定依据）
+  mawMeals: []           // 喉：被吞进嘴的弹体（打爆嘴时一次性结算 3 伤 × 数量）
 };
 
 /* ==================== 关卡装载 / 出生 / 死亡 / 通关 ==================== */
@@ -1118,6 +1295,8 @@ function loadLevel(idx, keepStats) {
   game.manaMax = _engH19.usesMana ? BAL.heroes.mage.manaMax : 0;
   game.mana = game.manaMax; game.manaToast = 0; game.shots = [];
   game.wells = [];
+  // v20：地图二的玩家侧状态与场地实体随换关复位（不进存档、不放跨关）
+  game.heat = 0; game.heatT = 0; game.mawMeals = [];
   // respawnAt.p = 前进度量(x-y)：检查点「只进不退」的比较基准（横版 x 递增 / 纵版 y 递减均单调）
   game.respawnAt = { x: L.spawn.x, y: L.spawn.y, p: L.spawn.x - L.spawn.y };
   game.player = _engMkPlayer(L.spawn.x, L.spawn.y);
@@ -1157,6 +1336,7 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
   p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; p.abuf = 0; // v2 P1：动作状态复位（v7.7 追加攻击缓冲）
   p.mistT = 0; p.mistSlow = 0; // v18：水雾减速标记复位（重生点不在雾里，防残留半帧）
+  p.webNoJump = 0;             // v20：蛛网禁跳同口径复位（否则重生第一帧按跳没反应）
   // v6 §C：HP 回满（maxHp 含装备头饰加成）+ BAL 出生保护；技能 CD 保留计时（设计 §5）
   p.maxHp = _engHero().hpBase + (game.equip ? game.equip.hp : 0); // v7.7：局外成长项已删（否则复活后上限与出生时不一致）；v19：基础血按英雄表（法师复活后仍 4 血）
   p.hp = p.maxHp; p.invT = BAL.player.respawnInvT; p.shieldT = 0; p.castT = 0;
@@ -1182,6 +1362,10 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   game.pickups = [];
   game.bullets = []; game.waves = []; game.meteors = []; // v3：弹幕/波/陨石清空（drops 保留自然过期）
   game.hazards = []; // v10：场地危险物随死亡清空（复活瞬间被上一轮的陨石/地刺砸死是最伤信任的一类挫败）
+  // v20：地图二场地实体随死亡清空——虫卵/蛛网/嘴里积食都归零，热量清零。
+  // 只清不重建：复活点是安全区，不该一睁眼就站在网里、被卵围着、或带着 90 点热量。
+  game.mawMeals = [];
+  game.heat = 0; game.heatT = 0;
   if (game.player) game.player.pullV = 0; // v10：吸附力残留清零（否则复活第一帧还会被旧力场拖着走）
   // v3：Boss 重置——HP/阶段保留，状态回 idle（若存在且非 dormant/dead，工单 B）
   // v8.0：死亡=「正在打的这一段」作废——总血回到本段上界（打到 49% 死 → 复活 66%，
@@ -1199,6 +1383,9 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
     B.coreOn = false; B.chargeN = 0; B.leechOn = 0; B.leechAcc = 0;
     B.quellDmg = 0; B.quellDur = 0; B.quellFlash = 0;
     B.parryOn = false; B.breakT = 0;   // v13：架势/破防同 coreOn 口径复位（hazards 已清空，残留即永久反弹）
+    // v20：地图二 Boss 的机制态同口径复位——skew 归零（否则复活后第一击就触发失衡回血）、
+    // 嘴里清空（否则残留积食让玩家白赚一次爆发）、曲谱从第一拍重来（可背的谱必须是同一份）。
+    B.skew = 0; B.mouthOpen = false; B.scoreI = 0; B.scoreT = 0;
     if (B.state !== 'revive') { B.state = 'idle'; B.t = 0; } // 阶段切换演出不打断
   }
   for (const e of L.enemies) {
@@ -1463,9 +1650,13 @@ function _engOnScreen(e) { // 内部：实体矩形是否在视口内（连斩�
 
 function _engBossTable(kind) { // 内部：v7 Boss 参数表选择（kind 0/1=星核巨兽，2=蛟龙·敖渊，3=幽冥判官，4=冥古龙，5=曜光·圣裁者，6=烈焰·牛魔王）
   // R4：全部 Boss 差异只允许来自本选择器命中的参数表；禁止第二份 Boss 状态机 switch。
+  // v20：7~11 为地图二五只（余烬回响 / 双生天秤 / 孵化之间 / 无声之喉 / 终末之钟）。
   return kind === 2 ? BAL.boss2 : kind === 3 ? BAL.boss3
        : kind === 4 ? BAL.boss4 : kind === 5 ? BAL.boss5
-       : kind === 6 ? BAL.boss6 : BAL.boss;   // v12：L19 牛魔王
+       : kind === 6 ? BAL.boss6
+       : kind === 7 ? BAL.boss7 : kind === 8 ? BAL.boss8 : kind === 9 ? BAL.boss9
+       : kind === 10 ? BAL.boss10 : kind === 11 ? BAL.boss11
+       : BAL.boss;   // v12：L19 牛魔王
 }
 
 function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, py=锚点行顶；v7 §6.1 参数化）
@@ -1502,7 +1693,14 @@ function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, 
     chargeN: 0, leechOn: 0, leechAcc: 0,
     quellDmg: 0, quellDur: 0, quellFlash: 0, coreOn: false,
     summonCd: 0,   // v13.1：召唤冷却剩余秒（>0 时 summon 不进选招池）,
-    parryOn: false, breakT: 0
+    parryOn: false, breakT: 0,
+    /* ---- v20 地图二机制态（每只 Boss 只用其中一组，其余保持初值零副作用） ----
+       skew      秤：连续同侧命中计数 -3..3（达 ±max 触发失衡回血；异侧命中归零）
+       mouthOpen 喉：嘴是否张开（inhale 期间 true）——吞弹与「打嘴」的唯一开关
+       scoreI    钟：当前曲谱拍号 0..7
+       scoreT    钟：本拍已进行秒数
+       没有独立的「炎」字段：烬读的是玩家侧 game.heat，Boss 自己不需要记账。 */
+    skew: 0, mouthOpen: false, scoreI: 0, scoreT: 0
   };
 }
 
@@ -1517,7 +1715,24 @@ function _engBossDur(name, phase) { // 内部：前摇表(秒)，P2 ×p2WindMul�
   return w * (phase === 2 ? T.p2WindMul : 1) * comboMul;
 }
 
+function _engBossScore(b) { // 内部（v20）：终末之钟的曲谱——固定顺序出招，谱里 null = 休止符
+  /* 为什么不用 _engBossPick：轮转选招的"顺延防重复"会让顺序每轮都变，
+     而这只 Boss 的全部设计前提是「谱固定、可以背」。曲谱必须比轮转更强硬——
+     连 P2 连段都不许插进来（comboQ 直接写成单招，长度 1 ⇒ recover 不会触发连段分支）。 */
+  const SC = _engBossTable(11).score;
+  const nxt = SC.beats[b.scoreI];
+  b.scoreI = (b.scoreI + 1) % SC.beats.length;
+  if (nxt === null || nxt === undefined) {   // 休止符：站定 restBeat 秒，这段才是玩家的输出窗口
+    b.state = 'rest'; b.t = 0; b.scoreT = 0; b.vx = 0;
+    return;
+  }
+  b.next = nxt; b.lastPattern = nxt;
+  b.comboQ = [nxt]; b.comboN = 0;
+  b.state = 'windup'; b.t = 0; b.fireN = 0; b.chargeN = 0;
+}
+
 function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不用随机）；v7 §6.2：池全读表（R4）
+  if (b.kind === 11) { _engBossScore(b); return; }   // v20：钟按曲谱，不进轮转
   const T = _engBossTable(b.kind || 0);
   const p = game.player, bcx = b.x + b.w / 2, adx = Math.abs(p.x + p.w / 2 - bcx);
   // slice：与原实现「每次新建数组字面量」等价，避免过滤前共享表被误改
@@ -1564,12 +1779,19 @@ function _engSegHp(b) { // 当前段内剩余（= UI 画填充用的 hp）
 
 function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
   // v13 §四：isUlt=true 仅限大招（U 星陨 / O 连斩）——它决定能不能破 parry 架势。
-  const b = game.boss;
+  const b = game.boss, p = game.player;   // v20：秤的方位判定要读玩家位置（此前漏声明，打 kind8 必 ReferenceError）
   if (!b || b.state === 'dormant' || b.state === 'intro' || b.state === 'enrage'
         || b.state === 'dying' || b.state === 'dead' || b.state === 'revive'
         || ((b.state === 'blinkCast' || b.state === 'mirrorCast') && b.hidden)) return false; // v7 §6.3：blink 隐身期免伤；v7.9：revive 假死期免伤；v13：mirror 隐身期免伤
   // v12 §一.7：核心护盾期本体全免伤——只闪白 + 金属音提示「打错目标了」，一滴血都不掉。
   if (b.coreOn) { b.flashT = 0.08; game.sfxQueue.push('clank'); return false; }
+  /* v20 终末之钟：曲谱的非休止符拍**完全免伤**，不做"减伤"。
+     减伤（哪怕 ×0.12）玩家会看到血条还在动，于是继续埋头砍；免伤才逼他抬头看曲谱。
+     这是全作唯一一只"现在打它没用"的 Boss，也是唯一一只可以背下来的。 */
+  if (b.kind === 11) {
+    const SC = _engBossTable(11).score;
+    if (SC && SC.beats[b.scoreI] !== null) { b.flashT = 0.06; game.sfxQueue.push('clank'); return false; }
+  }
   const T = _engBossTable(b.kind || 0); // v7 §6：P2 线/掉落表读表
   /* ---- v13 §四：反伤架势（必须放在 coreOn 之后、正常扣血之前） ----
      普通攻击打上去一滴血不掉、反伤 1 心给玩家（惩罚无脑连打）；
@@ -1596,8 +1818,47 @@ function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击
   }
   /* v10 破绽期 ×1.5；v13 §五 破防窗口 ×2.0（优先）。只改内部 real，不动 b.hp 派生值。 */
   const mul = (b.breakT > 0) ? 2.0 : (b.state === 'stagger' ? 1.5 : 1);
-  const real = mul === 1 ? dmg : Math.max(1, Math.round(dmg * mul));
-  // v12 §一.3：quell 蓄力期把真实伤害累进 quellDmg（打断判定用；打断结算在 quellCast 里做）
+  let real = mul === 1 ? dmg : Math.max(1, Math.round(dmg * mul));
+  /* ==================== v20 地图二 · 承伤侧的三个机制 ====================
+     三只 Boss 的差异全在"这一下算不算数 / 算多少"，所以钩子只能挂在这里——
+     挂在攻击路径上会漏掉星陨/连斩/法师弹体三条支线。 */
+
+  /* ① 双生天秤：同侧连击会把血偷回去，左右交替才是正解。
+     side 取「玩家相对 Boss 中心」——所以玩家的解法天然是"穿到另一边"，不用额外教。 */
+  if (b.kind === 8 && T.skew && p) {
+    const SK = T.skew;
+    const side = ((p.x + p.w / 2) < (b.x + b.w / 2)) ? -1 : 1;
+    const alt = b.skew !== 0 && Math.sign(b.skew) !== side;
+    if (alt) {
+      b.skew = side;                                   // 换边：连击清零并从这一侧重新算
+      real = Math.max(1, Math.round(real * (SK.goodMul || 1.25)));   // 「对秤」奖励
+      _engFloat(b.x + b.w / 2, b.y - 4, '对秤', '#f8d048', 0);
+    } else {
+      b.skew += side;
+      if (Math.abs(b.skew) >= (SK.max || 3)) {
+        // 失衡：把这一段血偷回去（不跨段，口径同召唤回血）
+        const ceil = (3 - b.bandBreak) * b.bandMax;
+        const back = Math.min(b.maxHp * (SK.healPct || 4.5) / 100, Math.max(0, ceil - b.hpTotal));
+        b.hpTotal += back; b.hp = _engSegHp(b); b.skew = 0;
+        b.flashT = 0.2;
+        _engFloat(b.x + b.w / 2, b.y - 8, '失衡 +' + Math.round(back), '#f86048', 1);
+        _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 12, '#f86048', 90, 190);
+        game.sfxQueue.push('bossbreak');
+      }
+    }
+  }
+
+  /* ② 终末之钟：曲谱。非休止符直接免伤（在函数开头已挡），休止符额外 ×restMul。 */
+  if (b.kind === 11 && T.score && T.score.beats[b.scoreI] === null)
+    real = Math.max(1, Math.round(real * (T.score.restMul || 1.6)));
+
+  /* ③ 余烬回响：把这一下的伤害记成玩家身上的热量（记账用 real，破绽/破防加倍的热量也算进去——
+     "打得更狠更快烧穿"是这条机制唯一自洽的口径）。 */
+  if (b.kind === 7 && T.heat) {
+    game.heat = Math.min(T.heat.cap, (game.heat || 0) + real * T.heat.perDmg);
+    game.heatT = 0;
+  }
+
   if (b.state === 'quellCast') b.quellDmg = (b.quellDmg || 0) + real;
   b.lastDmg = real;                    // 供调用方显示真实伤害（浮字不再显示被放大的旧值）
   b.hpTotal -= real; b.flashT = 0.12;  // v8.0：扣的是总血，段内 hp 由它派生
@@ -1653,12 +1914,15 @@ function _engBossPhysX(dt, b) { // 内部：Boss X 轴解算（撞墙返回 true
   return false;
 }
 
-function _engBossNovaRing(b, deg, v) { // 内部：8 向放射弹（第二环 deg=22.5 转角）；v6 §F 弹速收编、v7 §6 改读本 Boss 表
+function _engBossNovaRing(b, deg, v, n) { // 内部：环向放射弹（第二环 deg=22.5 转角）；v6 §F 弹速收编、v7 §6 改读本 Boss 表
   // v7.9：第三参 v 可覆盖弹速——halo（92，慢）/dive（105）都复用本发射器，
   // 坚持「一种视觉 = 一种判定」，不引入新弹种，玩家看到的每一颗星弹规则都相同。
+  // v20：第四参 n 可覆盖弹数（缺省 8）——终末之钟的 chime 用 6 向：8 向在 3× 下缝太小，
+  // 慢弹也穿不过去；6 向把缝拉到 60°，才符合"走位穿缝"而不是"贴边硬挤"。
   const T = _engBossTable(b.kind || 0);
   const bcx = b.x + b.w / 2, bcy = b.y + 20, spd = v || T.nova.v;
-  for (let i = 0; i < 8; i++) { const a = (i * 45 + deg) * Math.PI / 180;
+  const cnt = (n && n > 2) ? n : 8, step = 360 / cnt;
+  for (let i = 0; i < cnt; i++) { const a = (i * step + deg) * Math.PI / 180;
     game.bullets.push({ x: bcx - 4, y: bcy - 4, w: 8, h: 8,
       vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, star: true }); }
 }
@@ -1679,6 +1943,147 @@ function _engBossSummon(T) { // 内部：v7 §6.2 参数化召唤（type/n/off �
     e.leech = true;    // v12 §一.2：存活且 leech 的召唤体按 T.summon.leech 给 Boss 回血（先清小怪才断奶）
     L.enemies.push(e);
   }
+}
+
+/* ==================== v20 地图二 · 招式结算（单发招在前摇结束那一帧调用）====================
+   全部只做三件事：算落点、推实体、结算一次伤害。持续期交给 hazard / entities 自己走，
+   Boss 状态机里不留"半招"——这样玩家读到的前摇永远等于「抬手到第一下伤害」的时长。 */
+
+/* ---- 烬（kind 7）：热量体系由玩家侧 game.heat 承载，Boss 只负责点着它 ---- */
+function _engM2Heat(dt) { // 内部：热量每帧维护（散热 + 满值自爆）；只在 kind7 在场时跑
+  const T = _engBossTable(7), H = T.heat;
+  if (game.heat <= 0) { game.heat = 0; return; }
+  game.heatT += dt;
+  const cool = game.heatT >= H.idleAfter ? H.idleCool : H.cool;
+  game.heat = Math.max(0, game.heat - cool * dt);
+  if (game.heat < H.cap) return;
+  /* 满值自爆：不是 flare 那种"点名"，是玩家自己把壶烧穿了——所以它不挑位置，就炸在脚下。 */
+  const p = game.player;
+  game.heat = 0; game.heatT = 0;
+  game.shake = Math.max(game.shake, 7); game.sfxQueue.push('boom');
+  _engFx(p.x + p.w / 2, p.y + p.h / 2, { ring: 1, r: 8, r1: 42, life: 0.34, color: '#f86038' });
+  _engAddParts(p.x + p.w / 2, p.y + p.h / 2, 16, '#f86038', 130, 250);
+  _engFloat(p.x + p.w / 2, p.y - 8, '烧穿了', '#f86038', 1);
+  if (!p.dead) _engHurtPlayer(p.x + p.w / 2, H.burstDmg);
+}
+
+function _engB7Flare(b) { // 烬 · 引燃：把玩家身上的热量当场点着（热量不足则打不着）
+  const T = _engBossTable(7).flare, p = game.player;
+  const h = game.heat || 0;
+  if (h < T.minHeat) {                            // ★ 机制核心：压住热量 = 这招白给
+    _engFloat(b.x + b.w / 2, b.y - 4, '熄灭', '#8a8a9a', 0.9);
+    _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 6, '#5a5a6a', 60, 120);
+    return;
+  }
+  const px0 = p.x + p.w / 2, py0 = p.y + p.h / 2;
+  const dmg = 1 + Math.floor(h / 45);             // 30→1 / 45→2 / 90→3：热量越高越疼
+  game.heat = 0; game.heatT = 0;
+  game.shake = Math.max(game.shake, 6); game.sfxQueue.push('boom');
+  _engFx(px0, py0, { ring: 1, r: 6, r1: T.r, life: 0.32, color: '#f8a030' });
+  _engAddParts(px0, py0, 14, '#f86038', 130, 240);
+  _engFloat(px0, py0 - 10, '引燃 ' + Math.round(h), '#f8a030', 1);
+  if (!p.dead && _engCircleRect(px0, py0, T.r, p)) _engHurtPlayer(b.x + b.w / 2, dmg);
+}
+
+function _engB7Sear(b) { // 烬 · 灼视线：横贯 220px 的细激光（跳过去）
+  const T = _engBossTable(7).sear, p = game.player, L = game.level;
+  const by = b.y + b.h - 12, bx = b.x + b.w / 2;
+  const dir = (p.x + p.w / 2) < bx ? -1 : 1;
+  const WXt = L.w * _engTile;
+  let x0 = dir > 0 ? bx : bx - T.len;
+  let len = T.len;
+  if (x0 < 0) { len += x0; x0 = 0; }              // 贴墙时裁到场地内（不裁会画出边界外）
+  if (x0 + len > WXt) len = WXt - x0;
+  game.hazards.push({ kind: 'laser', x: x0, y: by - T.w / 2, w: len, h: T.w,
+    t: 0, dur: T.dur, dmg: T.dmg, hitCd: 0, dir: dir });
+  game.sfxQueue.push('shot'); _engShake(2, 0);
+}
+
+function _engB7Lash(b) { // 烬 · 火鞭：贴地短波，235px/s（快于玩家跑速 120 —— 看到就得跳，不能跑）
+  const T = _engBossTable(7).lash, p = game.player;
+  const dir = (p.x + p.w / 2) < b.x + b.w / 2 ? -1 : 1;
+  game.waves.push({ x: b.x + b.w / 2 + dir * 8, y: b.y + b.h - T.h,
+    w: T.w, h: T.h, vx: dir * T.v, life: T.life });
+  game.sfxQueue.push('slash');
+}
+
+/* ---- 秤（kind 8）：机制在 _engBossHurt 里判定方位，招式只做"位移与压制" ---- */
+function _engB8Swap(b) { // 秤 · 换位：与玩家交换 x（唯一一只敢主动换位的 Boss）
+  const T = _engBossTable(8).swap, p = game.player, L = game.level;
+  const WXt = L.w * _engTile;
+  const bx = b.x, by = b.y;
+  // 交换而不是"传送到玩家处"：玩家会突然站在它原来的位置，而它出现在玩家刚站的地方——
+  // 「穿到另一边打」这个动作被反将一军，这是 skew 机制唯一能主动打断的方式。
+  b.x = _engClamp(p.x + p.w / 2 - b.w / 2, 4, WXt - b.w - 4);
+  b.vx = 0; b.vy = 0;
+  p.x = _engClamp(bx + b.w / 2 - p.w / 2, 4, WXt - p.w - 4);
+  p.vx = 0; p.vy = 0;
+  _engAddParts(p.x + p.w / 2, p.y + p.h / 2, 10, '#f8d048', 100, 200);
+  _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 12, '#c8a8ff', 100, 210);
+  _engFloat(p.x + p.w / 2, p.y - 8, '换位', '#f8d048', 0.9);
+  game.sfxQueue.push('blink'); _engShake(3, 0);
+}
+
+/* ---- 茧（kind 9）：卵与网由独立数组承载（不进 hazards——它们要跨招存活，且有自己的进化计时） ---- */
+function _engB9Spawn(b) { // 茧 · 产卵：玩家两侧 + 自身脚下各 1 枚
+  const T = _engBossTable(9).spawn, p = game.player, L = game.level;
+  const hz = game.hazards || (game.hazards = []);
+  let nEgg = 0;
+  for (const e of hz) if (e.kind === 'egg') nEgg++;
+  if (nEgg >= T.cap) return;                       // 场上卵到上限就不再产（防卵海淹人）
+  const WXt = L.w * _engTile;
+  const spots = [p.x + p.w / 2 - 40, p.x + p.w / 2 + 40, b.x + b.w / 2 - 8];
+  for (let i = 0; i < T.n && nEgg < T.cap; i++) {
+    const sx = _engClamp(spots[i], 10, WXt - 18);
+    const gy = _engGroundY(sx, p.y);
+    // hp 随阶位换：卵 2 / 幼虫 3 / 成虫 5。hitSeq 与 hitCd 是受击节奏，不是血量。
+    hz.push({ kind: 'egg', x: sx, y: gy - 16, w: 16, h: 16, t: 0, stage: 0,
+      hp: T.hp, maxHp: T.hp, stageT: T.stageT, flashT: 0, hitCd: 0 });
+    nEgg++;
+  }
+  game.sfxQueue.push('spit');
+}
+
+function _engB9Web(b) { // 茧 · 蛛网：Boss 与玩家之间铺一片（挡移动、挡跳，不挡攻击）
+  const T = _engBossTable(9).web, p = game.player, L = game.level;
+  const cx = (b.x + b.w / 2 + p.x + p.w / 2) / 2;
+  const WXt = L.w * _engTile;
+  const x0 = _engClamp(cx - T.w / 2, 0, WXt - T.w);
+  const gy = _engGroundY(x0 + T.w / 2, Math.min(b.y, p.y) + 8);
+  const hz = game.hazards || (game.hazards = []);
+  let nW = 0;
+  for (const e of hz) if (e.kind === 'web') nW++;
+  if (nW > 4) return;                              // 上限 5 片（不叠成一片无解的减速海）
+  hz.push({ kind: 'web', x: x0, y: gy - T.h, w: T.w, h: T.h, life: T.life,
+    slow: T.slow, noJump: T.noJump, t: 0 });
+  game.sfxQueue.push('spit');
+}
+
+/* ---- 喉（kind 10）：吞与吐 ---- */
+function _engB10Roar(b) { // 喉 · 反刍：把嘴里的积食全吐回去（喂得越狠，这一下越像弹幕）
+  const T = _engBossTable(10).roar, p = game.player;
+  const meals = game.mawMeals || (game.mawMeals = []);
+  const n = meals.length;
+  if (!n) { _engFloat(b.x + b.w / 2, b.y - 4, '空嘴', '#8a8a9a', 0.9); return; }
+  const bx = b.x + b.w / 2, by = b.y + 20;
+  const base = Math.atan2((p.y + p.h / 2) - by, (p.x + p.w / 2) - bx);
+  for (let i = 0; i < n; i++) {
+    // 扇开而不是叠成一发：叠起来等于"扣 n 心"，扇开才是"要躲的弹幕"
+    const off = (i - (n - 1) / 2) * (T.spread * Math.PI / 180);
+    const a = base + off;
+    game.bullets.push({ x: bx - 4, y: by, w: 8, h: 8,
+      vx: Math.cos(a) * T.v, vy: Math.sin(a) * T.v, star: true });
+  }
+  meals.length = 0;
+  game.sfxQueue.push('roar'); _engShake(4, 0);
+}
+
+function _engB10Bite(b) { // 喉 · 咬：近身 34px、2 伤（唯一的高伤害招，逼玩家别贴脸）
+  const T = _engBossTable(10).bite, p = game.player;
+  const cx = b.x + b.w / 2, cy = b.y + b.h - 14;
+  game.sfxQueue.push('bite'); _engShake(3, 0);
+  _engAddParts(cx, cy, 10, '#f85888', 110, 200);
+  if (!p.dead && _engCircleRect(cx, cy, T.r, p)) _engHurtPlayer(cx, T.dmg);
 }
 
 function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计时单位秒=帧÷60）
@@ -1800,6 +2205,47 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'mistCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'totem') { if (b.t >= _engBossDur('totem', b.phase)) {
         b.state = 'totemCast'; b.t = 0; b.fireN = 0; } }
+    /* ---- v20 地图二 15 招（kind 7~11）----
+       分两类，界线是「有没有持续期」：
+       单发招（flare/sear/lash/swap/spawn/web/roar/bite）在前摇结束的那一帧直接结算后进 recover。
+         它们没有"持续"语义，硬塞一个 0.2s 的 cast 态只会让前摇读数变模糊——玩家数着预警躲，
+         多出来的一段空窗会让"看到抬手→还没炸"的判断失准。
+       多段招（weight/beam/swarm/inhale/pendulum/chime/hammer）进各自的 Cast 态，靠 t/fireN 推进。 */
+    else if (b.next === 'flare') { if (b.t >= _engBossDur('flare', b.phase)) {
+        _engB7Flare(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'sear') { if (b.t >= _engBossDur('sear', b.phase)) {
+        _engB7Sear(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'lash') { if (b.t >= _engBossDur('lash', b.phase)) {
+        _engB7Lash(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'weight') { if (b.t >= _engBossDur('weight', b.phase)) {
+        b.state = 'weightCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'swap') { if (b.t >= _engBossDur('swap', b.phase)) {
+        _engB8Swap(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'beam') { if (b.t >= _engBossDur('beam', b.phase)) {
+        b.state = 'beamCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'spawn') { if (b.t >= _engBossDur('spawn', b.phase)) {
+        _engB9Spawn(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'web') { if (b.t >= _engBossDur('web', b.phase)) {
+        _engB9Web(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'swarm') { if (b.t >= _engBossDur('swarm', b.phase)) {
+        b.state = 'swarmCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'inhale') { if (b.t >= _engBossDur('inhale', b.phase)) {
+        b.state = 'inhaleCast'; b.t = 0; b.fireN = 0; b.mouthOpen = true; } }
+    else if (b.next === 'roar') { if (b.t >= _engBossDur('roar', b.phase)) {
+        _engB10Roar(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'bite') { if (b.t >= _engBossDur('bite', b.phase)) {
+        _engB10Bite(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'pendulum') { if (b.t >= _engBossDur('pendulum', b.phase)) {
+        /* v20 修：扇面必须朝玩家那一侧。原来固定 -70°→+70°（画布角，正角朝下）只覆盖右侧，
+           玩家站左边等于完全免疫，等于这招一半时间是白放的。开扫时锁一次方向（同 landX 口径），
+           躲法随之变成「跑到弧外」或「从它身下绕到背后」——两种都成立，不必二选一。 */
+        b.pendDir = (pcx < b.x + b.w / 2) ? -1 : 1;
+        b.state = 'pendulumCast'; b.t = 0; b.fireN = 0; b.pendA = 0; } }
+    else if (b.next === 'chime') { if (b.t >= _engBossDur('chime', b.phase)) {
+        b.state = 'chimeCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'hammer') { if (b.t >= _engBossDur('hammer', b.phase)) {
+        // 落点在前摇结束的瞬间锁定玩家位置——起手后往外走一步就能让它砸空（与 leap 的 landX 同口径）
+        b.landX = pcx; b.state = 'hammerCast'; b.t = 0; b.fireN = 0; } }
     break;
 
   case 'leapAir': {
@@ -2278,6 +2724,138 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= 0.45) { b.state = 'recover'; b.t = 0; }
     break; }
 
+  /* ==================== v20 地图二 · 七个持续型 Cast 态 ====================
+     这里只推进"这一招自己的时间线"，伤害判定全部落回 hazard/实体侧——
+     与 v12 的 quell/pillar 同一分工：Boss 状态机不持有"还会不会疼"的知识。 */
+
+  case 'weightCast': { // ① 秤·砝码：三枚按 spread 依次落下（[-26,0,26] 扇形封住它正前方）
+    b.vx = 0;
+    const TW = T.weight || BAL.boss8.weight;
+    const WXt = L.w * _engTile;
+    const want = Math.floor(b.t / TW.gap);
+    while (b.fireN < want && b.fireN < TW.n) {
+      const off = TW.spread[b.fireN % TW.spread.length];
+      const mx = _engClamp(b.x + b.w / 2 + off, 10, WXt - 10);
+      game.hazards.push({ kind: 'weight', x: mx, y: -20, vy: TW.vy, r: TW.r,
+        dmg: TW.dmg, warn: TW.warn, warnT: TW.warn, t: 0, fall: false });
+      b.fireN++;
+    }
+    if (b.t >= TW.gap * TW.n + 0.30) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'beamCast': { // ② 秤·横梁：全屏水平激光（跳过去）——与 sear 同实体、不同朝向
+    b.vx = 0;
+    const TB = T.beam || BAL.boss8.beam;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXt = L.w * _engTile;
+      const y0 = b.y + b.h - 26;   // 横梁压到站立头线：站地面必中，跳起 24px 即过
+      game.hazards.push({ kind: 'laser', x: 0, y: y0, w: WXt, h: TB.h, t: 0,
+        dur: TB.dur, dmg: TB.dmg, hitCd: 0, dir: 0, beam: true });
+      game.sfxQueue.push('roar'); _engShake(4, 0);
+    }
+    if (b.t >= TB.dur + 0.20) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'swarmCast': { // ③ 茧·虫群：五只小虫贴着地面横穿（低矮、可跳）
+    b.vx = 0;
+    const TS = T.swarm || BAL.boss9.swarm;
+    const dir = (p.x + p.w / 2) < b.x + b.w / 2 ? -1 : 1;
+    const gy = _engGroundY(b.x + b.w / 2, b.y);
+    const want = Math.floor(b.t / TS.gap);
+    while (b.fireN < want && b.fireN < TS.n) {
+      game.hazards.push({ kind: 'crawler', x: b.x + b.w / 2 + dir * 10, y: gy - TS.h,
+        w: TS.w, h: TS.h, vx: dir * TS.v, dmg: TS.dmg, life: TS.life, t: 0, seed: b.fireN * 1.7 });
+      b.fireN++;
+    }
+    if (b.t >= TS.gap * TS.n + 0.30) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'inhaleCast': { // ④ 喉·吸气：吞飞行物 + 把玩家往回拽（drag），1.6s
+    b.vx = 0; b.mouthOpen = true;
+    const TI = T.inhale || BAL.boss10.inhale;
+    const cx = b.x + b.w / 2, cy = b.y + b.h - 22;
+    /* ① 吞弹：只有法师有远程（game.shots），骑士靠"被吸过去"感受这一招——
+       两者都受影响，但方式不同，这样换角色不用换打法。 */
+    const shots = game.shots || [];
+    for (let i = shots.length - 1; i >= 0; i--) {
+      const s = shots[i];
+      if (Math.hypot(s.x - cx, s.y - cy) > TI.r) continue;
+      shots.splice(i, 1);
+      const meals = game.mawMeals || (game.mawMeals = []);
+      if (meals.length < 12) meals.push({ kind: s.kind });
+      const ceil = (3 - b.bandBreak) * b.bandMax;
+      const cap = b.maxHp * (TI.capPct / 100);
+      const room = Math.min(ceil - b.hpTotal, cap - (b.mawHeal || 0));
+      if (room > 0) {
+        const add = Math.min(b.maxHp * TI.healPct / 100, room);
+        b.hpTotal += add; b.hp = _engSegHp(b); b.mawHeal = (b.mawHeal || 0) + add;
+      }
+      _engAddParts(cx, cy, 6, '#8a58d8', 80, 160);
+      _engFloat(cx, cy - 12, '吞', '#8a58d8', 0.7);
+      game.sfxQueue.push('pickup');
+    }
+    /* ② 拽人：朝嘴的方向给一个恒力，速度上限 60px/s（玩家跑速 120，逆着跑一定跑得掉）。
+       ✗ 不做成"无法反抗的吸附"——那会让这 1.6s 变成纯挨打时间，玩家只能站着数秒。 */
+    if (!p.dead) {
+      const dx = cx - (p.x + p.w / 2);
+      if (Math.abs(dx) < TI.r && Math.abs(p.x + p.w / 2 - cx) > 18) {
+        const pull = Math.sign(dx) * Math.min(TI.pull, Math.abs(dx) * 4);
+        p.x += pull * dt; p.vx = 0;
+      }
+    }
+    if (b.t >= TI.dur) { b.mouthOpen = false; b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'pendulumCast': { // ⑤ 钟·钟摆：以脚下为轴，朝玩家那一侧扫 140°（躲法=出弧 或 绕到背后）
+    b.vx = 0;
+    const TP = T.pendulum || BAL.boss11.pendulum;
+    const cx = b.x + b.w / 2, cy = b.y + b.h - 6;
+    const dir = b.pendDir || 1;
+    const t01 = Math.min(1, b.t / TP.sweep);
+    b.pendA = dir * (-70 + 140 * t01);
+    if (!p.dead && b.t < TP.sweep && (b.pendHitCd || 0) <= 0) {
+      const dx = (p.x + p.w / 2) - cx, dy = (p.y + p.h / 2) - cy;
+      const d = Math.hypot(dx, dy);
+      if (d < TP.r + 8) {
+        const a = Math.atan2(dy, dx) * 180 / Math.PI;
+        // 判定带宽 16°：比视觉上的摆锤粗一档，否则 3× 下摆锤扫过却没有判定，玩家会当成穿模
+        if (Math.abs(a - b.pendA) < 16) {
+          _engHurtPlayer(cx, TP.dmg); b.pendHitCd = 0.5;
+        }
+      }
+    }
+    if ((b.pendHitCd || 0) > 0) b.pendHitCd -= dt;
+    if (b.t >= TP.sweep + 0.20) { b.state = 'recover'; b.t = 0; b.pendA = 0; }
+    break; }
+
+  case 'chimeCast': { // ⑥ 钟·声波：两圈同向环弹，圈间 0.4s（慢弹才能穿缝）
+    b.vx = 0;
+    const TC = T.chime || BAL.boss11.chime;
+    while (b.fireN < TC.t.length && b.t >= TC.t[b.fireN]) {
+      _engBossNovaRing(b, b.fireN * 30, TC.v, TC.n);   // 每圈转 30°，避免三圈完全重叠成一条线
+      b.fireN++;
+      game.sfxQueue.push('storm');
+    }
+    if (b.t >= TC.endT) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'hammerCast': { // ⑦ 钟·钟锤：从上方砸在 landX（前摇结束时就锁定了玩家位置）
+    b.vx = 0;
+    const TH = T.hammer || BAL.boss11.hammer;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      game.hazards.push({ kind: 'hammer', x: b.landX, y: -30, vy: TH.vy, r: TH.r,
+        dmg: TH.dmg, warn: TH.warn, warnT: TH.warn, t: 0, fall: false, splash: TH.splash });
+    }
+    if (b.t >= TH.warn + 0.9) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'rest': { // ⑧ 钟·休止符：站定不动、不出招——这是它唯一吃伤害的窗口（承伤 ×1.6，见 _engBossHurt）
+    b.vx = 0;
+    if (b.t >= (T.score.restBeat || 1.6)) { b.state = 'idle'; b.t = 0; }
+    break; }
+
   case 'recover':  b.vx = 0; b.parryOn = false;   // v13：离开任何状态的统一兜底（parry 只活在 parryCast）
     // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
     if (b.t >= (T.recover[b.next] || 0.5)) {
@@ -2683,6 +3261,106 @@ function _engUpdateHazards(dt) {
         e.fxT = (e.fxT || 0) - dt;
         if (e.fxT <= 0) { e.fxT = 0.14;
           _engFx(e.x + e.w / 2, e.y - e.h - 2, { vy: -34, life: 0.3, color: '#f8d048', size: 1 }); }
+      }
+    /* ==================== v20 地图二 · 四种新场地实体 ====================
+       全部走 hazards（不新建数组）——它们与陨石/地刺/火柱同一生命周期：
+       跨段清场、Boss 死亡清场、复活清场，这三条现成规则都要继承，独立数组会漏掉其中一条。 */
+    } else if (e.kind === 'laser') { // 灼视线 / 横梁：细长矩形，存续 dur 秒
+      e.t += dt;
+      if (e.t >= e.dur) { dead = true; }
+      else {
+        if (e.hitCd > 0) e.hitCd -= dt;
+        if (e.hitCd <= 0 && !p.dead && _engAabb({ x: e.x, y: e.y, w: e.w, h: e.h }, p)) {
+          _engHurtPlayer(e.x + e.w / 2, e.dmg); e.hitCd = 0.5;
+        }
+      }
+    } else if (e.kind === 'weight' || e.kind === 'hammer') { // 砝码 / 钟锤：预警 → 下落 → 落地结算
+      // 两者共用一套下落，差异只在落地后的余波（hammer 多一圈横向冲击波）与体积。
+      if (e.warnT > 0) {
+        e.warnT -= dt;
+        if (e.warnT <= 0) { e.fall = true; e.y = -20; game.sfxQueue.push('shot'); }
+      } else {
+        e.y += e.vy * dt;
+        const ty = Math.floor((e.y + e.r) / _engTile), tx = Math.floor(e.x / _engTile);
+        if (L.solid(tx, ty, game.switchState)) {
+          dead = true;
+          const gy = ty * _engTile;
+          game.shake = Math.max(game.shake, 6); game.sfxQueue.push('boom');
+          _engAddParts(e.x, gy, 14, e.kind === 'hammer' ? '#f8d048' : '#c8a8ff', 120, 240);
+          _engFx(e.x, gy - e.r, { ring: 1, r: 4, r1: e.r + 10, life: 0.32, color: '#f8d048' });
+          if (!p.dead && _engCircleRect(e.x, gy - e.r, e.r, p)) _engHurtPlayer(e.x, e.dmg);
+          if (e.kind === 'hammer' && e.splash) {          // 钟锤落地：左右两片横向冲击波
+            for (const d of [-1, 1])
+              game.waves.push({ x: e.x + d * 10, y: gy - 12, w: 14, h: 12, vx: d * e.splash, life: 0.55 });
+          }
+        } else if (e.y > L.h * _engTile + 30) { dead = true; }
+        else if (!p.dead && _engCircleRect(e.x, e.y + e.r, e.r, p)) {
+          dead = true; _engHurtPlayer(e.x, e.dmg);
+          _engAddParts(e.x, e.y, 10, '#f8d048', 100, 200);
+        }
+      }
+    } else if (e.kind === 'crawler') { // 虫群：贴地直线爬行，撞墙消失
+      e.t += dt; e.life -= dt;
+      e.x += e.vx * dt;
+      const tx = Math.floor((e.x + (e.vx > 0 ? e.w : 0)) / _engTile);
+      const ty = Math.floor((e.y + e.h / 2) / _engTile);
+      if (e.life <= 0 || L.solid(tx, ty, game.switchState)) dead = true;
+      else if (!p.dead && _engAabb(e, p)) {
+        dead = true; _engHurtPlayer(e.x + e.w / 2, e.dmg);
+        _engAddParts(e.x + e.w / 2, e.y + e.h / 2, 8, '#68c060', 90, 180);
+      }
+    } else if (e.kind === 'egg') { // 虫卵（茧）：每 stageT 进化一级——★ 打早了只是"提前放出来"
+      const TE = _engBossTable(9).spawn;
+      if (e.flashT > 0) e.flashT -= dt;
+      e.t += dt;
+      /* 受击只把 hp 扣到 <=0，收尸/进化统一在这里做（与 totem 同一分工）：
+         攻击路径只扣血、不判生死，否则"最后一刀打碎卵"会在攻击里直接消失，
+         玩家永远看不到自己把卵打成了幼虫——那才是最该看到的惩罚反馈。 */
+      if (e.hp <= 0) {
+        if (e.stage < 2) {                 // ★ 核心：卵不会消失，只是提前一格
+          e.stage++; e.t = 0; e.flashT = 0.22;
+          e.hp = e.stage === 1 ? TE.larvaHp : TE.adultHp;
+          e.maxHp = e.hp;
+          _engAddParts(e.x + 8, e.y + 8, 10, e.stage === 1 ? '#c8e070' : '#f8c048', 90, 190);
+          _engFloat(e.x + 8, e.y - 4, e.stage === 1 ? '破壳' : '化蛹', '#c8e070', 0.8);
+          game.sfxQueue.push('break');
+        } else {                           // 成虫才是"肥的"：能量 + 回蓝 + 金币
+          dead = true;
+          game.ultCharge = Math.min(100, (game.ultCharge || 0) + 18);
+          if (game.manaMax > 0) game.mana = Math.min(game.manaMax, game.mana + 12);
+          _engAddParts(e.x + 8, e.y + 8, 16, '#f8d048', 120, 230);
+          _engFx(e.x + 8, e.y + 8, { ring: 1, r: 3, r1: 22, life: 0.3, color: '#f8d048' });
+          _engFloat(e.x + 8, e.y - 4, '能量 +18', '#f8d048', 1);
+          game.coins += 2; game.sfxQueue.push('coin');
+        }
+      } else if (e.t >= e.stageT) {
+        /* 自然进化：血量按新阶段回满——"我打了一半它却变强了"正是这招要教的东西。
+           只有成虫（stage 2）不再进化，停在原地等玩家来收割。 */
+        if (e.stage < 2) {
+          e.stage++; e.t = 0; e.flashT = 0.22;
+          e.hp = e.stage === 1 ? TE.larvaHp : TE.adultHp;
+          e.maxHp = e.hp;
+          _engAddParts(e.x + 8, e.y + 8, 10, '#c8e070', 80, 170);
+          game.sfxQueue.push('spit');
+        }
+      } else if (e.stage > 0 && !p.dead) {
+        // 幼虫/成虫会贴地爬向玩家（成虫更快）。卵阶段不动——它是"等着你决定"的东西。
+        const spd = e.stage === 1 ? 38 : 68;
+        const dir = (p.x + p.w / 2) < (e.x + 8) ? -1 : 1;
+        e.x += dir * spd * dt;
+        if (e.hitCd > 0) e.hitCd -= dt;
+        if (_engAabb(e, p) && e.hitCd <= 0) {
+          _engHurtPlayer(e.x + 8, 1); e.hitCd = 0.8;
+        }
+      }
+    } else if (e.kind === 'web') { // 蛛网（茧）：挡移动、挡跳，不挡攻击
+      e.t += dt; e.life -= dt;
+      if (e.life <= 0) dead = true;
+      else if (!p.dead && _engAabb(e, p)) {
+        /* 沿用 mist 的减速通道（p.mistT/p.mistSlow）：它已经是玩家移速钳制处唯一的乘数，
+           再开一条并行通道会出现"两个乘数相乘"的叠乘 bug。web 额外置 webNoJump。 */
+        p.mistT = 0.08; p.mistSlow = Math.min(p.mistT > 0 ? (p.mistSlow || 1) : 1, e.slow || 0.4);
+        p.webNoJump = 0.08;
       }
     }
     if (dead) hz.splice(i, 1);
@@ -3315,9 +3993,20 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     // totem 的 y 是地面线、h 向上长（与 mist 同口径）：直接拿 hz2 当矩形会判到地面以下，
     // 玩家明明砍在圣像身上却打不掉——受击判定必须换成立在地上的那个盒子。
     const hzBox = hz2.kind === 'totem' ? { x: hz2.x, y: hz2.y - hz2.h, w: hz2.w, h: hz2.h } : hz2;
-    if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror' && hz2.kind !== 'totem')
+    if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror'
+         && hz2.kind !== 'totem' && hz2.kind !== 'egg')
         || hz2.hitSeq === p.atkSeq || !_engAabb(box, hzBox)) continue;
     hz2.hitSeq = p.atkSeq;
+    if (hz2.kind === 'egg') {                        // v20：虫卵只扣 hp——打碎→爆幼虫的结算在 update 收尸处
+      // ✗ 这里绝不能 splice：卵"被打碎"的结果不是消失，而是提前放出一只幼虫，
+      //   在攻击路径里删掉它，玩家就永远看不到自己干了什么。
+      hz2.hp -= 1; hz2.flashT = 0.18;
+      _engAddCombo();
+      _engFloat(hz2.x + hz2.w / 2, hz2.y - 4, '1', '#c8e070', 0);
+      _engAddStars(hz2.x + hz2.w / 2, hz2.y + hz2.h / 2, 4, '#c8e070');
+      game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+      continue;
+    }
     if (hz2.kind === 'totem') {                      // v16：圣像只扣 hp，碎裂/爆炸统一在 _engUpdateHazards 收尸
       hz2.hp -= 1; hz2.flashT = 0.08;
       _engFloat(hz2.x + hz2.w / 2, hz2.y - hz2.h - 4, '1', '#f8d048', 0);
@@ -3859,6 +4548,7 @@ function _engUpdatePlayer(dt, L, p) {
   // v18 §一：水雾减速（boss2）——p.mistT 由雾 hazard 接触帧刷新、此处逐帧衰减。
   // 只压普跑钳制上限；dash 分支（p.dashT>0）不进这条钳制 ⇒ 冲刺穿雾不减速（操作奖励）。
   if (p.mistT > 0) p.mistT -= dt;
+  if (p.webNoJump > 0) p.webNoJump -= dt;   // v20：蛛网禁跳窗口（由 web hazard 接触帧刷新，同 mistT 口径）
   const effRun = PHY.maxRun * (1 + (game.equip ? game.equip.spd : 0))
                * (p.mistT > 0 ? (p.mistSlow || 0.5) : 1);
   if (p.dashT <= 0) p.vx = _engClamp(p.vx, -effRun, effRun);
@@ -3890,7 +4580,10 @@ function _engUpdatePlayer(dt, L, p) {
   // 跳跃：边沿即时判定（地面跳含土狼 → 二段跳 → 缓冲）+ 土狼时间（契约算法 2；v5 §1.1 重构）
   if (game.input.jumpHit) {
     game.input.jumpHit = 0; // 消费边沿（边沿到达即判：能地面跳先地面跳）
-    if (p.onGround || p.coyote > 0) {                    // 地面跳（含土狼窗口）
+    /* v20：蛛网禁跳。边沿在这里就被吃掉、并且不写 jbuf——写缓冲的话玩家离网那一帧
+       会自动弹起来，观感是"网没关住"。这条必须在地面跳之前，否则地面跳已经起跳了。 */
+    if (p.webNoJump > 0) { p.jbuf = 0; }
+    else if (p.onGround || p.coyote > 0) {               // 地面跳（含土狼窗口）
       p.vy = -PHY.jumpV; p.jbuf = 0; p.coyote = 0;
       p.onGround = false; p.standOn = null;
       p.jumpCut = true; // 普通跳才吃松手截断；弹簧/踩踏/二段跳免疫
@@ -4627,6 +5320,9 @@ function updateWorld(dt) {
 
   /* ⑨′ Boss AI（v3）：状态机推进 + Boss 接触伤害（dormant/intro/dying/dead 免接触） */
   _engUpdateBoss(dt);
+  /* ⑨′² v20：烬的热量维护（散热 + 满值自爆）。只在 kind7 在场时跑——
+     game.heat 在其他关卡恒 0，守卫一跳就过，不会给 19 关带来任何每帧开销。 */
+  if (game.boss && game.boss.kind === 7) _engM2Heat(dt);
   /* ⑨′″ v10：Boss 场地危险物（陨石/地刺/追踪弹/分身/吸附力场）——放在玩家物理之前，
      这样吸附力场本帧产生的 p.pullV 能立刻参与 ⑩ 的位移解算。 */
   _engUpdateHazards(dt);
