@@ -606,7 +606,7 @@ const BAL = {
     // 机制：玩家的伤害被它记成「热量」（playerHeat 0..100，engine 每帧在 _engUpdateBoss 里维护）。
     //   flare 抬手时若热量 ≥ minHeat 就当场引爆，伤害随热量线性上升；引爆后热量清零。
     //   这是全作第一次要求玩家「停手」——map1 的六只都是「越快越好」。
-    hp: 504, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 40,
+    hp: 360, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 40,
     windup: { flare: 0.72, sear: 0.55, lash: 0.46, barrage: 0.42, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
@@ -641,13 +641,13 @@ const BAL = {
     // 机制：skew 记录玩家连续从同一侧命中的次数（-3..3）。同侧连击会把血"偷"回去
     //   （|skew| 达 3 触发回血），左右交替则承伤 ×1.25（"对秤"奖励）。
     //   判定唯一依据是「玩家相对 Boss 中心的方位」——所以玩家的动作是「穿到另一边打」。
-    hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,
+    hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,
     windup: { weight: 0.62, swap: 0.58, beam: 0.70, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.50, 0.36], walk: [24, 30],
     barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-12, 12] },
-    skew: { max: 3, healPct: 4.5, goodMul: 1.25 },   // 回血 = 4.5% 总血；对秤承伤 ×1.25
+    skew: { max: 3, stallMul: 0.2, healPct: 1.2, goodMul: 1.25 },   // 失衡（同侧第3击）：承伤×0.2+偷回1.2%总血；真穿身击承伤 ×1.25
     /* weight 砝码：三枚从上方砸落，落点各自带 0.7s 影子预警。
        ✗ 不是 meteor 的复用：meteor 是"跟着玩家跑的三连"，这招落点是**固定扇形**，
        逼玩家离开 Boss 正前方——和"绕到另一侧打"的机制是同一件事的两面。 */
@@ -670,7 +670,7 @@ const BAL = {
     // 机制：虫卵（game.eggs）每 3s 进化一级（0 卵 → 1 幼虫 → 2 成虫）。
     //   打卵只爆幼虫；打成虫掉能量核（回蓝）。卵到期未清 → 成虫爬回 Boss 处喂它回血。
     //   玩家的动作从「怎么打」变成「什么时候打」——这是 map1 完全没有的一层。
-    hp: 480, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,
+    hp: 342, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,
     windup: { spawn: 0.65, web: 0.60, swarm: 0.62, barrage: 0.48, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
@@ -698,7 +698,7 @@ const BAL = {
     // 机制：inhale 张嘴吸气，飞行物（玩家弹体/法师法术）被吸进嘴（b.mouth 数组）并转成它的血。
     //   打嘴（x 在嘴框内且嘴张开）会把积食打爆，一次结算 3 伤 × 积食数——
     //   喂得越多、爆得越疼，但喂太多它会 roar 反刍成弹幕。玩家的动作是「挑窗口输出」。
-    hp: 576, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 44,
+    hp: 342, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 44,
     windup: { inhale: 0.60, roar: 0.75, bite: 0.50, barrage: 0.55, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
@@ -724,7 +724,7 @@ const BAL = {
     // 机制：8s 曲谱循环（score），四拍各 1.6s + 休止符 1.6s。
     //   非休止符期间承伤 ×0.12（近乎无敌）；休止符期间 ×1.6（明确的"该打了"）。
     //   曲谱固定不变——第一轮瞎躲，第二轮就能背。这是全作唯一一只「可以背下来」的 Boss。
-    hp: 360, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 52,
+    hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 52,
     windup: { pendulum: 0.50, chime: 0.55, hammer: 0.65, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
@@ -735,9 +735,9 @@ const BAL = {
        承伤：非休止**完全免伤**（写在 _engBossHurt 开头，不是减伤）、休止 ×1.6。
        血量按「只打得动 1.6s」定：360 ÷ (约 15 伤/轮) ≈ 24 轮 ≈ 197s——
        比 map1 终章（约 120s）长，但那 120s 里玩家一直在挨打，这里有一半时间是安全的，体感不一样。 */
-    score: { beat: 1.0, restBeat: 1.6,
+    score: { beat: 1.0, restBeat: 2.0,
              beats: ['pendulum', 'chime', 'hammer', null],
-             idleMul: 0.12, restMul: 1.6 },
+             idleMul: 0.12, restMul: 2.2 },
     /* pendulum 钟摆：以自身为轴横扫 140° 的弧（h=16，贴地→跳）。
        弧心固定在它脚下，所以躲法是「跑到弧外面」而不是「跳」——与 lash 相反。 */
     pendulum: { r: 78, h: 16, dmg: 1, sweep: 2.2 },
@@ -1385,7 +1385,7 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
     B.parryOn = false; B.breakT = 0;   // v13：架势/破防同 coreOn 口径复位（hazards 已清空，残留即永久反弹）
     // v20：地图二 Boss 的机制态同口径复位——skew 归零（否则复活后第一击就触发失衡回血）、
     // 嘴里清空（否则残留积食让玩家白赚一次爆发）、曲谱从第一拍重来（可背的谱必须是同一份）。
-    B.skew = 0; B.mouthOpen = false; B.scoreI = 0; B.scoreT = 0;
+    B.skew = 0; B.mouthOpen = false; B.scoreI = 0; B.scoreT = 0; B.lastPcx = undefined;
     if (B.state !== 'revive') { B.state = 'idle'; B.t = 0; } // 阶段切换演出不打断
   }
   for (const e of L.enemies) {
@@ -1700,7 +1700,7 @@ function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, 
        scoreI    钟：当前曲谱拍号 0..7
        scoreT    钟：本拍已进行秒数
        没有独立的「炎」字段：烬读的是玩家侧 game.heat，Boss 自己不需要记账。 */
-    skew: 0, mouthOpen: false, scoreI: 0, scoreT: 0
+    skew: 0, mouthOpen: false, scoreI: 0, scoreT: 0, lastPcx: undefined
   };
 }
 
@@ -1787,10 +1787,12 @@ function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击
   if (b.coreOn) { b.flashT = 0.08; game.sfxQueue.push('clank'); return false; }
   /* v20 终末之钟：曲谱的非休止符拍**完全免伤**，不做"减伤"。
      减伤（哪怕 ×0.12）玩家会看到血条还在动，于是继续埋头砍；免伤才逼他抬头看曲谱。
-     这是全作唯一一只"现在打它没用"的 Boss，也是唯一一只可以背下来的。 */
-  if (b.kind === 11) {
-    const SC = _engBossTable(11).score;
-    if (SC && SC.beats[b.scoreI] !== null) { b.flashT = 0.06; game.sfxQueue.push('clank'); return false; }
+     这是全作唯一一只"现在打它没用"的 Boss，也是唯一一只可以背下来的。
+     ⚠️ 判定必须按**当前状态**，不能按 scoreI：_engBossScore 选完招就把 scoreI 指向下一拍，
+     用它当"当前拍"会整体错开一格——实测表现是「休止符免伤、钟锤反而能打」，
+     也就是玩家被要求在最危险的一拍上去输出，机制正好反过来（v20.1 修）。 */
+  if (b.kind === 11 && b.state !== 'rest' && b.state !== 'stagger' && !(b.breakT > 0)) {
+    b.flashT = 0.06; game.sfxQueue.push('clank'); return false;
   }
   const T = _engBossTable(b.kind || 0); // v7 §6：P2 线/掉落表读表
   /* ---- v13 §四：反伤架势（必须放在 coreOn 之后、正常扣血之前） ----
@@ -1827,29 +1829,46 @@ function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击
      side 取「玩家相对 Boss 中心」——所以玩家的解法天然是"穿到另一边"，不用额外教。 */
   if (b.kind === 8 && T.skew && p) {
     const SK = T.skew;
-    const side = ((p.x + p.w / 2) < (b.x + b.w / 2)) ? -1 : 1;
+    const pcx = p.x + p.w / 2, bcx = b.x + b.w / 2;
+    const side = pcx < bcx ? -1 : 1;
     const alt = b.skew !== 0 && Math.sign(b.skew) !== side;
-    if (alt) {
+    if (alt && Math.abs(pcx - (b.lastPcx === undefined ? pcx : b.lastPcx)) >= 8) {
+      // 真换边：玩家自己穿身（位移 ≥8px）。Boss 自己走位造成的「看起来换边」不算——
+      // 否则站桩玩家靠 Boss 移动白吃 ×1.25，机制形同虚设（机器人实测站桩反而最快）。
       b.skew = side;                                   // 换边：连击清零并从这一侧重新算
       real = Math.max(1, Math.round(real * (SK.goodMul || 1.25)));   // 「对秤」奖励
       _engFloat(b.x + b.w / 2, b.y - 4, '对秤', '#f8d048', 0);
+    } else if (alt) {
+      // 位移不足：Boss 移动导致的侧向翻转。不给奖励，但连击**继续累计**——
+      // 否则站桩玩家的失衡计数被稀释（6 刀才触发一次），惩罚漏气。
+      b.skew += side;
     } else {
       b.skew += side;
       if (Math.abs(b.skew) >= (SK.max || 3)) {
-        // 失衡：把这一段血偷回去（不跨段，口径同召唤回血）
+        // 失衡：秤向这一侧倾斜——这一击只吃 40%（站桩 DPS 腰斩，换边才有输出），
+        // 并偷回 3% 总血作为可见惩罚（不跨段，口径同召唤回血）。
+        // 注意不取整、不设下限：max(1,round(0.4)) 会让无装玩家（每刀 1~2 血）完全吃不到减伤。
+        real = real * (SK.stallMul || 0.2);
+        // 失衡的真正獠牙：晃动吞掉破绽。站桩玩家的 DPS 大头是破绽期爆发（×1.5/×2.0），
+        // 若失衡只减伤不吞破绽，破绽期伤害照样打满，惩罚被完全盖过（机器人实测站桩不慢反快）。
+        if (b.state === 'stagger' || b.breakT > 0) {
+          b.state = 'recover'; b.staggerDur = 0; b.breakT = 0; b.t = 0;
+          _engFloat(b.x + b.w / 2, b.y - 16, '破绽消失', '#f8d048', 0);
+        }
         const ceil = (3 - b.bandBreak) * b.bandMax;
-        const back = Math.min(b.maxHp * (SK.healPct || 4.5) / 100, Math.max(0, ceil - b.hpTotal));
+        const back = Math.min(b.maxHp * (SK.healPct || 3) / 100, Math.max(0, ceil - b.hpTotal));
         b.hpTotal += back; b.hp = _engSegHp(b); b.skew = 0;
         b.flashT = 0.2;
-        _engFloat(b.x + b.w / 2, b.y - 8, '失衡 +' + Math.round(back), '#f86048', 1);
+        _engFloat(b.x + b.w / 2, b.y - 8, '失衡 ' + (back > 0 ? '+' + Math.round(back) : ''), '#f86048', 1);
         _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 12, '#f86048', 90, 190);
         game.sfxQueue.push('bossbreak');
       }
     }
+    b.lastPcx = pcx;                                     // 每击记录玩家位置，供下一击判「真换边」
   }
 
-  /* ② 终末之钟：曲谱。非休止符直接免伤（在函数开头已挡），休止符额外 ×restMul。 */
-  if (b.kind === 11 && T.score && T.score.beats[b.scoreI] === null)
+  /* ② 终末之钟：曲谱。非休止符在函数开头已免伤；休止符（rest 态）额外 ×restMul。 */
+  if (b.kind === 11 && T.score && b.state === 'rest')
     real = Math.max(1, Math.round(real * (T.score.restMul || 1.6)));
 
   /* ③ 余烬回响：把这一下的伤害记成玩家身上的热量（记账用 real，破绽/破防加倍的热量也算进去——

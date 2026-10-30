@@ -922,7 +922,10 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 
 1. **承伤侧** `_engBossHurt(dmg,isUlt)`：攻击/星陨/连斩/法师弹体四条支线全走它。
    - kind7：`game.heat += real × heat.perDmg`
-   - kind8：按玩家相对 Boss 中心方位累计 `b.skew`（换边 ×goodMul / 同侧到 ±max 偷回 healPct% 总血）
+   - kind8：按玩家相对 Boss 中心方位累计 `b.skew`。**真穿身**（两次承伤之间玩家位移 ≥8px）→ ×goodMul；
+     同侧到 ±max → 失衡：该击 ×stallMul、偷回 healPct% 总血、**吞掉破绽态**（stagger/破防清空）。
+     Boss 自身走位造成的侧向翻转不算换边（站桩玩家不得靠 Boss 移动蹭奖励）；失衡时连击继续累计，
+     否则计数被翻转稀释、惩罚漏气。
    - kind11：谱上非休止拍 `return false`（完全免伤）；休止拍 ×restMul
    - ⚠️ 该函数内 `const p = game.player` 此前漏声明（kind8 分支引用 `p` 会 ReferenceError），
      v20 已补——以后在这个函数里用玩家位置，直接用这个 `p`，别再另起。
@@ -952,3 +955,7 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 
 - `tools/_v20_boss_test.js`（44 条：去同质化矩阵 / 热量 / 方位 / 卵 / 吞弹 / 曲谱 / 清场）。
 - `tools/_v20_shots.py`（零 pageerror + 四章选关 / 五只本体 / 12 个前摇 / 五种实体）。
+- `tools/_v20_play_bot.js`（自动战斗四角对照：SMART/NAIVE × 无敌/5血 × 满装复核）。
+  判定口径：能过性看满装与无装无敌两组（TTK ≤ 无装基线 L7 ×1.6）；难度看 5 血死亡数与
+  NAIVE 对照。⚠️ 5 血组 TTK 被死亡重置噪声主导（死一次=本轮输出清零），**不能直接对比**；
+  引擎含随机（掉落/P2 连段 40%），跑一遍结论不稳时多跑两遍取多数。
