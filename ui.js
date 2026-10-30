@@ -4315,21 +4315,24 @@ function renderHUD(){
       ctx.fillStyle='#f0f4ff';ctx.fillRect(128+Math.round(172*(1-(BOSS_P2FRAC[bk]||0.5))),29,1,9); // P2 刻度线（50%/40%/40% 按 kind）
     }
     if(b.flashT>0.09){ctx.fillStyle='#ffffff';ctx.fillRect(128,29,174,9);}  // 受击 2 帧整条白
-    // v20.6：招式预警条——windup 前摇期间血条下方一行「下一招 ·X」；连段套直接预告两招「X → Y」。
-    // 用户要求「放大技能之前页面顶上有一小行显示技能名字，算个预警」。引擎零改动（b.next/comboQ 本就有）；
-    // 招一出（state!=='windup'）整条消失——技能已经在放，预警不再有意义。呼吸边框，连段套转红边。
+    // v20.6→v20.7：招式预警条——windup 前摇期间显示「下一招 X」；连段套直接预告两招「X → Y」。
+    // v20.7 按用户反馈挪位：原先贴在血条下面（y41~54）会压到部分 Boss 房的上层战斗区，
+    // 现改为「整个游戏界面偏上方的正中间」=顶栏中段（y2..14，水平居中 x=192）。
+    // 顶栏中段在所有 Boss 关恒为空：关名裁剪区≤96、金币文本≤141，死亡数/计时≥314；
+    // 钥匙图标只在 cave/tower 主题显示（仅 L2/L6，都不是 Boss 关）→ 以 [146,312] 为安全区夹紧。
+    // 引擎零改动（b.next/comboQ 本就有）；招一出（state!=='windup'）整条消失——技能已在放，预警无意义。
     if(b.state==='windup'&&b.next){
       const n1=BOSS_MOVE_NAME[b.next]||'蓄力';
       const q2=(b.comboQ&&b.comboQ.length>1)?(BOSS_MOVE_NAME[b.comboQ[1]]||'蓄力'):null;
       const txt=q2?('下一招 '+n1+' → '+q2):('下一招 '+n1);
-      const tw=Math.ceil(_textW(txt,10)),pw=tw+14,tcx=128+87;   // 居中血条（128..302）
-      ctx.fillStyle='rgba(14,26,58,.86)';ctx.fillRect(tcx-pw/2,41,pw,14);
-      ctx.fillStyle='#f0c860';ctx.fillRect(tcx-pw/2,54,pw,1);   // 底缘金线（与名牌同语言）
-      drawCNText(txt,tcx,42,10,'#f8d048','center');
-      ctx.globalAlpha=(b.state==='dying'?clamp(1-b.t/2.2,0,1):1)*(0.4+0.4*Math.abs(Math.sin(game.tick*0.3)));
+      const tw=Math.ceil(_textW(txt,9)),pw=tw+12;
+      const tx0=clamp(Math.round(VIEW_W/2-pw/2),146,312-pw);   // 顶栏安全区内居中
+      ctx.fillStyle='rgba(14,26,58,.92)';ctx.fillRect(tx0,2,pw,12);
+      drawCNText(txt,tx0+pw/2,3,9,'#f8d048','center');
+      ctx.globalAlpha=(0.4+0.4*Math.abs(Math.sin(game.tick*0.3)));
       ctx.strokeStyle=q2?'#f84848':'#f0c860';ctx.lineWidth=1;
-      ctx.strokeRect(tcx-pw/2+0.5,41.5,pw-1,13);
-      ctx.globalAlpha=b.state==='dying'?clamp(1-b.t/2.2,0,1):1;
+      ctx.strokeRect(tx0+0.5,2.5,pw-1,11);
+      ctx.globalAlpha=1;
     }
     ctx.globalAlpha=1;
   }
