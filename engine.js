@@ -674,12 +674,12 @@ const BAL = {
     windup: { spawn: 0.65, web: 0.60, swarm: 0.62, barrage: 0.48, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.55, 0.40], stalk: true, walk: [30, 38],   // 本体笨重（蛹）走得慢，但不再罚站
+    p2WindMul: 0.85, idleT: [0.80, 0.60], stalk: true, walk: [30, 38],   // v20.9：0.55/0.40→0.80/0.60——技能频率太高玩家没有喘息窗口（用户实测「根本赢不了」），拉长两阶段 idle
     barrage: { v: 110, rounds: 3, pairGap: 0.20, endT: 0.5, deg: [-14, 0, 14] },
     /* spawn 产卵：在玩家左右各产 1 枚 + Boss 脚下 1 枚（共 3）。
        卵的进化链与收益见 engine 的 _engUpdateEggs（3s 一级，两跳成虫）。
        cap=6：场上最多 6 枚，满了不再产——否则玩家一个走位失误就被卵海淹掉。 */
-    spawn: { n: 3, cap: 6, cd: 7.0, stageT: 3.0, hp: 2, larvaHp: 3, adultHp: 5, feed: 3.0 },   // feed=成虫爬回 Boss 喂的血（v20.3 接线；P2 ×1.5）——不清杂它就一直回
+    spawn: { n: 3, cap: 6, cd: 9.0, stageT: 3.0, hp: 2, larvaHp: 3, adultHp: 5, feed: 3.0 },   // v20.9：cd 7→9s——产卵节奏放缓，卵海压力减一档；feed=成虫爬回 Boss 喂的血（P2 ×1.5）
     /* web 蛛网：地面铺一片减速区（-60%），并且**禁跳**——地图一的减速雾（mist）不挡跳，
        这招挡跳，所以"被网住 + 火鞭/落锤"才是组合技，而不是单纯走得慢。 */
     web: { w: 64, h: 12, life: 5.0, slow: 0.4, noJump: true },
@@ -806,8 +806,8 @@ const BAL = {
   heroes: {
     mage: {
       hpBase: 4,                 // 玻璃大炮：比勇者少 1 心
-      manaMax: 100, manaRegen: 3, manaPerHit: 5, manaPerKill: 12,
-      bolt: { cd: 0.46, dmg: 2, v: 300, life: 0.60, w: 8, h: 6, homeR: 85, homeDeg: 26, turn: 4 }, // v20.7：射程再砍 0.70→0.60（210→180px）；v20.6 追踪已收紧 110→85 / 6→4
+      manaMax: 100, manaRegen: 2, manaPerHit: 4, manaPerKill: 12,   // v20.9：regen 3→2 / hit 5→4（回蓝第三刀）
+      bolt: { cd: 0.46, dmg: 2, v: 300, life: 0.40, w: 8, h: 6, homeR: 85, homeDeg: 26, turn: 4 }, // v20.9：射程再减 1/3——0.60→0.40（180→120px）
       u: { cd: 7,  mana: 25, n: 8, dmg: 3, v: 300, life: 0.36, freeze: 0.8, w: 7, h: 7 },   // v19.3 霜爆新星：八向冰锥 + 冻结
       i: { cd: 10, mana: 25, dur: 2.5, absorb: 2 },                    // 复用骑士护盾实现，只换参数
       o: { cd: 20, mana: 0,  t: [0.35, 0.90, 1.20], n: 6, dmg: 2, aoe: 30, fallV: 340, gap: 0.08 }, // v20.6：dmg 3→2（大招 Boss 总伤 18→12）
@@ -1773,7 +1773,7 @@ function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不�
      为什么要做：旧节奏固定 windup→cast→recover→idle，玩家第二次打同一个 Boss 就能背板；
      两连发逼玩家把「读第二招」也练进去，而 40% 概率保证它仍是变奏而不是唯一节奏。 */
   b.comboQ = [b.next]; b.comboN = 0;
-  if (b.phase === 2 && pool.length > 1 && Math.random() < 0.40) {
+  if (b.phase === 2 && pool.length > 1 && Math.random() < 0.32) {   // v20.9：0.40→0.32——P2 连段过于密集，给玩家留读招窗口
     const rest = pool.filter(function (n) { return n !== b.next; });
     if (rest.length) b.comboQ.push(rest[(Math.random() * rest.length) | 0]);
   }
@@ -2091,7 +2091,7 @@ function _engB9Web(b) { // 茧 · 蛛网：Boss 与玩家之间铺一片（挡�
   for (const e of hz) if (e.kind === 'web') nW++;
   if (nW > 4) return;                              // 上限 5 片（不叠成一片无解的减速海）
   hz.push({ kind: 'web', x: x0, y: gy - T.h, w: T.w, h: T.h, life: T.life,
-    slow: T.slow, noJump: T.noJump, t: 0 });
+    slow: T.slow, noJump: T.noJump, t: 0, hp: 2, maxHp: 2 });   // v20.9：2 血可打掉（弹体/近战/陨星），不再只能干等
   game.sfxQueue.push('spit');
 }
 
@@ -3419,9 +3419,13 @@ function _engUpdateHazards(dt) {
           _engHurtPlayer(e.x + 8, 1); e.hitCd = 0.8;
         }
       }
-    } else if (e.kind === 'web') { // 蛛网（茧）：挡移动、挡跳，不挡攻击
+    } else if (e.kind === 'web') { // 蛛网（茧）：挡移动、挡跳；v20.9 起可被攻击打掉（hp 2）
       e.t += dt; e.life -= dt;
-      if (e.life <= 0) dead = true;
+      if (e.life <= 0 || (e.hp !== undefined && e.hp <= 0)) {
+        _engAddParts(e.x + e.w / 2, e.y + e.h / 2, 10, '#d8f4ff', 90, 220); // 破网冰白丝絮
+        game.sfxQueue.push('break');
+        dead = true;
+      }
       else if (!p.dead && _engAabb(e, p)) {
         /* 沿用 mist 的减速通道（p.mistT/p.mistSlow）：它已经是玩家移速钳制处唯一的乘数，
            再开一条并行通道会出现"两个乘数相乘"的叠乘 bug。web 额外置 webNoJump。 */
@@ -4006,9 +4010,10 @@ function _engResolveMageAttack(L, p) { // 内部（v19，spec §2.3）：法师�
   // 序号门控同骑士：atkT>0（判定窗内）且本摆还没发过弹（shotSeq≠atkSeq）。
   if (!(p.atkT > 0) || p.dead || p.shotSeq === p.atkSeq) return;
   const B = BAL.heroes.mage.bolt;
-  // 伤害口径与骑士一致：ATK = atkBase + equip.atk；暴击在**出膛时**按当前连击锁定（spec §2.3），
-  // 弹体带 dmg/crit 飞行（命中结算不再复算，避免飞行途中连击变化导致「第 4 击」节奏漂移）。
-  const crit = ((game.combo + 1) % BAL.player.critMod) === 0;
+  // v20.9：法师取消连击收益——弹体**永不暴击**、命中不涨连击（连击/暴击/充能是骑士近战的奖励节奏；
+  // 法师远程本来就跟连击系统解耦：命中不计数、击杀仍回蓝走 manaPerKill）。
+  // 伤害恒 ATK（=atkBase+equip.atk），随装备成长不变。
+  const crit = false;
   const ATK = BAL.player.atkBase + (game.equip ? game.equip.atk : 0);
   const dmg = crit ? ATK * BAL.player.critMul : ATK;
   _engPushShot({ kind: 'bolt', x: p.x + p.w / 2 - 4 + p.face * 8, y: p.y + 5, w: B.w, h: B.h,
@@ -4060,7 +4065,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     // 玩家明明砍在圣像身上却打不掉——受击判定必须换成立在地上的那个盒子。
     const hzBox = hz2.kind === 'totem' ? { x: hz2.x, y: hz2.y - hz2.h, w: hz2.w, h: hz2.h } : hz2;
     if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror'
-         && hz2.kind !== 'totem' && hz2.kind !== 'egg')
+         && hz2.kind !== 'totem' && hz2.kind !== 'egg' && hz2.kind !== 'web')
         || hz2.hitSeq === p.atkSeq || !_engAabb(box, hzBox)) continue;
     hz2.hitSeq = p.atkSeq;
     if (hz2.kind === 'egg') {                        // v20：虫卵只扣 hp——打碎→爆幼虫的结算在 update 收尸处
@@ -4076,6 +4081,12 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     if (hz2.kind === 'totem') {                      // v16：圣像只扣 hp，碎裂/爆炸统一在 _engUpdateHazards 收尸
       hz2.hp -= 1; hz2.flashT = 0.08;
       _engFloat(hz2.x + hz2.w / 2, hz2.y - hz2.h - 4, '1', '#f8d048', 0);
+      game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+      continue;
+    }
+    if (hz2.kind === 'web') {                        // v20.9：蛛网 2 血可斩碎，消散统一在 update 收尸（同 egg 模式）
+      hz2.hp -= 1; hz2.flashT = 0.12;
+      _engFloat(hz2.x + hz2.w / 2, hz2.y - 4, '1', '#d8f4ff', 0);
       game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
       continue;
     }
@@ -4221,7 +4232,7 @@ function _engShotHitEnemy(s, e) { // 内部（v19）：弹体命中敌人——�
   const crit = !!s.crit;
   const dmg = s.dmg || s.base; // 出膛即定的实际伤害（Boss/敌人同读；不在命中时复算暴击）
   s.hitList.push(e);
-  _engAddCombo();                                      // 连击按命中计（死活都 +1，同骑士）
+  // v20.9：法师取消连击收益——弹体命中敌人不加连击（击杀回蓝走 manaPerKill，口径不变）
   if (s.kind === 'shard') {                            // v19.3：冰锥命中 → 炸冰屑 + 冻结
     _engAddParts(e.x + 6, e.y + 6, 5, '#d8f4ff', 110, 200);
     _engAddParts(e.x + 6, e.y + 6, 3, '#7ad0f8', 80, 160);
@@ -4252,12 +4263,15 @@ function _engShotHitEnemy(s, e) { // 内部（v19）：弹体命中敌人——�
 }
 
 function _engMageMeteorHit(L, m) { // 内部（v19，spec §1.2/§2.7）：法师陨星砸敌人——按 m.dmg 结算，**不秒杀小怪**
-  // 骑士星陨是「大招秒杀 + 清弹幕」，法师大招的等价价值是「6×3 点伤害」，所以这里只扣血。
+  // 骑士星陨是「大招秒杀 + 清弹幕」，法师大招的等价价值是「6×N 点伤害」，所以这里只扣血。
+  // v20.9：补交互——陨星落点同样砸得到 hazards（egg/totem/clone/mirror/web，core 走专用通道），
+  //   此前法师在茧母关连大招都清不了卵（只能一颗颗普攻点），交互面缺口。命中不涨连击（v20.9）。
+  // 返回值语义（调用处 boom 链依赖，不可破坏）：**砸中任何目标才返回 true**——
+  //   恒 true 会让飞行中的陨星当帧自爆（v20.9 开发中真实翻过这个车，6 颗变 3 颗）。
   const md = m.dmg || BAL.skills.u.dmg;
   for (const e of L.enemies) {
     if (e.dead > 0 || !_engAabb(m, e)) continue;
     e.hp = (e.hp === undefined ? 1 : e.hp) - md;
-    _engAddCombo();
     if (e.hp > 0) {
       e.kb = (_engSign(e.vx) || 1) * 90; e.flashT = 0.15; e.jitT = 0.15;
       _engFloat(e.x + 6, e.y - 4, '' + md, '#8ae8ff', 0);
@@ -4267,6 +4281,17 @@ function _engMageMeteorHit(L, m) { // 内部（v19，spec §1.2/§2.7）：法�
       _engFloat(e.x + 6, e.y - 6, 'KO', '#8ae8ff', 0);
       game.sfxQueue.push('kill');
     }
+    return true;
+  }
+  const hzArr = game.hazards || (game.hazards = []);
+  for (const hz of hzArr) {
+    if (!hz || (hz.kind !== 'egg' && hz.kind !== 'totem' && hz.kind !== 'clone'
+       && hz.kind !== 'mirror' && hz.kind !== 'web')) continue;
+    if (!_engAabb(m, hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz)) continue;
+    hz.hp = (hz.hp === undefined ? 2 : hz.hp) - (hz.kind === 'web' ? 1 : md);
+    hz.flashT = 0.15;
+    _engFloat(hz.x + hz.w / 2, hz.y - 4, '' + (hz.kind === 'web' ? 1 : md), '#8ae8ff', 0);
+    game.sfxQueue.push('hit');
     return true;
   }
   return false;
@@ -4402,22 +4427,25 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
       }
       if (_engBossHurt(dmg, !!s.isUlt)) {
         const b = game.boss;
-        _engAddCombo(); _engAddCombo();                // 同骑士普攻：Boss 命中 +2 连击
+        // v20.9：法师取消连击收益——命中 Boss 不再加连击（骑士近战口径不变）
         _engFloat(b.x + b.w / 2, b.y - 4, '' + b.lastDmg, crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
         game.hitStop = _engHitStop; game.sfxQueue.push('hit');
       }
       arr.splice(i, 1); continue;
     }
-    /* ② 波（Boss 落地冲击波）：同骑士斩波口径——碎掉 +1 连击；弹体继续飞（波不是实体墙） */
+    /* ② 波（Boss 落地冲击波）：同骑士斩波口径——碎掉；弹体继续飞（波不是实体墙） */
     for (let j = game.waves.length - 1; j >= 0; j--) {
       if (!_engAabb(s, game.waves[j])) continue;
       _engAddParts(game.waves[j].x + 6, game.waves[j].y + 5, 6, '#48d8e8', 70, 200);
-      game.waves.splice(j, 1); _engAddCombo(); game.sfxQueue.push('break');
+      game.waves.splice(j, 1); game.sfxQueue.push('break');
     }
-    /* ③ hazards（clone/mirror/core/totem）：只扣血，**不在此结算**爆炸/破盾/收尸；命中即止 */
+    /* ③ hazards（clone/mirror/core/totem/egg/web）：只扣血，**不在此结算**爆炸/破盾/收尸；命中即止。
+       v20.9：白名单补 **egg**（bug 修复——法师弹体此前直接穿卵，法师打不了虫卵关的清杂线）
+       与 **web**（蛛网此前完全不可破坏，玩家只能干等 5s——现在 2 下打掉，交互闭环）。 */
     for (let j = hzArr.length - 1; j >= 0 && !dead; j--) {
       const hz = hzArr[j];
-      if (!hz || (hz.kind !== 'clone' && hz.kind !== 'core' && hz.kind !== 'mirror' && hz.kind !== 'totem')) continue;
+      if (!hz || (hz.kind !== 'clone' && hz.kind !== 'core' && hz.kind !== 'mirror'
+         && hz.kind !== 'totem' && hz.kind !== 'egg' && hz.kind !== 'web')) continue;
       // totem 的 y 是地面线、h 向上长（与 mist 同口径）：判定盒必须换成立在地上的那个盒子
       const hzBox = hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz;
       if (s.hitList.indexOf(hz) >= 0 || !_engAabb(s, hzBox)) continue;
@@ -4426,11 +4454,20 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         hz.hp -= 1; hz.flashT = 0.08;
         _engFloat(hz.x + hz.w / 2, hz.y - hz.h - 4, '1', '#f8d048', 0);
         game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+      } else if (hz.kind === 'egg') {                  // 虫卵：扣 1（同骑士近战口径），破碎/爆幼虫在 update 收尸处
+        hz.hp -= 1; hz.flashT = 0.18;
+        _engFloat(hz.x + hz.w / 2, hz.y - 4, '1', '#c8e070', 0);
+        _engAddStars(hz.x + hz.w / 2, hz.y + hz.h / 2, 4, '#c8e070');
+        game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+      } else if (hz.kind === 'web') {                  // 蛛网：扣 1（2 下打掉），提前消散结算在 update 收尸处
+        hz.hp -= 1; hz.flashT = 0.12;
+        _engFloat(hz.x + hz.w / 2, hz.y - 4, '1', '#d8f4ff', 0);
+        game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
       } else if (hz.kind === 'mirror') {               // 真假身：只扣 1，显形/爆炸唯一结算点在收尸处
         hz.hp -= 1; hz.flashT = 0.15;
         _engFloat(hz.x + hz.w / 2, hz.y - 4, '1', '#b060f0', 0);
         _engAddStars(hz.x + hz.w / 2, hz.y + hz.h / 2, 4, '#b060f0');
-        _engAddCombo(); game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
+        game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
       } else if (hz.kind === 'core') {                 // 核心：固定 1（同骑士；不吃 ATK/暴击）
         _engFloat(hz.x + hz.w / 2, hz.y - 4, '1', '#8ad8f8', 0);
         _engCoreHit(hzArr, hz, 1);                     // 归零即碎；破盾由 _engUpdateHazards 的 _engCoreBreakCheck 收
@@ -4438,7 +4475,6 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
       } else {                                         // 分身：扣 s.dmg（出膛即定；不吃命中时暴击，同骑士 clone 口径）
         const cdmg = s.dmg || s.base;
         hz.hp -= cdmg; hz.flashT = 0.15;
-        _engAddCombo();
         _engFloat(hz.x + hz.w / 2, hz.y - 4, '' + cdmg, '#b060f0', 0);
         _engAddStars(hz.x + hz.w / 2, hz.y + hz.h / 2, 4, '#b060f0');
         game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
@@ -4473,13 +4509,13 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         _engShake(2, 0.05);
         _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 10, '#c89858', 90, 300);
         _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 4, '#f8d020', 70, 200);
-        _engAddCombo(); game.sfxQueue.push('break');
+        game.sfxQueue.push('break');
         dead = true;
       } else if (ch === 'G') {                          // 隐藏砖：碎后永久消失（无金币，计连击）
         L.tiles[ty][tx] = '.';
         _engShake(3, 0.05);
         _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 12, '#9a8ad0', 90, 300);
-        _engAddCombo(); game.sfxQueue.push('break');
+        game.sfxQueue.push('break');
         dead = true;
       } else if (L.solid(tx, ty, game.switchState)) {
         if (s.kind === 'shard' && !s.hitWall) {        // v19.3：冰锥撞墙/砖 = 炸一小蓬冰屑（不是静默消失）

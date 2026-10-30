@@ -2851,12 +2851,13 @@ const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥�
   '热量满了会自燃','同侧连打它会偷血','卵长老了才值钱','它张嘴时别喂它','只在钟声间隙受伤'];
 // v20.6：Boss 招式中文名——顶部预警条读 b.next 用（用户要求「放技能前顶部显示技能名当预警」）。
 // 覆盖全部 Boss 表 windup 键 + 状态机里可能作 b.next 的别名；查不到回退「蓄力」，不空串不出 undefined。
-const BOSS_MOVE_NAME={leap:'跳扑',barrage:'弹幕',charge:'冲锋',summon:'召唤',nova:'爆环',dive:'俯冲',
-  grab:'抓取',quake:'震地',pillar:'石柱',quell:'蓄力全屏',core:'核爆',sweep:'横扫',breath:'吐息',
-  blink:'闪现',scythe:'镰击',halo:'光环',meteor:'陨石雨',homing:'追弹',spike:'地刺',clone:'分身',
-  mirror:'镜像',push:'推击',pull:'吸引',flare:'引燃',sear:'灼视线',lash:'火鞭',weight:'落砝',
-  swap:'换位',beam:'横梁',spawn:'产卵',web:'结网',swarm:'虫群',inhale:'吸气',roar:'吼叫',
-  bite:'撕咬',pendulum:'摆锤',chime:'鸣钟',hammer:'落锤'};
+// v20.9：招名全换四字武学风（用户：原名「跳扑/弹幕」太土）——语义与旧表一一对应，只换皮
+const BOSS_MOVE_NAME={leap:'饿虎扑食',barrage:'万弹穿云',charge:'疾雷突袭',summon:'呼邪唤众',nova:'灭世环爆',dive:'坠日俯冲',
+  grab:'摄魂之爪',quake:'裂地崩山',pillar:'炼狱石棘',quell:'天倾镇魂',core:'晶核自爆',sweep:'横扫千军',breath:'怒涛吐息',
+  blink:'瞬影遁空',scythe:'死神镰斩',halo:'圣辉裁决',meteor:'星陨灭世',homing:'幽影索命',spike:'破地狂刺',clone:'残影迷踪',
+  mirror:'镜花水月',push:'崩山劲推',pull:'深渊引力',flare:'燎原业火',sear:'灼日炎线',lash:'赤炎鞭挞',weight:'千钧坠杀',
+  swap:'阴阳倒转',beam:'天梁横压',spawn:'卵潮涌动',web:'地网囚天',swarm:'蝗群蔽日',inhale:'吞天吸息',roar:'裂魂咆哮',
+  bite:'噬魂之口',pendulum:'审判摆锋',chime:'丧钟轰鸣',hammer:'天罚重锤'};
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
 // v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
 // （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
@@ -4364,23 +4365,25 @@ function renderHUD(){
       ctx.fillStyle='#f0f4ff';ctx.fillRect(128+Math.round(172*(1-(BOSS_P2FRAC[bk]||0.5))),29,1,9); // P2 刻度线（50%/40%/40% 按 kind）
     }
     if(b.flashT>0.09){ctx.fillStyle='#ffffff';ctx.fillRect(128,29,174,9);}  // 受击 2 帧整条白
-    // v20.6→v20.7：招式预警条——windup 前摇期间显示「下一招 X」；连段套直接预告两招「X → Y」。
-    // v20.7 按用户反馈挪位：原先贴在血条下面（y41~54）会压到部分 Boss 房的上层战斗区，
-    // 现改为「整个游戏界面偏上方的正中间」=顶栏中段（y2..14，水平居中 x=192）。
-    // 顶栏中段在所有 Boss 关恒为空：关名裁剪区≤96、金币文本≤141，死亡数/计时≥314；
-    // 钥匙图标只在 cave/tower 主题显示（仅 L2/L6，都不是 Boss 关）→ 以 [146,312] 为安全区夹紧。
-    // 引擎零改动（b.next/comboQ 本就有）；招一出（state!=='windup'）整条消失——技能已在放，预警无意义。
+    // v20.6→v20.9：招式预警条（威武版）——windup 前摇期间血条正下方显示招名，**不带「下一招」前缀**
+    // （用户：太土）。四字武学招名 + 深红黑底 + 上下双金线 + 呼吸描边（连段转红）+ 左右菱形饰。
+    // 连段预告「主招 ▸ 接招」；招一出（state!=='windup'）整条消失——技能已在放，预警无意义。
+    // 位置历经三版：v20.6 血条下 → v20.7 顶栏 → v20.9 定回血条下（用户终审：这里才对，但要威武）。
     if(b.state==='windup'&&b.next){
-      const n1=BOSS_MOVE_NAME[b.next]||'蓄力';
-      const q2=(b.comboQ&&b.comboQ.length>1)?(BOSS_MOVE_NAME[b.comboQ[1]]||'蓄力'):null;
-      const txt=q2?('下一招 '+n1+' → '+q2):('下一招 '+n1);
-      const tw=Math.ceil(_textW(txt,9)),pw=tw+12;
-      const tx0=clamp(Math.round(VIEW_W/2-pw/2),146,312-pw);   // 顶栏安全区内居中
-      ctx.fillStyle='rgba(14,26,58,.92)';ctx.fillRect(tx0,2,pw,12);
-      drawCNText(txt,tx0+pw/2,3,9,'#f8d048','center');
-      ctx.globalAlpha=(0.4+0.4*Math.abs(Math.sin(game.tick*0.3)));
-      ctx.strokeStyle=q2?'#f84848':'#f0c860';ctx.lineWidth=1;
-      ctx.strokeRect(tx0+0.5,2.5,pw-1,11);
+      const n1=BOSS_MOVE_NAME[b.next]||'蓄势';
+      const q2=(b.comboQ&&b.comboQ.length>1)?(BOSS_MOVE_NAME[b.comboQ[1]]||'蓄势'):null;
+      const txt=q2?(n1+' ▸ '+q2):n1;
+      const tw=Math.ceil(_textW(txt,11)),pw=tw+30,tcx=128+87;   // 居中血条（128..302）
+      const dc=q2?'#f84848':'#f0c860';                           // 连段红、单招金
+      ctx.fillStyle='rgba(40,8,16,.92)';ctx.fillRect(tcx-pw/2,40,pw,15);  // 深红黑底
+      ctx.fillStyle='#8a5a18';ctx.fillRect(tcx-pw/2,39,pw,1);ctx.fillRect(tcx-pw/2,55,pw,1); // 外暗金
+      ctx.fillStyle='#f0c860';ctx.fillRect(tcx-pw/2,40,pw,1);ctx.fillRect(tcx-pw/2,54,pw,1); // 内亮金
+      drawCNText('◆',tcx-pw/2+9,41,11,dc,'center');              // 左右菱形饰
+      drawCNText('◆',tcx+pw/2-9,41,11,dc,'center');
+      drawCNText(txt,tcx,42,11,q2?'#f8b040':'#f8d048','center'); // 主文字
+      ctx.globalAlpha=0.45+0.4*Math.abs(Math.sin(game.tick*0.25)); // 呼吸描边
+      ctx.strokeStyle=dc;ctx.lineWidth=1;
+      ctx.strokeRect(tcx-pw/2+0.5,40.5,pw-1,14);
       ctx.globalAlpha=1;
     }
     ctx.globalAlpha=1;
