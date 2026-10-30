@@ -2800,6 +2800,14 @@ const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜
   '余烬回响','双生天秤','孵化之间','无声之喉','终末之钟'];
 const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决','末段·烈焰焚天',
   '热量满了会自燃','同侧连打它会偷血','卵长老了才值钱','它张嘴时别喂它','只在钟声间隙受伤'];
+// v20.6：Boss 招式中文名——顶部预警条读 b.next 用（用户要求「放技能前顶部显示技能名当预警」）。
+// 覆盖全部 Boss 表 windup 键 + 状态机里可能作 b.next 的别名；查不到回退「蓄力」，不空串不出 undefined。
+const BOSS_MOVE_NAME={leap:'跳扑',barrage:'弹幕',charge:'冲锋',summon:'召唤',nova:'爆环',dive:'俯冲',
+  grab:'抓取',quake:'震地',pillar:'石柱',quell:'蓄力全屏',core:'核爆',sweep:'横扫',breath:'吐息',
+  blink:'闪现',scythe:'镰击',halo:'光环',meteor:'陨石雨',homing:'追弹',spike:'地刺',clone:'分身',
+  mirror:'镜像',push:'推击',pull:'吸引',flare:'引燃',sear:'灼视线',lash:'火鞭',weight:'落砝',
+  swap:'换位',beam:'横梁',spawn:'产卵',web:'结网',swarm:'虫群',inhale:'吸气',roar:'吼叫',
+  bite:'撕咬',pendulum:'摆锤',chime:'鸣钟',hammer:'落锤'};
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
 // v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
 // （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
@@ -4307,6 +4315,22 @@ function renderHUD(){
       ctx.fillStyle='#f0f4ff';ctx.fillRect(128+Math.round(172*(1-(BOSS_P2FRAC[bk]||0.5))),29,1,9); // P2 刻度线（50%/40%/40% 按 kind）
     }
     if(b.flashT>0.09){ctx.fillStyle='#ffffff';ctx.fillRect(128,29,174,9);}  // 受击 2 帧整条白
+    // v20.6：招式预警条——windup 前摇期间血条下方一行「下一招 ·X」；连段套直接预告两招「X → Y」。
+    // 用户要求「放大技能之前页面顶上有一小行显示技能名字，算个预警」。引擎零改动（b.next/comboQ 本就有）；
+    // 招一出（state!=='windup'）整条消失——技能已经在放，预警不再有意义。呼吸边框，连段套转红边。
+    if(b.state==='windup'&&b.next){
+      const n1=BOSS_MOVE_NAME[b.next]||'蓄力';
+      const q2=(b.comboQ&&b.comboQ.length>1)?(BOSS_MOVE_NAME[b.comboQ[1]]||'蓄力'):null;
+      const txt=q2?('下一招 '+n1+' → '+q2):('下一招 '+n1);
+      const tw=Math.ceil(_textW(txt,10)),pw=tw+14,tcx=128+87;   // 居中血条（128..302）
+      ctx.fillStyle='rgba(14,26,58,.86)';ctx.fillRect(tcx-pw/2,41,pw,14);
+      ctx.fillStyle='#f0c860';ctx.fillRect(tcx-pw/2,54,pw,1);   // 底缘金线（与名牌同语言）
+      drawCNText(txt,tcx,42,10,'#f8d048','center');
+      ctx.globalAlpha=(b.state==='dying'?clamp(1-b.t/2.2,0,1):1)*(0.4+0.4*Math.abs(Math.sin(game.tick*0.3)));
+      ctx.strokeStyle=q2?'#f84848':'#f0c860';ctx.lineWidth=1;
+      ctx.strokeRect(tcx-pw/2+0.5,41.5,pw-1,13);
+      ctx.globalAlpha=b.state==='dying'?clamp(1-b.t/2.2,0,1):1;
+    }
     ctx.globalAlpha=1;
   }
   // v6 §F.2：神龛指引 HUD 左下 (4,VIEW_H-18)——迷你石碑+方向箭头+距离（1 瓦=1M）。

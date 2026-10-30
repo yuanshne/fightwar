@@ -806,10 +806,10 @@ const BAL = {
     mage: {
       hpBase: 4,                 // 玻璃大炮：比勇者少 1 心
       manaMax: 100, manaRegen: 3, manaPerHit: 5, manaPerKill: 12,
-      bolt: { cd: 0.46, dmg: 2, v: 300, life: 0.70, w: 8, h: 6, homeR: 110, homeDeg: 26, turn: 6 },
+      bolt: { cd: 0.46, dmg: 2, v: 300, life: 0.70, w: 8, h: 6, homeR: 85, homeDeg: 26, turn: 4 }, // v20.6：追踪收紧 110→85 / 6→4（必中感下降，命中回蓝与实际 DPS 同步降）
       u: { cd: 7,  mana: 25, n: 8, dmg: 3, v: 300, life: 0.36, freeze: 0.8, w: 7, h: 7 },   // v19.3 霜爆新星：八向冰锥 + 冻结
       i: { cd: 10, mana: 25, dur: 2.5, absorb: 2 },                    // 复用骑士护盾实现，只换参数
-      o: { cd: 20, mana: 0,  t: [0.35, 0.90, 1.20], n: 6, dmg: 3, aoe: 30, fallV: 340, gap: 0.08 },
+      o: { cd: 20, mana: 0,  t: [0.35, 0.90, 1.20], n: 6, dmg: 2, aoe: 30, fallV: 340, gap: 0.08 }, // v20.6：dmg 3→2（大招 Boss 总伤 18→12）
       l: { cd: 8,  mana: 30, dmg: 4, v: 150, stopT: 0.5, hold: 1.1, radius: 100, pull: 90, w: 14, h: 14 } // v19.3 引力奇点
     }
   },

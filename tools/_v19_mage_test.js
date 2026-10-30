@@ -118,14 +118,14 @@ console.log('[T1] HEROES 注册表 / BAL.heroes.mage 完整性');
     '法力循环参数 100 / +3s（v20.4：5→3）/ 命中+5（v20.4：8→5）/ 击杀+12');
   const b = mk.bolt || {}, u = mk.u || {}, i = mk.i || {}, o = mk.o || {}, l = mk.l || {};
   ok(b.cd === 0.46 && b.dmg === 2 && b.v === 300 && b.life === 0.70 && b.w === 8 && b.h === 6
-    && b.homeR === 110 && b.homeDeg === 26 && b.turn === 6,
-    'bolt 表（v20.4：0.38→0.46 / 0.85→0.70）：0.46s / 2 伤 / 300px/s / 0.70s / 8×6 / 追踪 110px±26°', JSON.stringify(b));
+    && b.homeR === 85 && b.homeDeg === 26 && b.turn === 4,
+    'bolt 表（v20.4：0.38→0.46 / 0.85→0.70；v20.6：追踪 110→85 / 6→4）：0.46s / 2 伤 / 300px/s / 0.70s / 8×6 / 追踪 85px±26°', JSON.stringify(b));
   ok(u.cd === 7 && u.mana === 25 && u.n === 8 && u.dmg === 3 && u.freeze === 0.8 && u.v === 300 && u.life === 0.36,
     'u 表（v19.3 霜爆新星）：7s / 25 蓝 / 8 道 / 3 伤 / 冻结 0.8s / 300px/s / 0.36s', JSON.stringify(u));
   ok(i.cd === 10 && i.mana === 25 && i.dur === 2.5 && i.absorb === 2, 'i 表：10s / 25 蓝 / 2.5s / 吸 2 次', JSON.stringify(i));
-  ok(o.cd === 20 && o.mana === 0 && o.n === 6 && o.dmg === 3 && o.aoe === 30 && o.fallV === 340 && o.gap === 0.08
+  ok(o.cd === 20 && o.mana === 0 && o.n === 6 && o.dmg === 2 && o.aoe === 30 && o.fallV === 340 && o.gap === 0.08
     && Array.isArray(o.t) && o.t.join(',') === '0.35,0.9,1.2',
-    'o 表：20s / 0 蓝 / 6 颗 / 3 伤 / AoE30 / 0.35-0.9-1.2', JSON.stringify(o));
+    'o 表：20s / 0 蓝 / 6 颗 / 2 伤（v20.6：3→2）/ AoE30 / 0.35-0.9-1.2', JSON.stringify(o));
   ok(l.cd === 8 && l.mana === 30 && l.dmg === 4 && l.v === 150 && l.stopT === 0.5 && l.hold === 1.1
     && l.radius === 100 && l.pull === 90,
     'l 表（v19.3 引力奇点）：8s / 30 蓝 / 4 伤 / 150px/s / 0.5s 停驻 / 1.1s 存续 / 半径 100 / 吸力 90', JSON.stringify(l));
@@ -365,8 +365,8 @@ console.log('[T8] O：ultCharge=100 → kind=mage / 0.35s 生成 6 颗 mage 陨�
   const mm = g.meteors.filter(m => m.mage);
   ok(firedF > 0 && near((firedF + 1) / 60, 0.35, 0.03), '0.35s 时一次性落星（第 ' + (firedF + 1) + ' 帧）', (firedF + 1) / 60);
   ok(mm.length === 6, '恰好生成 6 颗 mage:true 陨星', mm.length + '/' + g.meteors.length);
-  ok(mm.every(m => m.dmg === 3 && m.bossDmg === 3 && m.aoe === 30 && m.vy === 340),
-    '每颗陨星 dmg=3 / bossDmg=3 / aoe=30 / fallV=340');
+  ok(mm.every(m => m.dmg === 2 && m.bossDmg === 2 && m.aoe === 30 && m.vy === 340),
+    '每颗陨星 dmg=2（v20.6：3→2）/ bossDmg=2 / aoe=30 / fallV=340');
   // 注意：陨星在 t=0.35 用**当时**的 cam.x 生成，之后相机还会 lerp；这里按「相邻间距 64px、
   // 总跨度 320px、全部落在当前屏内」断言，避免拿刷新后的 cam.x 去反推生成点（会差几像素）。
   ok(mm.every((m, i) => near(m.delay, i * 0.08, 0.02)   // 生成当帧已步进 1 帧，delay 允许差 1/60
