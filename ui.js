@@ -200,9 +200,58 @@ const KEYMAP={
 const keys={},pressed={};
 function kd(name){return KEYMAP[name].some(c=>keys[c]);}
 function hit(name){return KEYMAP[name].some(c=>pressed[c]);}
+// ---------- v20.8：冲刺键自定义（用户请求） ----------
+// 暂停面板点击「冲刺键」→ 监听下一个 keydown → 冲突校验 → 生效并持久化。
+// 只开放冲刺一个键（用户只要求这个）；Shift 左右保留为万能备选（改绑后仍在列表里），
+// 保证玩家永远不会把自己锁死。存 localStorage 'pq_dashkey'（独立于进度存档 pq_progress）。
+const DASHKEY_DEFAULT='KeyK';
+const KEY_CN={left:'左移',right:'右移',jump:'跳跃',down:'下蹲',attack:'普攻',skillU:'U 技能',skillI:'I 技能',
+  skillO:'O 大招',skillL:'L 技能',puzzleOpen:'开神龛',nonoFill:'数织·填格',nonoCross:'数织·叉格',
+  puzzleHint:'谜题提示',pause:'暂停',restart:'重开',back:'菜单',bag:'背包',unlockAll:'全关开放',
+  wardrobe:'衣橱',hero:'选角',confirm:'确认',ok:'确认',up:'选关上移'};
+let dashCode=DASHKEY_DEFAULT,keyListen=false,keyErr='',keyErrT=0;
+try{const s=localStorage.getItem('pq_dashkey');
+  if(s&&/^[A-Za-z0-9]{2,20}$/.test(s)&&s!=='KeyM'&&s!=='Escape')dashCode=s;}catch(e){}
+function applyDashKey(c){ // 改绑：新键放头一位，默认 K 与双 Shift 兜底去重后保留（防锁死）
+  dashCode=c;
+  KEYMAP.dash=[c].concat(['KeyK','ShiftLeft','ShiftRight'].filter(k=>k!==c));
+  try{localStorage.setItem('pq_dashkey',c);}catch(e){}
+}
+applyDashKey(dashCode); // 启动即应用存档（等价于默认值时也无害——列表去重后与原表一致）
+function codeLabel(c){ // e.code → 人话（面板显示用；未知 code 原样显示，不会出 undefined）
+  const M={ArrowLeft:'←',ArrowRight:'→',ArrowUp:'↑',ArrowDown:'↓',Space:'空格',Enter:'回车',Escape:'Esc',
+    Tab:'Tab',Backspace:'退格',CapsLock:'Caps',Minus:'-',Equal:'=',Comma:',',Period:'.',Slash:'/',
+    Semicolon:';',Quote:"'",BracketLeft:'[',BracketRight:']',Backslash:'\\',Backquote:'`'};
+  if(M[c])return M[c];
+  if(c.indexOf('Shift')===0)return 'Shift';
+  if(c.indexOf('Control')===0)return 'Ctrl';
+  if(c.indexOf('Alt')===0)return 'Alt';
+  if(c.indexOf('Key')===0)return c.slice(3);
+  if(c.indexOf('Digit')===0)return c.slice(5);
+  if(c.indexOf('Numpad')===0)return 'Num'+c.slice(6);
+  return c;
+}
+function handleKeyListen(code){ // 监听态消费一个 keydown：Esc 取消；占用键拒绝；其余改绑
+  keyListen=false;
+  if(code==='Escape')return;
+  if(code==='KeyM'){keyErr='M 已用于 静音';keyErrT=2.5;return;} // M 走硬编码 listener（line 208），不在 KEYMAP 里
+  for(const act in KEYMAP){
+    if(act==='dash')continue;                       // dash 自己的旧键（K/Shift）允许被替换/保留
+    if(KEYMAP[act].indexOf(code)>=0){keyErr=codeLabel(code)+' 已用于 '+(KEY_CN[act]||act);keyErrT=2.5;return;}
+  }
+  applyDashKey(code);SFX.select();
+}
+function keyBtnRect(){ // 暂停面板改键按钮（渲染与点击热区共用同一几何，防两边漂移）
+  const lab=keyListen?'按任意键…（Esc 取消）':'冲刺键：'+codeLabel(dashCode);
+  const bw=Math.ceil(_textW(lab,10))+16;
+  return {x:Math.round(VIEW_W/2-bw/2),y:102,w:bw,h:14};
+}
 addEventListener('keydown',e=>{
   // v4：Backspace 一并 preventDefault——数独覆盖层用它清格，防触发浏览器后退
   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Backspace'].includes(e.code))e.preventDefault();
+  // v20.8：改键监听态优先消费——不记录 keys/pressed（防 Esc/P 等穿透触发别的行为）、
+  // 不走 audioUnlock 与 M 静音分支（M 在监听态是候选键，交给 handleKeyListen 拒绝并提示）
+  if(keyListen){e.preventDefault();handleKeyListen(e.code);return;}
   if(!keys[e.code])pressed[e.code]=true;
   keys[e.code]=true;audioUnlock();
   if(e.code==='KeyM'){toggleAudio();return;}
@@ -1121,7 +1170,7 @@ function _textW(str,s){ // 内部：CNText 宽度估算（CJK≈s px/字，ASCII
 //   也不与地面/敌人/玩家重叠（L1 天空 y=40~82 是空的：顶栏 0~30 是 HUD，地面顶边 y=192）。
 // 样式：低透明度暖白/淡金（0.50~0.62），像「贴在天空上的手写字」，不抢主体；中文/箭头走 drawCNText
 // （系统字体，←→·/ 等符号均有字形，不会画成空白）。其他关卡（levelIdx!==0）本函数直接返回，仍走底部 3 秒条。
-const L1_HINT1='←→ 或 A D 移动 · 空格 / W 跳跃 · J 攻击 · K 冲刺'; // 行1：键位（实测 _textW=288px @11 < 可用 360）
+const L1_HINT1='←→ 或 A D 移动 · 空格 / W 跳跃 · J 攻击 · '; // 行1：键位前缀（v20.8 冲刺键改后动态拼 codeLabel(dashCode)）
 const L1_HINT2='长按跳跃键跳更高 · 收集金币 · 抵达终点旗';         // 行2：目标（_textW=203px @10 < 360）
 const L1_HINT3='本关藏有谜题神龛 · 寻找金色光柱';                  // 行3：谜题指引（_textW=141px @9 < 360）
 // v8.0 修「三行太淡」：浅蓝天空+白云上纯色半透明字对比不足（第三行金字几乎看不见）——先按 (+1,+1)
@@ -1139,8 +1188,8 @@ function renderL1SkyHint(){
   // v8.0 修「太淡」：透明度按实机目检上调 行1 0.40→0.58 / 行2 0.36→0.50 / 行3 0.42→0.62，
   // 每行先投影后正色（投影不改变 x/y 布局，三条文案坐标与宽度断言全部不变）。
   ctx.globalAlpha=0.58;                       // 行1：暖白 0.58（投影后仍半透明，不遮天光）
-  _cnShadow(L1_HINT1,VIEW_W/2,42,11,'center');
-  drawCNText(L1_HINT1,VIEW_W/2,42,11,'#ffffff','center');
+  _cnShadow(L1_HINT1+codeLabel(dashCode)+' 冲刺',VIEW_W/2,42,11,'center');
+  drawCNText(L1_HINT1+codeLabel(dashCode)+' 冲刺',VIEW_W/2,42,11,'#ffffff','center');
   ctx.globalAlpha=0.50;                       // 行2：淡金 0.50（比行1 弱一档，形成层级）
   _cnShadow(L1_HINT2,VIEW_W/2,57,10,'center');
   drawCNText(L1_HINT2,VIEW_W/2,57,10,'#f8e8b0','center');
@@ -4775,10 +4824,21 @@ function renderFlash(){
 
 function renderPause(){
   ctx.fillStyle='rgba(8,8,16,0.7)';ctx.fillRect(0,0,VIEW_W,VIEW_H);
-  _panel(72,60,240,104,{titleBar:1}); // v5 §A-2：暂停层换肤（整块切角面板+标题带；布局文案不变）
-  drawCNText('暂停',VIEW_W/2,88,18,'#f0f4ff','center');
-  drawPixelText('P: CONTINUE',VIEW_W/2,118,1,'#a8b4d8','center');
-  drawPixelText('R: RESTART  ESC: MENU',VIEW_W/2,130,1,'#a8b4d8','center');
+  _panel(72,52,240,124,{titleBar:1}); // v5 §A-2：暂停层换肤（整块切角面板+标题带）；v20.8 加高 104→124 容纳改键行
+  drawCNText('暂停',VIEW_W/2,80,18,'#f0f4ff','center');
+  // v20.8：冲刺键自定义按钮——点击进入监听态；监听中红边呼吸；冲突时下方红字提示 2.5s
+  const kr=keyBtnRect();
+  const hov=mouse.inside&&mouse.x>=kr.x&&mouse.x<=kr.x+kr.w&&mouse.y>=kr.y&&mouse.y<=kr.y+kr.h;
+  ctx.fillStyle=(hov||keyListen)?'rgba(240,200,96,0.20)':'rgba(14,26,58,.82)';
+  ctx.fillRect(kr.x,kr.y,kr.w,kr.h);
+  ctx.strokeStyle=keyListen?(game.tick%30<15?'#f84848':'#a8b4d8'):'#f0c860';ctx.lineWidth=1;
+  ctx.strokeRect(kr.x+0.5,kr.y+0.5,kr.w-1,kr.h-1);
+  drawCNText(keyListen?'按任意键…（Esc 取消）':'冲刺键：'+codeLabel(dashCode),
+    VIEW_W/2,kr.y+2,10,keyListen?'#f8d048':'#f0f4ff','center');
+  if(hov&&!keyListen)drawPixelText('点击改键',kr.x+kr.w+5,kr.y+5,1,'#a8b4d8');
+  if(keyErrT>0){keyErrT-=1/60;drawCNText(keyErr,VIEW_W/2,kr.y+kr.h+3,9,'#f84848','center');}
+  drawPixelText('P: CONTINUE  R: RESTART',VIEW_W/2,130,1,'#a8b4d8','center');
+  drawPixelText('ESC: MENU',VIEW_W/2,141,1,'#a8b4d8','center');
 }
 
 function renderClear(tick){
@@ -5670,8 +5730,13 @@ function step(dt){
         game.paused=!game.paused;SFX.select();
         if(game.paused){game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0; // 暂停瞬间的 stale 边沿不带入恢复后
           game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0; // v3 §A：技能边沿同清
-          game.input.skillLHit=0;} // v6：L 槽边沿同清
+          game.input.skillLHit=0;}
+        else if(keyListen){keyListen=false;} // v20.8：暂停被键盘 P 解除时顺带退出改键监听（防悬挂）
       }
+      // v20.8：暂停面板「冲刺键」按钮点击 → 进入监听态（下一个 keydown 由 handleKeyListen 捕获）
+      if(game.paused&&!keyListen&&mouse.click){const kr=keyBtnRect();
+        if(mouse.x>=kr.x&&mouse.x<=kr.x+kr.w&&mouse.y>=kr.y&&mouse.y<=kr.y+kr.h){
+          keyListen=true;keyErrT=0;mouse.click=0;SFX.select();}}
       // v6 波2 §7.1：开包（B 键 / HUD 钮点击已在桥接块）——死亡演出与暂停/谜题层不响应
       if(hit('bag')&&!game.paused&&game.player&&!game.player.dead)openBag();
       if(hit('restart')){startLevel(game.levelIdx);return;}
