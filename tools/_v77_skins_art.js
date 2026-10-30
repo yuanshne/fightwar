@@ -13,7 +13,7 @@ const fails = [];
 function mkGrad() { return { addColorStop() {} }; }
 function mkCtx(cv) {
   const noop = () => {};
-  return new Proxy({
+  const t = {
     canvas: cv, fillStyle: '#000', strokeStyle: '#000', lineWidth: 1, globalAlpha: 1,
     globalCompositeOperation: 'source-over', font: '', textAlign: '', textBaseline: '',
     imageSmoothingEnabled: false, filter: 'none', shadowBlur: 0, shadowColor: '#000',
@@ -21,17 +21,21 @@ function mkCtx(cv) {
     getImageData: (x, y, w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) }),
     putImageData: noop, createImageData: (w, h) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) }),
     measureText: () => ({ width: 4 })
-  }, { get(t, k) { if (k in t) return t[k]; return noop; }, set(t, k, v) { t[k] = v; return true; } });
+  };
+  // v19.5：记录 fillRect（x/y/w/h/颜色）——法师装备外观的三槽分区断言需要「改了哪些像素」，
+  // 只比对 canvas 对象身份是不够的（同尺寸空画布全等）。桩里加这一条，不影响其余检查。
+  t.fillRect = (x, y, w, h) => { if (cv._ops) cv._ops.push([x | 0, y | 0, w | 0, h | 0, t.fillStyle]); };
+  return new Proxy(t, { get(o, k) { return k in o ? o[k] : noop; }, set(o, k, v) { o[k] = v; return true; } });
 }
 function mkCanvas(w, h) {
-  const cv = { width: w | 0 || 1, height: h | 0 || 1 };
+  const cv = { width: w | 0 || 1, height: h | 0 || 1, _ops: [] };
   cv.getContext = () => (cv._c || (cv._c = mkCtx(cv)));
   return cv;
 }
 function sandbox(code) { // 每次独立上下文（art.js 顶层零 DOM，只在函数体内取 document）
   const doc = { createElement: t => (t === 'canvas' ? mkCanvas(1, 1) : {}), getElementById: () => null };
   return new Function('document', 'window', code
-    + '\n;return {SPR,HERO_SKINS,getHeroSkin,getMageSkin,magePal:_magePalFromSkin,buildSprites,GRIDS:{' // 主角网格（内部 const，此处只为「调色板键齐不齐」审计导出）
+    + '\n;return {SPR,HERO_SKINS,getHeroSkin,getMageSkin,getMageLook,_mgSprite,magePal:_magePalFromSkin,buildSprites,GRIDS:{' // 主角网格（内部 const，此处只为「调色板键齐不齐」审计导出）
     + 'idle1:_H_IDLE1,idle2:_H_IDLE2,run:_H_RUNS,jump:_H_JUMP,fall:_H_FALL,attack:_H_ATTACK,'
     + 'dash:_H_DASH,squash:_H_SQUASH,dashWind:_H_DASHWIND}};')(doc, {});
 }
@@ -207,6 +211,54 @@ const mageCacheN = Object.keys(A.SPR.mageSkins || {}).length;
 if (mageCacheN !== SKINS.length - 1) fails.push('SPR.mageSkins 缓存数应为 ' + (SKINS.length - 1) + '，实为 ' + mageCacheN);
 console.log('\n法师皮肤: ' + mageIds.length + ' 套可换色（blue 走本命配色），每套 ' + MG_FRAME.length + ' 单帧 + run6 = ' +
   (MG_FRAME.length + 6) + ' 个 canvas，缓存 ' + mageCacheN + ' 套');
+
+/* ---------- ⑦ v19.5 法师装备外观（三槽程序化：杖杆+杖头 / 帽带+帽尖 / 披风） ---------- */
+// 断言方式：桩记录了 fillRect，按坐标把改动**分区**——武器只能改 x≥10、头饰只能改 y≤4、
+// 披风只能改 x≤4 且 y≥8；反过来，脸/袍身所在的 x5..9 × y5..15 必须一个像素都不许动。
+// 这比「帧对象不相同」强得多：后者连空画布都能过。
+const EQN = { w: -1, h: -1, c: -1 };
+const opsOf = cv => (cv && cv._ops) ? cv._ops : [];
+const sig = (ops, keep) => ops.filter(keep).map(o => o.join(',')).join('|');
+function zoneCheck(cvA, cvB, inZone, label) {
+  const a = opsOf(cvA), b = opsOf(cvB);
+  if (sig(a, o => !inZone(o)) !== sig(b, o => !inZone(o)))
+    fails.push(label + '：改动溢出到该槽的分区之外');
+  if (sig(a, inZone) === sig(b, inZone))
+    fails.push(label + '：分区内一个像素都没改（装备外观未生效）');
+}
+if (A.getMageLook('blue', EQN) !== null) fails.push('getMageLook 三槽全空应转给 getMageSkin→blue 为 null');
+if (A.getMageLook('sprout', EQN) !== A.getMageSkin('sprout'))
+  fails.push('getMageLook 三槽全空时应直接转给 getMageSkin（同对象，不额外生成）');
+const noneMage = A.getMageLook('blue', EQN) || A._mgSprite('idle1'); // blue → null，用本命帧做基线
+const eqW = A.getMageLook('blue', { w: 2, h: -1, c: -1 });
+const eqH = A.getMageLook('blue', { w: -1, h: 2, c: -1 });
+const eqC = A.getMageLook('blue', { w: -1, h: -1, c: 2 });
+const eqAll = A.getMageLook('blue', { w: 2, h: 2, c: 2 });
+for (const [f, tag] of [[eqW, 'w'], [eqH, 'h'], [eqC, 'c'], [eqAll, 'all']]) {
+  if (!f) { fails.push('getMageLook[' + tag + '] 返回空'); continue; }
+  for (const k of MG_FRAME) if (!f[k] || f[k].width !== 16 || f[k].height !== 16) fails.push('装备外观.' + tag + '.' + k + ' 缺失或尺寸不对');
+  if (!Array.isArray(f.run) || f.run.length !== 6) fails.push('装备外观.' + tag + '.run 应为 6 帧');
+  if (!Object.isFrozen(f) || !Object.isFrozen(f.run)) fails.push('装备外观.' + tag + ' 帧对象未冻结');
+}
+zoneCheck(noneMage, eqW.idle1, o => o[0] >= 10, '武器档=2');
+zoneCheck(noneMage, eqH.idle1, o => o[1] <= 4, '头饰档=2');
+zoneCheck(noneMage, eqC.idle1, o => o[0] <= 4 && o[1] >= 8, '披风档=2');
+// 三槽全开：脸与袍身（x5..9 × y5..15）必须与裸装逐 op 一致——「换装备不该换脸」
+if (sig(opsOf(eqAll.idle1), o => o[0] >= 5 && o[0] <= 9 && o[1] >= 5) !==
+    sig(opsOf(noneMage), o => o[0] >= 5 && o[0] <= 9 && o[1] >= 5))
+  fails.push('三槽全开后脸/袍身像素被改动');
+// 档位差异：白装(0) 与金装(2) 不能画出一样的东西
+const eqW0 = A.getMageLook('blue', { w: 0, h: -1, c: -1 }).idle1;
+if (sig(opsOf(eqW0), () => true) === sig(opsOf(eqW.idle1), () => true)) fails.push('武器档 0 与档 2 画面完全相同');
+// 缓存：同键同对象、档位越界夹到 2、每个皮肤独立缓存
+if (A.getMageLook('blue', { w: 2, h: 2, c: 2 }) !== eqAll) fails.push('getMageLook 同键未命中缓存');
+if (A.getMageLook('blue', { w: 9, h: 9, c: 9 }) !== eqAll) fails.push('getMageLook 档位越界未夹到 2');
+if (A.getMageLook('sprout', { w: 2, h: 2, c: 2 }) === A.getMageLook('holy', { w: 2, h: 2, c: 2 }))
+  fails.push('不同皮肤 + 同装备返回了同一帧集');
+const lookKeys = Object.keys(A.SPR.mageLooks || {});
+if (lookKeys.indexOf('blue|2|2|2') < 0) fails.push('SPR.mageLooks 缓存键应为「皮肤|武器档|头饰档|披风档」，实为 ' + lookKeys.join(','));
+if (lookKeys.length > 24) fails.push('SPR.mageLooks 超过 24 组上限（未回收）');
+console.log('\n法师装备外观: 三槽分区断言通过（武器 x≥10 / 头饰 y≤4 / 披风 x≤4,y≥8），脸与袍身零改动，缓存 ' + lookKeys.length + ' 组');
 
 /* ---------- 汇总 ---------- */
 if (fails.length) {

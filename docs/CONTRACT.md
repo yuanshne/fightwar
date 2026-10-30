@@ -837,6 +837,22 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
   映射规则在 `_magePalFromSkin`：袍身 `b/B/W` 直取、金饰（帽带/腰带/袍摆）取 `y`、
   法杖宝珠体取 `s` 芯取 `y`（围巾系亮档，够亮才像发光）、**肤色 `s` 与五官 `e/p` 固定为 `_P_MG`**。
   帧缓存在 `SPR.mageSkins[id]`（惰性 + 冻结），不进 `SPR.skins`（那是骑士的）。
+- **v19.5 装备外观：两个角色都吃，但实现方式不同（刻意不统一）**：
+  - 骑士：`SPR.look.{weapon,hat,cape}[0..2]` 是 16×16 **覆盖网格**（固定锚点：hat rows0..4 / weapon rows7..15 cols10..15 /
+    cape rows5..15 cols0..6），由 ui 的 `heroLook()` 合成（披风在底 → 底帧 → 武器 → 头饰），缓存 `_lookCache`。
+  - 法师：三槽**程序化**画在 `_mgDraw(g, o, PL, E)` 里，`E={w,h,c}` 各取 `-1`(未穿)/`0..2`(档)。
+    不叠骑士网格的原因：骑士 hat/weapon 的锚点是「头盔扣头顶、剑握右手 y7..15」，而法师尖顶帽占满 rows0..4
+    逐行加宽、法杖在 x13 且有 4 种姿态（竖持/高举/横刺/低垂）。照搬会得到「尖帽上扣头盔」「一手持杖一手持剑」。
+    分区（`_v77_skins_art.js` 第⑦段按 fillRect 坐标断言）：**武器 = x≥10**（杖杆两阶色 + 3×3 菱形杖头）、
+    **头饰 = y≤4**（帽带换色 + 帽尖亮点；帽本体不动，尖顶帽是身份识别）、**披风 = x≤4 且 y≥8**（布面 + 外缘受光 + 内侧收边）。
+    脸与袍身（x5..9 × y5..15）必须逐像素不变——换装备不该换脸。
+  - `getMageLook(id, eq)` 返回「皮肤 + 装备」帧集，缓存 `SPR.mageLooks['皮肤id|武器档|头饰档|披风档']`（上限 24 组，满了整体清空）。
+    **三槽全 `-1` 时直接转给 `getMageSkin`**（含 blue→null），保证不穿装备时与 v19.4 逐像素一致。
+    与 `getMageSkin` 分开两个缓存：衣橱缩略图要的正是「裸皮肤」，局内角色/背包肖像/死亡帧要「皮肤 + 装备」。
+  - ⚠️ `lookEq()` 返回的键名是 `weapon/hat/cape`，**不是** `w/h/c`；照抄 `eq.w` 会静默全落 -1，整槽不生效。
+  - ⚠️ v19.5 修：`lookEq()` 原写法 `SPR.look.weapon[w.r]` 把**稀有度**（0..4）当部件数组下标（只有 3 档）——
+    r=2 蓝装取到第 3 档、r=3 紫 / r=4 金取到 `undefined` → 紫装金装在骑士身上完全没有外观。现改为先 `lookTier(r)` 再查表。
+  - 穿/脱/升阶走 `_lookDirty()`：清骑士 `_lookCache`（键是底帧，穿脱后底帧没变，必须显式清）+ 清 `SPR.mageLooks`。
 
 ### ui.js 契约（第 5 节以外的界面口径）
 - `progress.hero`（'knight'|'mage'，缺省/非法回落 knight）；选角覆盖层 `heroOpen`、
@@ -846,10 +862,13 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 - 法力条画在血条面板 `(1,16,104,14)` 右半区（`MP` 64,21 / 槽 72,21,28,5），**不新增纵向空间**
   （否则与 Boss 血条 y=29 相撞）。
 - `renderSlash` 对法师直接 return；`renderUlt` 按 hero 分派；技能卡/CD 分母读 `HEROES`。
-- `magePoseImg()`（v19.4）：取帧顺序 `mageSkinFrames(progress.skin)` → `SPR.mg*` → 骑士帧。
+- `magePoseImg()`（v19.5）：取帧顺序 `mageLookFrames()`（= `getMageLook(progress.skin, lookEq())`，皮肤 + 装备）
+  → `SPR.mg*` → 骑士帧。三槽全空时 `mageLookFrames()` 等价于 `mageSkinFrames`（blue 返回 null → 本命 `SPR.mg*`）。
   ⚠️ 皮肤帧集的键是**姿态名**（`idle1`），函数形参是 **SPR 键**（`mgIdle1`）——查表前必须去掉 `mg` 前缀
   并把首字母转小写，否则永远查空（首版就是这么回落到本命配色、局内看着"皮肤没生效"，而衣橱却是好的）。
   皮肤帧没有 `...L` 变体，左向用 `flipCache()` 运行时镜像；本命配色仍走预烘焙的 `SPR.mg*L`。
+- `mageIdle1()`（v19.5，内部）：法师待机帧（皮肤 + 装备），给背包肖像用；
+  `skinIdle1(id)` 仍只给「裸皮肤」帧（衣橱缩略图口径与骑士一致，不显示装备）。
 - `skinIdle1(id)` 按当前 `game.hero` 分派：法师走 `mageSkinFrames`，衣橱缩略图与背包肖像因此随角色切换。
   衣橱缩略图尺寸按角色分：法师 16×16 @ y+5、骑士 16×20 @ y+3（法师帧是 16×16，按 16×20 拉伸会压扁）。
 - `renderShots()`（新增，内部）：`renderSlash()` 之后、世界空间内绘制 `game.shots`

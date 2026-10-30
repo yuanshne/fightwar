@@ -2942,23 +2942,64 @@ const _MG_POSE = {
   dashWind: { dy: 2, leg: [1, -1], arm: 1, staff: -1, sway: 0, glow: 0, lean: -1 },
   squash: { dy: 2, leg: [2, -2], arm: 1, staff: 0, sway: 0, glow: 0, lean: 0 }
 };
-function _mgDraw(g, o, PL) { // PL=调色板（v19.4：换色皮肤传入自己的一份；缺省=本命 _P_MG）
+/* v19.5：法师装备外观——三槽全部程序化，**不叠骑士那套 16×16 部件网格**。
+   骑士的 hat/weapon 网格是按「头盔扣在头顶、剑握在右手 y7..15」的固定锚点画的；
+   法师的尖顶帽占满 rows0..4 且逐行加宽、法杖在 x13 且有 4 种姿态（竖持 3 / 高举 0 / 横刺 7 / 低垂 13），
+   照搬只会得到「尖帽上扣一顶头盔」「一手持杖一手持剑」。
+   改成按档位改画法：杖杆色阶 + 杖头晶石、帽带 + 帽尖、披风（底层）。
+   好处是四种法杖姿态与 run 的摆幅自动跟随，不必预生成 4×15 张变体图。 */
+function _mgDraw(g, o, PL, E) { // PL=调色板（v19.4 换色皮肤）；E=装备档位 {w,h,c}，-1/缺省=该槽未穿
   PL = PL || _P_MG;
+  const W = (E && E.w >= 0) ? Math.min(E.w, 2) : -1;   // 武器档
+  const H = (E && E.h >= 0) ? Math.min(E.h, 2) : -1;   // 头饰档
+  const C = (E && E.c >= 0) ? Math.min(E.c, 2) : -1;   // 披风档
   const dy = o.dy || 0, lean = o.lean || 0, sway = o.sway || 0;
   const P = function (x, y, w, h, c) { g.fillStyle = c; g.fillRect(x + lean, y + dy, w, h); };
-  /* ---- 法杖（身体右侧 x=13，先画=在袍后） ---- */
+  /* ---- 披风（最底层：先于法杖与袍身，只在左后侧露出轮廓） ---- */
+  if (C >= 0) {
+    // 袍身左缘逐行内收（rows8..15 可用宽度 5/4/4/3/2/2/2/2），披风只画这段余量。
+    // 三色分工固定：b=布面 / e=外缘受光（同色系亮一阶，**不用金色**）/ s=内侧收边（贴着袍身那道暗）。
+    // ✗ 外缘用金色时，1px 宽的金边在 3× 下像一根金属棍而不是披风的边；金色只留给档3的肩线（top）。
+    const cw = C === 0 ? { b: '#8a7a68', e: '#a08e78', s: '#5a4e42', top: '#a08e78' }  // 破布：灰褐
+      : C === 1 ? { b: '#3a68a8', e: '#6a9ad8', s: '#24487e', top: '#6a9ad8' }         // 秘银：蓝
+        : { b: '#2c3a70', e: '#5a6ab0', s: '#1a2248', top: '#f8d048' };                // 星辉：深蓝 + 金肩线
+    const lx = function (x) { return Math.max(0, x + (sway > 0 ? 1 : sway < 0 ? -1 : 0)); };
+    const SHA = [5, 4, 4, 3, 2, 2, 2, 2];                              // y8..15 各行的可用宽度
+    for (let i = 0; i < SHA.length; i++) {
+      const y = 8 + i, w = SHA[i];
+      P(lx(0), y, w, 1, cw.b);
+      P(lx(0), y, 1, 1, cw.e);
+      if (w > 2) P(lx(w - 1), y, 1, 1, cw.s);                           // 只有 1~2px 宽时不留收边，否则整条只剩暗
+    }
+    P(lx(0), 8, 5, 1, cw.top);                                          // 肩线（档3=一道金肩饰，这是它的主要辨识点）
+    if (C === 2) { P(lx(1), 10, 1, 1, '#ffffff'); P(lx(1), 13, 1, 1, '#ffffff'); } // 星辉散点：画在布面内
+  }
+  /* ---- 法杖（身体右侧 x=13，先画=在袍后） ----
+     杖杆两阶随武器档：木 #8a6a48/#c8a870 → 秘银 #7a8ca8/#c8d8f0 → 金 #a87818/#f8d048 */
+  const SH = W === 1 ? ['#7a8ca8', '#c8d8f0'] : W === 2 ? ['#a87818', '#f8d048'] : ['#8a6a48', '#c8a870'];
+  /* 杖头晶石：未穿武器 = 原来那枚 2×2 宝珠（逐像素不变）；穿了 = 3×3 菱形晶石（更大更亮，升级一眼可见）。
+     gx/gy 是原 2×2 宝珠左上角，3×3 时向四周各撑 1px，clamp 进 0..13 防出右缘（横刺姿态宝珠在 x14）。 */
+  const GEM = function (gx, gy) {
+    const x = Math.max(0, Math.min(13, gx - 1)), y = Math.max(0, Math.min(13, gy - 1));
+    // 菱形（四角留空）：四臂用宝珠色、心用纯白。✗ 别在四角再补半透明白——3×3 会被填成实心方块，
+    // 在 3× 下就是一块亮豆腐，比原版 2×2 更不像宝石。
+    const arm = W >= 2 ? PL.o : PL.O;               // 档2/3 用亮一阶（整颗更通透），档1 保持原宝珠色
+    P(x + 1, y, 1, 1, arm);
+    P(x, y + 1, 1, 1, arm); P(x + 2, y + 1, 1, 1, arm);
+    P(x + 1, y + 1, 1, 1, PL.w); P(x + 1, y + 2, 1, 1, arm);
+  };
   if (o.staff === 2) {                       // 横刺：杖杆横置 y=9
-    P(7, 8, 7, 1, '#8a6a48'); P(7, 7, 7, 1, '#c8a870');
-    P(14, 7, 2, 2, PL.O); P(15, 8, 1, 1, PL.w);
+    P(7, 8, 7, 1, SH[0]); P(7, 7, 7, 1, SH[1]);
+    if (W < 0) { P(14, 7, 2, 2, PL.O); P(15, 8, 1, 1, PL.w); } else GEM(14, 7);
   } else if (o.staff === 1) {                // 高举：杆 y=2..11，宝珠顶到 y=0
-    P(13, 2, 1, 10, '#8a6a48'); P(13, 2, 1, 1, '#c8a870');
-    P(12, 0, 2, 2, PL.O); P(12, 0, 1, 1, PL.o); P(13, 1, 1, 1, PL.w);
+    P(13, 2, 1, 10, SH[0]); P(13, 2, 1, 1, SH[1]);
+    if (W < 0) { P(12, 0, 2, 2, PL.O); P(12, 0, 1, 1, PL.o); P(13, 1, 1, 1, PL.w); } else GEM(12, 0);
   } else if (o.staff === -1) {               // 低垂：杆 y=9..15
-    P(13, 9, 1, 7, '#8a6a48'); P(13, 9, 1, 1, '#c8a870');
-    P(12, 13, 2, 2, PL.O); P(12, 13, 1, 1, PL.w);
+    P(13, 9, 1, 7, SH[0]); P(13, 9, 1, 1, SH[1]);
+    if (W < 0) { P(12, 13, 2, 2, PL.O); P(12, 13, 1, 1, PL.w); } else GEM(12, 13);
   } else {                                   // 竖持：杆 y=5..15，宝珠 y=3
-    P(13, 5, 1, 11, '#8a6a48'); P(13, 5, 1, 1, '#c8a870');
-    P(12, 3, 2, 2, PL.O); P(12, 3, 1, 1, PL.o); P(13, 4, 1, 1, PL.w);
+    P(13, 5, 1, 11, SH[0]); P(13, 5, 1, 1, SH[1]);
+    if (W < 0) { P(12, 3, 2, 2, PL.O); P(12, 3, 1, 1, PL.o); P(13, 4, 1, 1, PL.w); } else GEM(12, 3);
   }
   if (o.glow > 0) {                          // 宝珠光晕（cast/attack 帧，四角 1px 半透明）
     g.globalAlpha = 0.5;
@@ -2977,7 +3018,19 @@ function _mgDraw(g, o, PL) { // PL=调色板（v19.4：换色皮肤传入自己�
     if (w > 2) P(x0 + 1, r, w - 2, 1, r >= 3 ? PL.B : PL.b);
     if (r >= 2 && r <= 3) P(x0 + 1, r, 1, 1, PL.W);   // 左侧亮阶
   }
-  P(5, 3, 4, 1, PL.y);                    // 帽带金饰
+  /* v19.5 头饰档：帽子本体是法师的身份识别（尖顶帽不能换），只改**帽带与帽尖**——
+     y3 是帽檐上一整行（HAT[3]=[4,7]，描边在 x4/x10），正好是一条天然帽带；
+     (7,1) 是帽锥内部的填充像素，换成亮色即「帽尖宝石」，不破坏逐行加宽的轮廓。 */
+  if (H < 0) P(5, 3, 4, 1, PL.y);                        // 未穿：原样金饰帽带
+  else if (H === 0) {                                    // 档1 布帽带（棕布 + 浅色起头）
+    P(5, 3, 5, 1, '#a87848'); P(5, 3, 1, 1, '#c89858');
+  } else if (H === 1) {                                  // 档2 秘银冠带 + 蓝宝石 + 帽尖银点
+    P(5, 3, 5, 1, '#8ab8e8'); P(5, 3, 1, 1, '#4878b8'); P(9, 3, 1, 1, '#4878b8');
+    P(7, 3, 1, 1, '#2860c0'); P(8, 3, 1, 1, '#4878b8'); P(7, 1, 1, 1, '#e8f4ff');
+  } else {                                               // 档3 神话金冠带 + 红宝石 + 帽尖金星
+    P(5, 3, 5, 1, '#f8d048'); P(5, 3, 1, 1, '#c89010'); P(9, 3, 1, 1, '#c89010');
+    P(7, 3, 1, 1, '#f86030'); P(8, 3, 1, 1, '#c84020'); P(7, 1, 1, 1, '#fff8c8');
+  }
   /* ---- 脸（3/4 侧面，朝右；帽檐下 4 行） ---- */
   P(5, 5, 6, 4, PL.k);
   P(6, 6, 4, 3, PL.s);
@@ -3013,13 +3066,13 @@ function _mgDraw(g, o, PL) { // PL=调色板（v19.4：换色皮肤传入自己�
   P(5 + leg[0], 15, 1, 1, PL.B);
   P(10 + leg[1], 15, 1, 1, PL.B);
 }
-function _mgSprite(name, PL) { // 内部：单帧 16×16（squash 用画布变换压扁，其余直接绘制；PL 见 _mgDraw）
+function _mgSprite(name, PL, E) { // 内部：单帧 16×16（squash 用画布变换压扁，其余直接绘制；PL/E 见 _mgDraw）
   const c = _makeCanvas(16, 16), g = c.getContext('2d');
   let o = _MG_POSE[name];
   if (!o && name.indexOf('run') === 0) o = _MG_POSE.run[+name.slice(3)] || _MG_POSE.run[0];
   if (!o) o = _MG_POSE.idle1;
   if (name === 'squash') { g.translate(0, 15); g.scale(1.16, 0.8); g.translate(0, -15); }
-  _mgDraw(g, o, PL);
+  _mgDraw(g, o, PL, E);
   return c;
 }
 /* v19.4：法师换色皮肤——直接复用骑士那 19 套的颜色，按角色映射到法师调色板。
@@ -3038,17 +3091,40 @@ function _magePalFromSkin(sk) {
            s: _P_MG.s, e: _P_MG.e, p: _P_MG.p,
            o: p.y, O: p.s };
 }
+function _mageFrames(PL, E) { // 内部：整套法师帧（run 恰 6 帧 + 9 个单帧）；PL=调色板、E=装备档位
+  const f = { run: [0, 1, 2, 3, 4, 5].map(function (i) { return _mgSprite('run' + i, PL, E); }) };
+  _MAGE_SKIN_FRAME.forEach(function (k) { f[k] = _mgSprite(k, PL, E); });
+  Object.freeze(f.run);
+  return Object.freeze(f);
+}
 function getMageSkin(id) { // 取某套皮肤对应的法师帧（惰性生成 + 缓存）；blue/未知 → null（调用方直接用 SPR.mg*）
   const sk = _heroSkinDef(id);
   if (sk.id === 'blue') return null;
   if (!SPR.mageSkins) SPR.mageSkins = {};
   if (SPR.mageSkins[sk.id]) return SPR.mageSkins[sk.id];
-  const PL = _magePalFromSkin(sk);
-  const f = { run: [0, 1, 2, 3, 4, 5].map(function (i) { return _mgSprite('run' + i, PL); }) };
-  _MAGE_SKIN_FRAME.forEach(function (k) { f[k] = _mgSprite(k, PL); });
-  Object.freeze(f.run);
-  SPR.mageSkins[sk.id] = Object.freeze(f);
+  SPR.mageSkins[sk.id] = _mageFrames(_magePalFromSkin(sk), null);
   return SPR.mageSkins[sk.id];
+}
+/* v19.5：法师「皮肤 + 装备外观」帧集。与 getMageSkin 分开两个缓存，因为键不同：
+   getMageSkin 只有皮肤维度（衣橱缩略图要的正是「不穿装备的裸皮肤」）；
+   getMageLook 多两个装备维度 → 键 = 皮肤id|武器档|头饰档|披风档。
+   三槽全空直接转给 getMageSkin（含 blue→null 的守卫语义），保证不穿装备时与 v19.4 逐像素一致。 */
+function getMageLook(id, eq) {
+  const w = (eq && eq.w >= 0) ? Math.min(eq.w | 0, 2) : -1;
+  const h = (eq && eq.h >= 0) ? Math.min(eq.h | 0, 2) : -1;
+  const c = (eq && eq.c >= 0) ? Math.min(eq.c | 0, 2) : -1;
+  if (w < 0 && h < 0 && c < 0) return getMageSkin(id);
+  const sk = _heroSkinDef(id);
+  if (!SPR.mageLooks) SPR.mageLooks = {};
+  const key = sk.id + '|' + w + '|' + h + '|' + c;
+  if (SPR.mageLooks[key]) return SPR.mageLooks[key];
+  // 上限 24 组（19 皮肤 × 64 档位组合理论上 1216 组 × 15 张 canvas，实际玩家只会穿 1~2 套装备）。
+  // 满了整体清空——缓存可重建，绝不为它做 LRU。
+  let n = 0; for (const k in SPR.mageLooks) n++;
+  if (n >= 24) SPR.mageLooks = {};
+  const PL = sk.id === 'blue' ? _P_MG : _magePalFromSkin(sk); // blue=本命配色（不走映射，同 v19.4）
+  SPR.mageLooks[key] = _mageFrames(PL, { w: w, h: h, c: c });
+  return SPR.mageLooks[key];
 }
 function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调用一次；幂等由外层守卫）
   // 姿态名 → SPR 键：一律 mg 前缀（ui 直接取 SPR.mgIdle1 等；无前缀键会被当成新全局精灵，且与 hero* 撞命名域）

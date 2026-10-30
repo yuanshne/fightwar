@@ -413,6 +413,17 @@ function skinFrames(id){ // v7.7：取某套皮肤全部帧（art.js 侧惰性�
 function mageSkinFrames(id){ // v19.4：同一套皮肤对应的法师帧（blue/未知/art 未合入 → null，调用方直接用 SPR.mg*）
   return (typeof getMageSkin==='function')?getMageSkin(id||'blue'):null;
 }
+function mageLookFrames(){ // v19.5：法师帧集 = 皮肤 + 装备外观（三槽全空时等价于 mageSkinFrames）
+  // 与 skinIdle1 的分工：衣橱缩略图要「裸皮肤」（同骑士的 heroLook 不参与缩略图），
+  // 局内角色/背包肖像/死亡帧要「皮肤 + 装备」。
+  if(typeof getMageLook!=='function')return mageSkinFrames(progress.skin);
+  const eq=lookEq(); // 键名是 weapon/hat/cape（不是 w/h/c）——照抄会静默全落 -1，整槽不生效
+  return getMageLook(progress.skin,{w:eq.weapon,h:eq.hat,c:eq.cape});
+}
+function mageIdle1(){ // v19.5：法师待机帧（皮肤 + 装备），缺素材回落本命 mgIdle1
+  const m=mageLookFrames();
+  return (m&&m.idle1)?m.idle1:(SPR.mgIdle1||SPR.heroIdle1);
+}
 function skinOwned(){ // v7.7：已解锁套数（按 SKIN_LIST 计，存档里若残留未知 id 不会被算进 N/17）
   let n=0;for(let i=0;i<SKIN_LIST.length;i++)if(progress.skins.indexOf(SKIN_LIST[i].id)>=0)n++;
   return n;
@@ -2529,12 +2540,16 @@ function lookEq(){                   // 穿着件→档位 {weapon,hat,cape:-1..
   const out={weapon:-1,hat:-1,cape:-1};
   if(typeof SPR==='undefined'||!SPR.look)return out;
   const find=id=>progress.inv.find(it=>it.id===id);
+  // v19.5 修：原写法 SPR.look.weapon[w.r] 把**稀有度**当部件数组下标用，而部件数组只有 3 档
+  // （0/1/2=木布/秘银/金星辉，见 art.js «SPR.look»）。后果：r=2 蓝装取到第 3 档、r=3 紫/r=4 金
+  // 取到 undefined → 紫装金装在骑士身上**完全没有外观**。改为先 lookTier 再查表，并保留「部件缺失则跳过」的守卫。
+  const tierOf=(arr,it)=>(it&&arr)?(arr[lookTier(it.r)]!=null?lookTier(it.r):-1):-1;
   const w=typeof progress.equip.w==='number'&&progress.equip.w>=0?find(progress.equip.w):null;
   const h=typeof progress.equip.h==='number'&&progress.equip.h>=0?find(progress.equip.h):null;
   const c=typeof progress.equip.c==='number'&&progress.equip.c>=0?find(progress.equip.c):null;
-  if(w&&SPR.look.weapon&&SPR.look.weapon[w.r])out.weapon=lookTier(w.r);
-  if(h&&SPR.look.hat&&SPR.look.hat[h.r])out.hat=lookTier(h.r);
-  if(c&&SPR.look.cape&&SPR.look.cape[c.r])out.cape=lookTier(c.r);
+  out.weapon=tierOf(SPR.look.weapon,w);
+  out.hat=tierOf(SPR.look.hat,h);
+  out.cape=tierOf(SPR.look.cape,c);
   return out;
 }
 function heroLook(img,fam){
@@ -2551,7 +2566,10 @@ function heroLook(img,fam){
     e={R:c,L:flipSprite(c)};_lookCache.set(img,e);}
   return faceL?e.L:e.R;
 }
-function _lookDirty(){_lookCache.clear();} // 穿/脱/升阶时调用（§7.5：外观缓存失效）
+function _lookDirty(){
+  _lookCache.clear();                                  // 骑士：合成缓存按「底帧」做键，穿脱后底帧没变 → 必须显式清
+  if(typeof SPR!=='undefined'&&SPR.mageLooks)SPR.mageLooks={}; // 法师：键里已含档位，清掉只是省内存、顺带防脏
+}
 
 // v6 波2 §E/§7.4：图标稀有度叠色缓存（whiteOf 思路 source-atop；每 对(图标,稀有度色) 只合成一次）
 const _tintCache=new Map();
@@ -3105,8 +3123,9 @@ function magePoseImg(tick){
   if(!p)return SPR.heroIdle1;
   const flip=p.face<0;
   /* v19.4：法师也吃换色皮肤。sk=本套皮肤的法师帧集；blue（本命配色）/art 未合入 → null，
-     此时一切走 SPR.mg*，与 v19 上线时逐像素一致（守卫式降级）。 */
-  const sk=mageSkinFrames(progress.skin);
+     此时一切走 SPR.mg*，与 v19 上线时逐像素一致（守卫式降级）。
+     v19.5：帧集换成 mageLookFrames（皮肤 + 装备外观）——三槽全空时它转给 getMageSkin，行为不变。 */
+  const sk=mageLookFrames();
   const park=(k,fb)=>{ // 内部：单帧取帧——皮肤帧 > 法师帧 > 骑士帧；皮肤帧没有 ...L 变体，翻转用 flipCache
     // 注意键名：形参是 SPR 键（mgIdle1），皮肤帧集用的是姿态名（idle1）——去掉 mg 前缀再把首字母转小写。
     const mn=(k.indexOf('mg')===0)?(k.charAt(2).toLowerCase()+k.slice(3)):k;
@@ -3204,8 +3223,8 @@ function renderPlayer(tick){
     // v19 §3.3：法师用 mgFall（左向取 mgFallL，缺素材回落 heroFall）；骑士路径逐字不变
     const sk=skinFrames(progress.skin); // v7.7：死亡帧同样随皮肤（缺键/未合入 → SPR.heroFall）
     let df;
-    if(game.hero==='mage'){ // v19.4：法师死亡帧也随皮肤；blue/未合入 → 本命 mgFall + 预烘焙 mgFallL
-      const ms=mageSkinFrames(progress.skin);
+    if(game.hero==='mage'){ // v19.4：法师死亡帧也随皮肤；v19.5 起连带装备外观
+      const ms=mageLookFrames();
       const f=(ms&&ms.fall)?ms.fall:(SPR.mgFall||SPR.heroFall);
       df=ms?(p.face<0?flipCache(f):f):(p.face<0?(SPR.mgFallL||f):f);
     }else df=heroLook((sk&&sk.fall)?sk.fall:SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
@@ -3994,7 +4013,8 @@ function renderBag(tick){
   // v7.7：预览帧跟随当前皮肤（守卫：getHeroSkin 未合入 → SPR.heroIdle1）
   // v19 §3.2：法师→mgIdle1（无装备外观合成，缺素材回落骑士帧）
   // v19.4：法师肖像也跟随换色皮肤（blue → skinIdle1 内部回落 mgIdle1 本命配色）
-  const pv=(game.hero==='mage')?skinIdle1(progress.skin):heroLook(skinIdle1(progress.skin),'idle');
+  // v19.5：法师肖像同样叠装备外观（mageIdle1 = 皮肤 + 装备三槽）
+  const pv=(game.hero==='mage')?mageIdle1():heroLook(skinIdle1(progress.skin),'idle');
   if(pv)ctx.drawImage(pv,44,24,48,48);
   // 属性行（读 game.equip；攻击=基攻+装备加成，加成绿字；§7.2/工单 §C）
   const atkBase=(typeof BAL!=='undefined'&&BAL&&BAL.player&&BAL.player.atkBase)||1;
