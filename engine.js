@@ -765,11 +765,13 @@ const BAL = {
     score: { beat: 1.0, restBeat: 3.2,
              beats: ['pendulum', 'chime', 'hammer', 'hchain', 'homing', null],
              idleMul: 0.12, restMul: 4.0 },
-    /* pendulum 钟摆：以自身为轴横扫的弧。v22 用户实测「第一个技能根本打不到角色」——
+    /* pendulum 钟摆：以自身为轴**扫满整圈**。v22 用户实测「第一个技能根本打不到角色」——
        原 r78 + 2.2s 慢扫：半径比玩家一步的距离还短，扫到玩家角度前人早走出去了。
-       改 r112（弧缘正好卡在"贴身输出位"）、sweep 1.5s、判定带宽 20°、2 伤：
-       贴脸输出现在真的会被摆锤扫到，躲法只剩「出弧」或「绕背」。 */
-    pendulum: { r: 112, h: 16, dmg: 2, sweep: 1.5, band: 20 },
+       改 r112（弧缘正好卡在"贴身输出位"）、sweep 1.5s、判定带宽 20°、2 伤。
+       v23 用户再实测「摆锤不是 360 度，所以基本打不到」——140° 单侧扇下绕背永远安全。
+       现在 360° 整圈（pendStart=玩家方位−100° 起转，0.42s 后够到原站位，反应窗保留），
+       躲法只剩「出半径」或「冲刺无敌帧穿摆臂」，背后不再是安全区。 */
+    pendulum: { r: 112, dmg: 2, sweep: 1.5, band: 20, startOff: 100 },
     /* chime 声波：三圈同向环弹（v22：两圈→三圈、6→8 向、96→112——用户实测「随便躲」，
        慢弹变密弹，缝从 60° 收到 45°，走位得认真找缝）。 */
     chime: { v: 112, t: [0.25, 0.55, 0.85], endT: 1.25, n: 8 },
@@ -2329,10 +2331,16 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     else if (b.next === 'bite') { if (b.t >= _engBossDur('bite', b.phase)) {
         _engB10Bite(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'pendulum') { if (b.t >= _engBossDur('pendulum', b.phase)) {
-        /* v20 修：扇面必须朝玩家那一侧。原来固定 -70°→+70°（画布角，正角朝下）只覆盖右侧，
-           玩家站左边等于完全免疫，等于这招一半时间是白放的。开扫时锁一次方向（同 landX 口径），
-           躲法随之变成「跑到弧外」或「从它身下绕到背后」——两种都成立，不必二选一。 */
-        b.pendDir = (pcx < b.x + b.w / 2) ? -1 : 1;
+        /* v20 修：扇面朝玩家那一侧（原 -70°→+70° 固定右侧，站左=完全免疫）。
+           v23 再修：140° 单侧扇 → **360° 整圈**——用户实测「摆锤不是 360 度，所以基本打不到」：
+           单侧扇下绕到背后/站另一侧永远安全，等于这招只有一半地图有威胁。
+           起扫角=玩家方位角−100°（旋向朝玩家一侧），摆臂约 0.42s 后才够到玩家原站位
+           （sweep 1.5s / 360°，100° 占 0.42s）——反应窗仍在；躲法只剩「出半径」或「冲刺无敌帧穿摆臂」。 */
+        const bpx = b.x + b.w / 2, bpy = b.y + b.h - 6;
+        const TPD = T.pendulum || BAL.boss11.pendulum;
+        b.pendDir = (pcx < bpx) ? -1 : 1;
+        b.pendStart = Math.atan2((p.y + p.h / 2) - bpy, pcx - bpx) * 180 / Math.PI
+                      - b.pendDir * (TPD.startOff || 100);
         b.state = 'pendulumCast'; b.t = 0; b.fireN = 0; b.pendA = 0; } }
     else if (b.next === 'chime') { if (b.t >= _engBossDur('chime', b.phase)) {
         b.state = 'chimeCast'; b.t = 0; b.fireN = 0; } }
@@ -2918,20 +2926,23 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= TI.dur) { b.mouthOpen = false; b.state = 'recover'; b.t = 0; }
     break; }
 
-  case 'pendulumCast': { // ⑤ 钟·钟摆：以脚下为轴，朝玩家那一侧扫（躲法=出弧 或 绕到背后）
+  case 'pendulumCast': { // ⑤ 钟·钟摆（v23：360°整圈）——绕背/站另一侧不再安全，躲法=出半径 或 冲刺无敌帧穿摆臂
     b.vx = 0;
     const TP = T.pendulum || BAL.boss11.pendulum;
     const cx = b.x + b.w / 2, cy = b.y + b.h - 6;
     const dir = b.pendDir || 1;
     const t01 = Math.min(1, b.t / TP.sweep);
-    b.pendA = dir * (-70 + 140 * t01);
+    b.pendA = (b.pendStart || 0) + dir * 360 * t01;   // 从锁定起始角扫满一整圈
     if (!p.dead && b.t < TP.sweep && (b.pendHitCd || 0) <= 0) {
       const dx = (p.x + p.w / 2) - cx, dy = (p.y + p.h / 2) - cy;
       const d = Math.hypot(dx, dy);
       if (d < TP.r + 8) {
         const a = Math.atan2(dy, dx) * 180 / Math.PI;
-        // 判定带宽从表读（v22 默认 20°）：比视觉上的摆锤粗一档，否则扫过却没有判定，玩家会当成穿模
-        if (Math.abs(a - b.pendA) < (TP.band || 16)) {
+        // 判定带宽从表读（v22 默认 20°）：比视觉上的摆锤粗一档，否则扫过却没有判定，玩家会当成穿模。
+        // 角度差必须环回到 ±180 内：360° 扫描会跨过 ±180 断层，不环回则背后那一扇永远漏判。
+        let da = (a - b.pendA) % 360;
+        if (da > 180) da -= 360; else if (da < -180) da += 360;
+        if (Math.abs(da) < (TP.band || 16)) {
           _engHurtPlayer(cx, TP.dmg); b.pendHitCd = 0.5;
         }
       }
@@ -3829,6 +3840,13 @@ function _engAddCombo() { // 内部：连击计数（v5 §2#7：命中敌人（�
   }
 }
 
+function _engAddUltCharge() { // v23：法师专属充能入口——命中只充 O 能量、不涨连击。
+  // v20.9 把「命中不涨连击」实现成整段跳过 _engAddCombo，把充能一起砍没了——用户实测
+  // 「法师的大招依旧无法蓄力，命中了也没办法蓄力」。连击收益的取消保留（combo/crit 不还），
+  // 但充能是 ult 的正常获取途径，必须与连击解耦回来。充能数值沿用 BAL.ult.chargeHit（10/次）。
+  if (game.ultCharge < BAL.ult.ultNeed) game.ultCharge = Math.min(BAL.ult.ultNeed, game.ultCharge + BAL.ult.chargeHit);
+}
+
 function _engEnemySkill(e, dt, L, p) { // 内部（v6 §E）：四类敌人技能状态机——触发全距离条件、无随机（确定性），
   // 门禁空转零触发（出生点距最近敌 > 触发半径或 cd 未到）；前摇期间被打断不打断（前摇=硬直窗口，可反制）。
   // 参数/时长/速度/CD 全取 BAL.enemy.*.skill；调用点在敌人循环内、kb 摩擦之前。
@@ -4330,7 +4348,9 @@ function _engShotHitEnemy(s, e) { // 内部（v19）：弹体命中敌人——�
   const crit = !!s.crit;
   const dmg = s.dmg || s.base; // 出膛即定的实际伤害（Boss/敌人同读；不在命中时复算暴击）
   s.hitList.push(e);
-  // v20.9：法师取消连击收益——弹体命中敌人不加连击（击杀回蓝走 manaPerKill，口径不变）
+  // v20.9：命中不涨连击（取消连击收益，保留）；v23：充能与连击解耦——命中照充 ultCharge（_engAddUltCharge），
+  // 否则法师大招永远蓄不满（用户实测「命中了也没办法蓄力」）。
+  _engAddUltCharge();
   if (s.kind === 'shard') {                            // v19.3：冰锥命中 → 炸冰屑 + 冻结
     _engAddParts(e.x + 6, e.y + 6, 5, '#d8f4ff', 110, 200);
     _engAddParts(e.x + 6, e.y + 6, 3, '#7ad0f8', 80, 160);
@@ -4525,7 +4545,8 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
       }
       if (_engBossHurt(dmg, !!s.isUlt)) {
         const b = game.boss;
-        // v20.9：法师取消连击收益——命中 Boss 不再加连击（骑士近战口径不变）
+        // v20.9：命中 Boss 不涨连击（保留）；v23：充能解耦回来（同 _engShotHitEnemy 口径）
+        _engAddUltCharge();
         _engFloat(b.x + b.w / 2, b.y - 4, '' + b.lastDmg, crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
         game.hitStop = _engHitStop; game.sfxQueue.push('hit');
       }
@@ -4549,6 +4570,7 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
       const hzBox = hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz;
       if (s.hitList.indexOf(hz) >= 0 || !_engAabb(s, hzBox)) continue;
       s.hitList.push(hz);
+      _engAddUltCharge();   // v23：打机关也充能（卵/网/像/镜/分身——交互有回报，同骑士近战打机关涨连击的口径）
       if (hz.kind === 'totem') {                       // 圣像：扣 1，碎裂/爆炸在 _engUpdateHazards 收尸
         hz.hp -= 1; hz.flashT = 0.08;
         _engFloat(hz.x + hz.w / 2, hz.y - hz.h - 4, '1', '#f8d048', 0);

@@ -3370,18 +3370,19 @@ function renderBossWindupFx(b,bimg,bx,by){
       }
       ctx.globalAlpha=1;break;
     }
-    case 'pendulum':{                                // 钟摆：脚下 140° 弧线（跑到弧外 / 绕到背后，不是跳）
-      const T=_bossCfg(b)||{},R=Math.max(20,+((T.pendulum&&T.pendulum.r)||78));
+    case 'pendulum':{                                // 钟摆（v23：360°整圈）：脚下整圈虚线（躲法=出半径/冲刺穿臂，绕背不再安全）
+      const T=_bossCfg(b)||{},R=Math.max(20,+((T.pendulum&&T.pendulum.r)||112));
       const ay=top+b.h-6,pp=game.player;
-      const dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1;        // 扇面朝玩家那一侧（与引擎 pendDir 同口径）
       ctx.globalAlpha=0.26+0.32*k;ctx.strokeStyle='#f8d048';ctx.lineWidth=1.5;
       if(ctx.setLineDash)ctx.setLineDash([4,3]);
-      ctx.beginPath();
-      if(dir>0)ctx.arc(px(cx),px(ay),R,-70*Math.PI/180,70*Math.PI/180);
-      else ctx.arc(px(cx),px(ay),R,Math.PI-70*Math.PI/180,Math.PI+70*Math.PI/180);
-      ctx.stroke();
+      ctx.beginPath();ctx.arc(px(cx),px(ay),R,0,Math.PI*2);ctx.stroke();
       if(ctx.setLineDash)ctx.setLineDash([]);
-      const a0=dir*((-70+140*clamp(k,0,1))*Math.PI/180);   // 摆动指针：读得到「扫到哪了」
+      let a0=0;                                       // 摆动指针：从玩家方位退 100° 起转（与引擎 pendStart 同口径）
+      if(pp){
+        const pa=Math.atan2((pp.y+pp.h/2)-ay,(pp.x+pp.w/2)-cx)*180/Math.PI;
+        const dir=(pp.x+pp.w/2)<cx?-1:1;
+        a0=(pa-dir*100+dir*360*clamp(k,0,1))*Math.PI/180;
+      }
       ctx.globalAlpha=0.7+0.3*k;ctx.fillStyle='#fff0b0';
       ctx.fillRect(px(cx+Math.cos(a0)*R)-1,px(ay+Math.sin(a0)*R)-1,3,3);
       ctx.globalAlpha=1;
@@ -3437,22 +3438,23 @@ function renderBossCastFx(b,tick){
   if(!b)return;
   const T=_bossCfg(b)||{};
   const cx=px(b.x+b.w/2),top=px(b.y),gy=px(b.y+b.h);
-  if(b.state==='pendulumCast'){                       // 钟摆：一根摆杆 + 摆锤 + 已扫过的扇形
-    const TP=T.pendulum||{},R=Math.max(20,+TP.r||78),dir=+b.pendDir||1;
+  if(b.state==='pendulumCast'){                       // 钟摆（v23：360°）：危险半径淡圈 + 摆杆 + 摆锤 + 渐淡尾迹
+    const TP=T.pendulum||{},R=Math.max(20,+TP.r||112),dir=+b.pendDir||1;
     const a=((+b.pendA||0))*Math.PI/180;
     const bx=cx+Math.cos(a)*R,by=gy-6+Math.sin(a)*R;
-    ctx.globalAlpha=0.14;                              // 已扫过的扇面（读「它刚经过哪」）
-    ctx.fillStyle='#f8d048';
-    ctx.beginPath();ctx.moveTo(cx,gy-6);
-    ctx.arc(cx,gy-6,R,dir>0?0:Math.PI,a);
-    if(dir<0)ctx.arc(cx,gy-6,R,a,Math.PI);
-    ctx.closePath();ctx.fill();
+    ctx.globalAlpha=0.10;ctx.strokeStyle='#f8d048';ctx.lineWidth=1;   // 危险半径：整圈
+    ctx.beginPath();ctx.arc(cx,gy-6,R,0,Math.PI*2);ctx.stroke();
     ctx.globalAlpha=0.7;                               // 摆杆
     ctx.strokeStyle='#c8a030';ctx.lineWidth=2;
     ctx.beginPath();ctx.moveTo(cx,gy-6);ctx.lineTo(bx,by);ctx.stroke();
     ctx.globalAlpha=0.95;ctx.fillStyle='#f8d048';      // 摆锤
     ctx.beginPath();ctx.arc(bx,by,5,0,Math.PI*2);ctx.fill();
     ctx.fillStyle='#fff6c0';ctx.beginPath();ctx.arc(bx-1,by-1,2,0,Math.PI*2);ctx.fill();
+    for(let i=1;i<=3;i++){                             // 尾迹：刚扫过的 36°（读「它刚经过哪」）
+      const ta=a-dir*i*12*Math.PI/180;
+      ctx.globalAlpha=0.5-0.13*i;ctx.fillStyle='#f8d048';
+      ctx.beginPath();ctx.arc(cx+Math.cos(ta)*R,gy-6+Math.sin(ta)*R,3-i*0.6,0,Math.PI*2);ctx.fill();
+    }
     ctx.globalAlpha=1;
   }else if(b.state==='inhaleCast'){                    // 吸气：嘴前的气流线（向嘴收）
     const TI=T.inhale||{},R=Math.max(30,+TI.r||120),my=top+b.h-22;

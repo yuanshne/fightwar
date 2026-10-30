@@ -6,12 +6,17 @@
 //   4. 钟按乐谱就该是宫商角徵羽五招 → 五音谱（+新招「双锤坠狱」「追魂余音」）、摆锋真能扫到人
 //   5. 茧母：加「破茧亲卫」、茧网加宽 112 且不可打掉（行为断言在 _v209_audit_test T4/T5）
 //   6. 冲刺键支持鼠标侧键（行为断言在 _v222_ui_test.py；此处静态走查）
+// v23 追加（同文件续验）：
+//   7. 钟·审判摆锋改 360° 整圈——用户实测「摆锤不是 360 度，所以基本打不到」：
+//      半径内站桩（含正后方）必被扫到；出半径才安全
+//   8. 法师大招蓄力修复——v20.9「命中不涨连击」把充能一起砍没了（用户实测「命中了也没办法蓄力」）：
+//      弹体命中敌人/Boss/机关均充 ultCharge +10，连击仍为 0
 // 加载方式同 _v20_boss_test。
 'use strict';
 const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const glue = '\n;return {PHY,Level,game,loadLevel,updateWorld,BAL,aggregateLevels,'
-  + '_engHurtPlayer,_engBossTable,_engBossPick,_engBossScore,_engBossDur,_engGroundY};';
+  + '_engHurtPlayer,_engBossTable,_engBossPick,_engBossScore,_engBossDur,_engGroundY,_engShotHitEnemy};';
 const themes = {};
 ['grass', 'cave', 'sky', 'factory', 'lava', 'tower', 'boss', 'wind', 'castle', 'star', 'sea', 'nether',
   'ember', 'aether', 'husk', 'maw', 'bell'].forEach(k => themes[k] = {});
@@ -108,8 +113,31 @@ console.log('[T4] 钟：宫商角徵羽五招 + 谱固定 + 摆锋半径');
   ok(want.every((n, i) => SC.beats[i] === n), '音序=宫摆锋/商声波/角重锤/徵双锤/羽余音', SC.beats.join(','));
   ok(SC.restBeat === 3.2, '休止窗口 3.2s（五拍循环）', SC.restBeat);
   ok(T.pendulum && T.pendulum.r === 112 && T.pendulum.dmg === 2 && T.pendulum.sweep === 1.5
-     && T.pendulum.band === 20, '摆锋：r 78→112 / dmg 2 / sweep 1.5s / 带宽 20°（用户：根本打不到角色）',
+     && T.pendulum.band === 20 && T.pendulum.startOff === 100,
+    '摆锋：r 112 / dmg 2 / sweep 1.5s / 带宽 20° / 起手偏移 100°（v23：360° 整圈）',
     T.pendulum && JSON.stringify(T.pendulum));
+  ok(T.pendulum && T.pendulum.h === undefined, '摆锋表 h 键已清（无引用，防误读）');
+
+  // pendulumCast（v23：360°整圈）：半径内站桩——正后方也必被扫到
+  const gp = world(11), bp = gp.boss, pp = gp.player;
+  pp.hp = pp.maxHp; pp.invT = 0;
+  pp.x = bp.x + bp.w / 2 + 80; pp.y = bp.y + bp.h - pp.h;   // 80 < r+8=120：半径内
+  bp.next = 'pendulum'; bp.state = 'pendulumCast'; bp.t = 0; bp.fireN = 0;
+  bp.pendDir = 1;
+  bp.pendStart = Math.atan2((pp.y + pp.h / 2) - (bp.y + bp.h - 6),
+    (pp.x + pp.w / 2) - (bp.x + bp.w / 2)) * 180 / Math.PI - 100;
+  step(gp, Math.ceil(1.5 * 60) + 6);
+  ok(pp.hp < pp.maxHp, '360° 摆锋：半径内站桩（含正后方）被扫到（v23 前 140° 单侧扇打不到）',
+    '掉 ' + (pp.maxHp - pp.hp) + ' 伤');
+
+  // 出半径=安全
+  const gq = world(11), bq = gq.boss, pq = gq.player;
+  pq.hp = pq.maxHp;
+  pq.x = bq.x + bq.w / 2 + 150; pq.y = bq.y + bq.h - pq.h;  // 150 > 120：半径外
+  bq.next = 'pendulum'; bq.state = 'pendulumCast'; bq.t = 0; bq.fireN = 0;
+  bq.pendDir = 1; bq.pendStart = 0;
+  step(gq, Math.ceil(1.5 * 60) + 6);
+  ok(pq.hp === pq.maxHp, '出半径=安全（躲法仍是跑出去 / 冲刺无敌帧穿摆臂）');
   ok(T.chime && T.chime.t.length === 3 && T.chime.n === 8 && T.chime.v === 112,
     '声波：两圈→三圈、6→8 向、96→112（用户：随便躲）', T.chime && ('rings=' + T.chime.t.length));
   ok(T.hammer && T.hammer.warn === 0.60 && T.hammer.splash === 115,
@@ -178,7 +206,53 @@ console.log('[T7] ui.js 静态走查');
   const eng = read('engine.js').replace(/\s+/g, ' ');
   ok(eng.indexOf("case 'crushCast'") >= 0 && eng.indexOf("case 'hchainCast'") >= 0
      && eng.indexOf("e.kind === 'flare'") >= 0, 'engine：crushCast / hchainCast / flare 结算分支齐全');
+  ok(eng.indexOf('function _engAddUltCharge') >= 0
+     && (eng.match(/_engAddUltCharge\(\)/g) || []).length >= 3,
+    'v23：法师专属充能入口就位且 ≥3 处命中点调用（敌人/Boss/机关）',
+    (eng.match(/_engAddUltCharge\(\)/g) || []).length);
+  ok(eng.indexOf('b.pendStart') >= 0 && eng.indexOf('360 * t01') >= 0
+     && eng.indexOf('da -= 360') >= 0,
+    'v23：摆锋 360°（pendStart 起始角 / 整圈推进 / 角度环回判定）');
 }
 
-console.log('\n=== v22 Boss 调参: ' + pass + ' PASS / ' + fail + ' FAIL ===');
+/* ==================== T8 法师大招蓄力（v23）：命中充能、连击仍不涨 ==================== */
+console.log('[T8] 法师：弹体命中充 ultCharge（敌人/Boss/机关），combo 仍为 0');
+{
+  // ① 命中敌人（直接驱动 _engShotHitEnemy：dmg2 vs hp5 → 走存活路径，避开击杀分支的副作用）
+  const g1 = world(11);
+  g1.combo = 0; g1.comboT = 0; g1.ultCharge = 0;
+  const enemy = { x: 0, y: 0, w: 12, h: 12, hp: 5, maxHp: 5, type: 'slime', dead: 0 };
+  const shot = { kind: 'bolt', dmg: 2, base: 2, vx: 100, vy: 0, face: 1, crit: false, hitList: [] };
+  sb._engShotHitEnemy(shot, enemy);
+  ok(g1.ultCharge === 10, '弹体命中敌人：ultCharge +10（用户：命中了也没办法蓄力）', g1.ultCharge);
+  ok(g1.combo === 0, '连击仍不涨（v20.9 取消连击收益保留）', g1.combo);
+  ok(enemy.hp === 3, '伤害结算本身不受影响（hp 5→3）', enemy.hp);
+
+  // ② 命中 Boss（L7 普通 Boss——L24 钟非休止拍免伤，不能用作命中靶；dormant 免疫，先唤醒成 idle）
+  sb.loadLevel(6, false);
+  const g2 = sb.game; g2.state = 'play';
+  const b2 = g2.boss;
+  b2.state = 'idle'; b2.t = 0; b2.vx = 0; b2.vy = 0;
+  g2.shots = g2.shots || [];
+  g2.ultCharge = 0; g2.combo = 0;
+  g2.shots.push({ kind: 'bolt', x: b2.x + b2.w / 2 - 4, y: b2.y + b2.h / 2 - 3,
+    w: 8, h: 6, vx: 200, vy: 0, dmg: 2, base: 2, crit: false, life: 1, hitList: [] });
+  for (let f = 0; f < 2; f++) { g2.hitStop = 0; sb.updateWorld(1 / 60); }
+  ok(g2.ultCharge === 10, '弹体命中 Boss：ultCharge +10', g2.ultCharge);
+  ok(g2.combo === 0, '命中 Boss 也不涨连击', g2.combo);
+
+  // ③ 命中机关（虫卵——L22 茧母关的清杂线也有充能回报）
+  const g3 = world(9);
+  g3.shots = g3.shots || [];
+  g3.ultCharge = 0; g3.combo = 0;
+  g3.hazards.push({ kind: 'egg', x: 100, y: 100, w: 16, h: 16, hp: 2, maxHp: 2,
+    stage: 0, t: 0, life: 999, flashT: 0 });
+  g3.shots.push({ kind: 'bolt', x: 104, y: 104, w: 8, h: 6, vx: 200, vy: 0,
+    dmg: 2, base: 2, crit: false, life: 1, hitList: [] });
+  for (let f = 0; f < 2; f++) { g3.hitStop = 0; sb.updateWorld(1 / 60); }
+  ok(g3.ultCharge === 10, '弹体命中虫卵：ultCharge +10', g3.ultCharge);
+  ok(g3.hazards.some(h => h.kind === 'egg' && h.hp === 1), '卵只掉 1 血（hp 2→1，交互口径不变）');
+}
+
+console.log('\n=== v22/v23 Boss 调参: ' + pass + ' PASS / ' + fail + ' FAIL ===');
 process.exit(fail ? 1 : 0);
