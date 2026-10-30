@@ -311,15 +311,15 @@ console.log('[T8] summon 召唤冷却与清场成本');
   for (let i = 0; i < 40; i++) { sb._engBossPick(b); got.push(b.next); b.state = 'idle'; b.t = 0; }
   ok(!got.includes('summon'), '冷却期内 40 次选招都不出 summon', got.join('/'));
 
-  // v21 改口径：召唤整场限一轮——summonUsed 置位后，冷却归零、清场、站近都不再出 summon
-  //（用户定调「野怪死了一次就不要刷新」；旧口径「冷却结束重新可召」正是玩家烦的无限清杂）。
-  // 注意还要先清场 + 站近——排除 alive 过滤与 poolFar 两个无关干扰项，证明是 summonUsed 本身在挡。
+  // v22 改口径：撤销 v21「整场限一轮」误削（用户：「技能都写了就别这样了」）——
+  // 冷却归零 + 清场 + 站近后，summon 必须重新可选（周期技能，cd 18s 控制间隔）。
+  // 注意还要先清场 + 站近——排除 alive 过滤与 poolFar 两个无关干扰项。
   b.summonCd = 0;
   g.level.enemies.forEach(e => { e.dead = 1; });
   p.x = b.x + 20; p.y = b.y;
   let got2 = [];
   for (let i = 0; i < 30; i++) { sb._engBossPick(b); got2.push(b.next); b.state = 'idle'; b.t = 0; }
-  ok(!got2.includes('summon'), 'v21：用过一轮后冷却归零也不再召唤（30 次选招零 summon）');
+  ok(got2.includes('summon'), 'v22：冷却归零后 summon 重新进池（30 次选招至少出一次）', got2.join('/'));
 
   // 清场成本：别让「打小怪」变成主玩法
   const totalHp = S.hp * S.n, hits = Math.ceil(totalHp / sb.BAL.player.atkBase);

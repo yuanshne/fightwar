@@ -614,8 +614,11 @@ const BAL = {
     barrage: { v: 118, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-10, 10] },
     /* flare 引燃：范围 34px 的圆形爆炸（比 nova 环小得多，是"点名"不是"清场"）。
        minHeat=30 是门槛——低于 30 它抬了手也炸不起来，这是玩家能主动运营的空间
-       （想安全输出就压在 30 以下）。gainMul 是「伤害→热量」的换算：1 点伤害 = 0.9 热量。 */
-    flare: { r: 34, dmg: 2, minHeat: 30 },
+       （想安全输出就压在 30 以下）。gainMul 是「伤害→热量」的换算：1 点伤害 = 0.9 热量。
+       v22：warn=0.55s 预警圈——用户实测「根本躲不掉」：原版前摇结束当场原地爆炸，
+       落点就是玩家脚下且无任何地面提示。现在前摇结束只落一个预警圈，圈收 0.55s 才爆，
+       反应时间与 weight 影子同档（0.55~0.7s），冲刺（无敌帧）完全能出圈。 */
+    flare: { r: 34, dmg: 2, minHeat: 30, warn: 0.55 },
     /* heat 热量表（玩家侧 game.heat 0..cap 的维护参数，见 _engM2Heat）：
        perDmg 每点伤害换多少热量——玩家满装约 5.7 hp/s，扣掉 cool 后净增 ≈11/s，打满要 9s；
        cool 是"边打边散"的基础散热（12/s）；idleCool 是停手 idleAfter 秒后的加速散热（40/s，
@@ -642,28 +645,36 @@ const BAL = {
     //   （|skew| 达 3 触发回血），左右交替则承伤 ×1.25（"对秤"奖励）。
     //   判定唯一依据是「玩家相对 Boss 中心的方位」——所以玩家的动作是「穿到另一边打」。
     hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,   // v20.3：540=180×3 对标牛魔王（偷血按新血量重定 0.5%）
-    windup: { weight: 0.62, swap: 0.58, beam: 0.70, barrage: 0.45, nova: 0.55,
+    windup: { weight: 0.62, swap: 0.58, beam: 0.70, crush: 0.60, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.50, 0.36], stalk: true, walk: [40, 50],
+    p2WindMul: 0.85, idleT: [0.44, 0.32], stalk: true, walk: [40, 50],   // v22：0.50/0.36→0.44/0.32（用户实测「基本没啥伤害」——出招频率提一档）
     barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-12, 12] },
     skew: { max: 3, stallMul: 0.2, healPct: 0.5, goodMul: 1.25 },   // 失衡（同侧第3击）：承伤×0.2+偷回0.5%总血（450血基准≈2.3/次，威慑不拖时）；真穿身击承伤 ×1.25；P2 减伤加深 0.2→0.1
     /* weight 砝码：三枚从上方砸落，落点各自带 0.7s 影子预警。
        ✗ 不是 meteor 的复用：meteor 是"跟着玩家跑的三连"，这招落点是**固定扇形**，
-       逼玩家离开 Boss 正前方——和"绕到另一侧打"的机制是同一件事的两面。 */
-    weight: { n: 3, gap: 0.30, warn: 0.70, vy: 300, r: 12, dmg: 1, spread: [26, 0, -26] },
+       逼玩家离开 Boss 正前方——和"绕到另一侧打"的机制是同一件事的两面。
+       v22：dmg 1→2（用户：基本没啥伤害）；P2 n2/spread2 = 四连宽扇（[-46,-16,16,46]），
+       weightCast 按阶段取用，UI 的前摇影子同步读 spread2。 */
+    weight: { n: 3, gap: 0.30, warn: 0.70, vy: 300, r: 12, dmg: 2, spread: [26, 0, -26],
+              n2: 4, spread2: [-46, -16, 16, 46] },
     /* swap 换位：与玩家交换 x（唯一一只敢这么做的 Boss）。玩家会突然站到它原来的位置，
        而它出现在玩家刚站的地方——"穿到另一边"的动作被它反将一军。 */
     swap: { warn: 0.58, after: 0.30 },
     /* beam 横梁：天平横梁横扫，水平细长激光（高 12px，跳过去）。
-       与 boss7 的 sear 都是直线，但 sear 是垂直眼线（要左右闪），beam 是水平横梁（要跳）——动作不重合。 */
-    beam: { warn: 0.70, dur: 0.50, h: 12, dmg: 1 },
+       与 boss7 的 sear 都是直线，但 sear 是垂直眼线（要左右闪），beam 是水平横梁（要跳）——动作不重合。
+       v22：dmg 1→2（跳晚了就是两心，前摇 0.7s 足够读）。 */
+    beam: { warn: 0.70, dur: 0.50, h: 12, dmg: 2 },
+    /* crush 衡权压顶（v22 新招）：单枚追踪砝码，落点=出手瞬间玩家位置（与钟锤同口径的锁定），
+       但更快更窄——warn 0.55s、下落更快，逼玩家「横向走一步」而不是等宽扇。2 伤。
+       与 weight 的分工：weight 是"离开它正前方"（固定扇），crush 是"离开你脚下"（追踪点）。 */
+    crush: { warn: 0.55, vy: 340, r: 14, dmg: 2 },
     nova: { v: 108, t: [0.55, 0.95], endT: 1.2 },
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
-    recover: { weight: 0.55, swap: 0.5, beam: 0.6, barrage: 0.45, nova: 0.6 },
-    // 招牌：weight 砝码 / swap 换位 / beam 横梁
-    poolNear: ['weight', 'swap'],
-    poolFar: ['weight', 'beam', 'swap'],   // v20.3：撤公共弹幕；swap 把远程玩家直接拽回贴身圈
+    recover: { weight: 0.55, swap: 0.5, beam: 0.6, crush: 0.55, barrage: 0.45, nova: 0.6 },
+    // 招牌：weight 砝码 / swap 换位 / beam 横梁 / crush 衡权压顶（v22 追加）
+    poolNear: ['weight', 'swap', 'crush'],
+    poolFar: ['weight', 'beam', 'swap', 'crush'],   // v20.3：撤公共弹幕；swap 把远程玩家直接拽回贴身圈
     p2Add: ['nova'], contactDmg: 1, drop1: 'scale1', drop2: 'scale2' },
 
   boss9: { // 孵化之间（L22，husk）——「打早了是亏的」
@@ -671,27 +682,35 @@ const BAL = {
     //   打卵只爆幼虫；打成虫掉能量核（回蓝）。卵到期未清 → 成虫爬回 Boss 处喂它回血。
     //   玩家的动作从「怎么打」变成「什么时候打」——这是 map1 完全没有的一层。
     hp: 720, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,   // v20.3：720=240×3 对标牛魔王（满装 TTK 38→~81s）
-    windup: { spawn: 0.65, web: 0.60, swarm: 0.62, barrage: 0.48, nova: 0.55,
+    windup: { spawn: 0.65, web: 0.60, swarm: 0.62, summon: 0.55, barrage: 0.48, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.80, 0.60], stalk: true, walk: [30, 38],   // v20.9：0.55/0.40→0.80/0.60——技能频率太高玩家没有喘息窗口（用户实测「根本赢不了」），拉长两阶段 idle
     barrage: { v: 110, rounds: 3, pairGap: 0.20, endT: 0.5, deg: [-14, 0, 14] },
     /* spawn 产卵：在玩家左右各产 1 枚 + Boss 脚下 1 枚（共 3）。
        卵的进化链与收益见 engine 的 _engUpdateEggs（3s 一级，两跳成虫）。
-       cap=6：场上最多 6 枚，满了不再产——否则玩家一个走位失误就被卵海淹掉。 */
+       cap=6：场上最多 6 枚，满了不再产——否则玩家一个走位失误就被卵海淹掉。
+       v22：spawn 是茧母唯一的「整场一轮」招（用户点名保留）；下方 summon 则是常规冷却技能。 */
     spawn: { n: 3, cap: 6, cd: 9.0, stageT: 3.0, hp: 2, larvaHp: 3, adultHp: 5, feed: 3.0 },   // v20.9：cd 7→9s——产卵节奏放缓，卵海压力减一档；feed=成虫爬回 Boss 喂的血（P2 ×1.5）
     /* web 蛛网：地面铺一片减速区（-60%），并且**禁跳**——地图一的减速雾（mist）不挡跳，
-       这招挡跳，所以"被网住 + 火鞭/落锤"才是组合技，而不是单纯走得慢。 */
-    web: { w: 64, h: 12, life: 5.0, slow: 0.4, noJump: true },
+       这招挡跳，所以"被网住 + 火鞭/落锤"才是组合技，而不是单纯走得慢。
+       v22：w 64→112（用户：「茧网有点小，覆盖范围太小」）、life 5→6.5s；
+       **不可打掉**（用户明确）——不再带 hp 字段，三条攻击路径（近战/弹体/陨星）按 hp===undefined 跳过。
+       躲法只剩「别踩」，网上滞留的威胁是真的。 */
+    web: { w: 112, h: 12, life: 6.5, slow: 0.4, noJump: true },
+    /* summon 破茧亲卫（v22 新招，用户：「技能有点少」）：召 2 只甲虫护卫，cd 14s 常规冷却
+       ——与 spawn（卵潮，整场一轮）不同，这是写了招式表的技能，按用户口径**不做成一次性**。
+       不带 leech：甲虫不回血，纯粹是清杂压力 + 掩护成虫爬回 Boss。 */
+    summon: { type: 'beetle', n: 2, off: [-52, 52], cd: 14, hp: 4 },
     /* swarm 虫群：一排小虫自 Boss 侧向玩家横穿（低矮、可跳），逼玩家跳起——
        跳起时正好看不见脚下的网/网外的卵。 */
     swarm: { n: 5, gap: 0.12, v: 130, w: 10, h: 8, dmg: 1, life: 3.0 },
     nova: { v: 100, t: [0.55, 0.95], endT: 1.2, n: 6 },   // P2 环：6 向疏缝，虫群补密度
     stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
-    recover: { spawn: 0.6, web: 0.55, swarm: 0.55, barrage: 0.5, nova: 0.6 },
-    // 招牌：spawn 产卵 / web 蛛网 / swarm 虫群
-    poolNear: ['spawn', 'web', 'swarm'],
-    poolFar: ['spawn', 'swarm'],   // v20.3：撤公共弹幕；卵产在玩家两侧，远程也压得住
+    recover: { spawn: 0.6, web: 0.55, swarm: 0.55, summon: 0.5, barrage: 0.5, nova: 0.6 },
+    // 招牌：spawn 产卵 / web 蛛网 / swarm 虫群 / summon 破茧亲卫（v22 追加）
+    poolNear: ['spawn', 'web', 'swarm', 'summon'],
+    poolFar: ['spawn', 'swarm', 'summon'],   // v20.3：撤公共弹幕；卵产在玩家两侧，远程也压得住
     p2Add: ['nova'], contactDmg: 1, drop1: 'husk1', drop2: 'husk2' },
 
   boss10: { // 无声之喉（L23，maw）——「喂它东西等于给它回血」
@@ -702,22 +721,26 @@ const BAL = {
     windup: { inhale: 0.60, roar: 0.75, bite: 0.50, barrage: 0.55, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.58, 0.42], stalk: true, walk: [34, 44],   // 扎根型也缓步挪——一动不动就是活靶
+    p2WindMul: 0.85, idleT: [0.46, 0.34], stalk: true, walk: [34, 44],   // 扎根型也缓步挪——一动不动就是活靶；v22：0.58/0.42→0.46/0.34（用户实测太弱，出招提速）
     barrage: { v: 108, rounds: 3, pairGap: 0.22, endT: 0.55, deg: [-16, 0, 16] },
-    /* inhale 吸气：dur=1.6s 持续，吞弹半径 120。吞 1 发回 0.6% 总血（cap 6%）。
+    /* inhale 吸气：dur=1.6s 持续，吞弹半径 170（v22：120→170——用户实测「远程用脚吊打」：
+       原半径 120 恰好在法师射程 120 边缘外，远程贴着圈外输出毫无压力；扩到 170 后
+       远程必须进圈输出，进圈就在 bite 的威胁半径附近，或者被拽着走）。吞 1 发回 0.6% 总血（cap 6%）。
        ✗ 不要做成"全屏吞"——那会让法师完全无法输出，是要玩家换位置而不是换角色。 */
-    inhale: { dur: 1.6, r: 120, pull: 60, healPct: 0.6, capPct: 6, mouthW: 26, mouthH: 18 },
+    inhale: { dur: 1.6, r: 170, pull: 74, healPct: 0.6, capPct: 6, mouthW: 26, mouthH: 18 },
     /* roar 反刍：把嘴里的积食全吐回去（每颗 1 发弹，速度 140、朝玩家）。
        吐完嘴空——喂得越狠，这一下越像弹幕地狱。这是"喂弹"的代价。 */
     roar: { v: 140, dmg: 1, spread: 22 },
-    /* bite 咬：近身 34px，2 伤，前摇 0.5s。它唯一的高伤害招，逼玩家别贴脸。 */
-    bite: { r: 34, dmg: 2 },
+    /* bite 咬：近身 46px（v22：34→46，与 inhale 新半径配套——被拽进圈后距离更近了），2 伤。 */
+    bite: { r: 46, dmg: 2 },
     nova: { v: 95, t: [0.55, 0.95], endT: 1.2, n: 12 },   // P2 环：12 向慢弹密墙
     stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
     recover: { inhale: 0.6, roar: 0.6, bite: 0.5, barrage: 0.5, nova: 0.6 },
     // 招牌：inhale 吞弹 / roar 反刍 / bite 咬
     poolNear: ['inhale', 'bite', 'roar'],
-    poolFar: ['roar', 'inhale'],   // v20.3：撤公共弹幕；inhale 把远程玩家拽进 bite 圈
+    /* v22：poolFar 找回「万弹穿云」（barrage 参数本表一直有、此前被 v20.3 撤出池）——
+       用户实测远程用脚吊打：远程对吼只躲吸气就够了。扇形弹幕逼远程真的在动，而不只是走两步。 */
+    poolFar: ['roar', 'inhale', 'barrage'],
     p2Add: ['nova'], contactDmg: 1, drop1: 'maw1', drop2: 'maw2' },
 
   boss11: { // 终末之钟（L24，bell）——「只有休止符吃伤害」
@@ -728,32 +751,44 @@ const BAL = {
     //   时长用窗口补偿而不是砍血：休止 2s→3s（够走过去打），×2.2→×4.0（每刀分量补回来）。
     //   机器人实测：满装 TTK ~90s（牛魔王 79.5s 同档），无装 ~180s（< 350s 判定线）。
     hp: 630, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 52,
-    windup: { pendulum: 0.50, chime: 0.55, hammer: 0.65, barrage: 0.45, nova: 0.55,
-              meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
+    windup: { pendulum: 0.50, chime: 0.55, hammer: 0.65, hchain: 0.62, homing: 0.60, barrage: 0.45, nova: 0.55,
+              meteor: 0.70, spike: 0.55, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.44, 0.32], stalk: true, walk: [36, 46],   // 钟也挪步：摆锚跟着脚下走，背谱还得跟着它走位
     barrage: { v: 122, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },
     /* score 曲谱：beats 是每拍的招式名（null=休止符）。
-       四拍一轮：pendulum → chime → hammer → 休止（null）。休止 3s 是输出窗口。
-       承伤：非休止**完全免伤**（写在 _engBossHurt 开头，不是减伤）、休止 ×4.0。
-       beat 字段目前未参与推进（留作 schema 占位）；休止时长只由 restBeat 控制（_engUpdateBoss 的 rest 分支）。 */
-    score: { beat: 1.0, restBeat: 3.0,
-             beats: ['pendulum', 'chime', 'hammer', null],
+       v22：五音谱——用户点题「按照乐谱来的，那不宫商角徵羽五个技能吗」。五招各占一音：
+         宫=审判摆锋（钟摆横扫）· 商=丧钟轰鸣（三环声波）· 角=天罚重锤（落锤+余波）
+         徵=双锤坠狱（连落双锤，v22 新招）· 羽=追魂余音（三道追踪音球，v22 复用 homing）
+       一轮 = 五拍 + 休止（3.2s 输出窗口）。非休止**完全免伤**（_engBossHurt 开头）。
+       beat 字段目前未参与推进（schema 占位）；休止时长只由 restBeat 控制。 */
+    score: { beat: 1.0, restBeat: 3.2,
+             beats: ['pendulum', 'chime', 'hammer', 'hchain', 'homing', null],
              idleMul: 0.12, restMul: 4.0 },
-    /* pendulum 钟摆：以自身为轴横扫 140° 的弧（h=16，贴地→跳）。
-       弧心固定在它脚下，所以躲法是「跑到弧外面」而不是「跳」——与 lash 相反。 */
-    pendulum: { r: 78, h: 16, dmg: 1, sweep: 2.2 },
-    /* chime 声波：两圈同向环弹（v=96，慢），圈间 0.4s。慢弹才能"穿缝"，快环是必吃。 */
-    chime: { v: 96, t: [0.30, 0.70], endT: 1.05, n: 6 },
-    /* hammer 钟锤：从上方砸落，落点=玩家当前位置（warn 0.75s），落地溅两片横向冲击波。
-       与 meteor 的区别：meteor 是三连小陨石，这是一记大锤 + 落地横向扩散——躲法不同（要离地）。 */
-    hammer: { warn: 0.75, vy: 420, r: 20, dmg: 2, splash: 90 },
+    /* pendulum 钟摆：以自身为轴横扫的弧。v22 用户实测「第一个技能根本打不到角色」——
+       原 r78 + 2.2s 慢扫：半径比玩家一步的距离还短，扫到玩家角度前人早走出去了。
+       改 r112（弧缘正好卡在"贴身输出位"）、sweep 1.5s、判定带宽 20°、2 伤：
+       贴脸输出现在真的会被摆锤扫到，躲法只剩「出弧」或「绕背」。 */
+    pendulum: { r: 112, h: 16, dmg: 2, sweep: 1.5, band: 20 },
+    /* chime 声波：三圈同向环弹（v22：两圈→三圈、6→8 向、96→112——用户实测「随便躲」，
+       慢弹变密弹，缝从 60° 收到 45°，走位得认真找缝）。 */
+    chime: { v: 112, t: [0.25, 0.55, 0.85], endT: 1.25, n: 8 },
+    /* hammer 钟锤：从上方砸落，落点=玩家当前位置（warn），落地溅两片横向冲击波。
+       v22：warn 0.75→0.60（影子缩得更快）、splash 90→115（余波更远）——「随便打」的反面。 */
+    hammer: { warn: 0.60, vy: 420, r: 20, dmg: 2, splash: 115 },
+    /* hchain 双锤坠狱（v22 新招·徵）：两记钟锤连落，每一记出手瞬间都重新锁定玩家位置——
+       第一记落影子你刚走开，第二记的影子又追着你来。逼「连走两次」而不是「走一次站桩」。
+       与角（单锤大余波）的分工：角考落地时机，徵考连续走位。 */
+    hchain: { n: 2, gap: 0.42, warn: 0.60, vy: 420, r: 16, dmg: 2, splash: 70 },
+    /* homing 追魂余音（v22 新招·羽）：三道慢速追踪音球（84px/s < 跑速 120，可甩可消）。
+       复用 boss4 的 homing 实体与 homingCast——钟的第五音不用新弹种，用"会拐弯的余音"收尾。 */
+    homing: { n: 3, gap: 0.26, v: 84, turn: 1.6, life: 2.8 },
     nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
     stagger: 1.5, enrage: 1.2, dying: 2.8, revive: 0.9,
-    recover: { pendulum: 0.5, chime: 0.55, hammer: 0.6, barrage: 0.45, nova: 0.6 },
-    // 招牌：pendulum 钟摆 / chime 声波 / hammer 钟锤（+ 曲谱决定何时能打）
-    poolNear: ['pendulum', 'chime', 'hammer'],
-    poolFar: ['chime', 'hammer'],   // 曲谱独占出招，池是占位（_engBossPick 对 kind11 直接走 _engBossScore）,
+    recover: { pendulum: 0.5, chime: 0.55, hammer: 0.6, hchain: 0.55, homing: 0.55, barrage: 0.45, nova: 0.6 },
+    // 招牌：宫摆锋 / 商声波 / 角重锤 / 徵双锤 / 羽余音（v22 五音；曲谱独占出招，池是占位——kind11 直接走 _engBossScore）
+    poolNear: ['pendulum', 'chime', 'hammer', 'hchain', 'homing'],
+    poolFar: ['chime', 'hammer', 'hchain', 'homing'],
     p2Add: ['nova'], contactDmg: 1, drop1: 'bell1', drop2: 'bell2' },
 
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 42 }, ghost: { hp: 36 }, // v7 §8：精英怪
@@ -1764,10 +1799,10 @@ function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不�
   /* v13.1：召唤是「技能」，不是常驻循环。冷却期内直接滚出池子——
      否则队伍清得再快，下一轮轮转又把 summon 排上来，玩家会一直处于打小怪状态。 */
   if ((b.summonCd || 0) > 0) pool = pool.filter(function (n) { return n !== 'summon'; });
-  /* v21：召唤/产卵整场限一轮——用过一次就永久出池。此前 summon(cd 16s)/spawn(cd 9s) 冷却结束
-     就再排上，玩家杀完一波过十几秒又来一波，Boss 战退化成无限清杂（用户定调「死了一次就不要刷新」）。
-     标志跨死亡保留（respawn 的 Boss 重置块不清它），所以死两次也不会再刷出第二批。 */
-  if (b.summonUsed) pool = pool.filter(function (n) { return n !== 'summon'; });
+  /* v22 修正 v21 误削（用户：「你不要给boss技能削了啊，技能都写了就别这样了」）——
+     summon 恢复冷却语义（招式表里写了呼邪唤众/破茧亲卫的 Boss 就该周期性用），
+     不再整场限一轮。**唯一保留一次性的是茧母的 spawn**（卵潮涌动，用户点名「除了茧母」）：
+     卵链整场一轮是她的机制本体，不是被削。 */
   if (b.spawnUsed) pool = pool.filter(function (n) { return n !== 'spawn'; });
   if (!pool.length) pool = ['barrage'];
   /* v10：轮转游标改为「在未过滤 lastPattern 的池上按位递增，撞到上一招就顺延一位」。
@@ -2014,6 +2049,8 @@ function _engM2Heat(dt) { // 内部：热量每帧维护（散热 + 满值自爆
 }
 
 function _engB7Flare(b) { // 烬 · 引燃：把玩家身上的热量当场点着（热量不足则打不着）
+  // v22：不再当帧结算——落一个 flare 预警圈在玩家脚下（warnT 倒数后爆，结算在 _engUpdateHazards），
+  //   伤害在出圈瞬间按「出手时的热量」定死并清空热量（圈收之前再打不叠加新一轮热量）。
   const T = _engBossTable(7).flare, p = game.player;
   const h = game.heat || 0;
   if (h < T.minHeat) {                            // ★ 机制核心：压住热量 = 这招白给
@@ -2024,11 +2061,9 @@ function _engB7Flare(b) { // 烬 · 引燃：把玩家身上的热量当场点�
   const px0 = p.x + p.w / 2, py0 = p.y + p.h / 2;
   const dmg = 1 + Math.floor(h / 45);             // 30→1 / 45→2 / 90→3：热量越高越疼
   game.heat = 0; game.heatT = 0;
-  game.shake = Math.max(game.shake, 6); game.sfxQueue.push('boom');
-  _engFx(px0, py0, { ring: 1, r: 6, r1: T.r, life: 0.32, color: '#f8a030' });
-  _engAddParts(px0, py0, 14, '#f86038', 130, 240);
-  _engFloat(px0, py0 - 10, '引燃 ' + Math.round(h), '#f8a030', 1);
-  if (!p.dead && _engCircleRect(px0, py0, T.r, p)) _engHurtPlayer(b.x + b.w / 2, dmg);
+  game.hazards.push({ kind: 'flare', x: px0, y: py0, r: T.r,
+    warn: T.warn, warnT: T.warn, t: 0, dmg: dmg, heat0: h });
+  game.sfxQueue.push('shot');
 }
 
 function _engB7Sear(b) { // 烬 · 灼视线：横贯 220px 的细激光（跳过去）
@@ -2092,6 +2127,8 @@ function _engB9Spawn(b) { // 茧 · 产卵：玩家两侧 + 自身脚下各 1 �
 }
 
 function _engB9Web(b) { // 茧 · 蛛网：Boss 与玩家之间铺一片（挡移动、挡跳，不挡攻击）
+  // v22：加宽（64→112，用户「覆盖范围太小」）且**不可打掉**——不带 hp 字段，
+  //   近战/弹体/陨星三条攻击路径都以 hp===undefined 跳过它（用户明确「茧网不应该被打掉」）。
   const T = _engBossTable(9).web, p = game.player, L = game.level;
   const cx = (b.x + b.w / 2 + p.x + p.w / 2) / 2;
   const WXt = L.w * _engTile;
@@ -2100,9 +2137,9 @@ function _engB9Web(b) { // 茧 · 蛛网：Boss 与玩家之间铺一片（挡�
   const hz = game.hazards || (game.hazards = []);
   let nW = 0;
   for (const e of hz) if (e.kind === 'web') nW++;
-  if (nW > 4) return;                              // 上限 5 片（不叠成一片无解的减速海）
+  if (nW > 4) return;                              // 上限 5 片（5×112=560px，足够切片走位而不封死全图）
   hz.push({ kind: 'web', x: x0, y: gy - T.h, w: T.w, h: T.h, life: T.life,
-    slow: T.slow, noJump: T.noJump, t: 0, hp: 2, maxHp: 2 });   // v20.9：2 血可打掉（弹体/近战/陨星），不再只能干等
+    slow: T.slow, noJump: T.noJump, t: 0 });
   game.sfxQueue.push('spit');
 }
 
@@ -2204,8 +2241,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'barrageFire'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'summon') { if (b.t >= _engBossDur('summon', b.phase)) {
         b.state = 'summonCast'; b.t = 0;
-        b.summonCd = (T.summon && T.summon.cd) || 16;   // v13.1：召唤进入冷却
-        b.summonUsed = true;                            // v21：整场限一轮（冷却机制随之名存实亡，保留兼容）
+        b.summonCd = (T.summon && T.summon.cd) || 16;   // v13.1：召唤进入冷却；v22：冷却结束即可再召（撤销 v21 一次性误削）
         _engBossSummon(T); } } // v7 §6.2：召唤工厂化（kind1 slime×2 与内联构造等价，见 _engBossSummon 注）
     else if (b.next === 'nova') { if (b.t >= _engBossDur('nova', b.phase)) {
         b.state = 'novaCast'; b.t = 0; b.fireN = 0; } }
@@ -2272,6 +2308,9 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         _engB7Lash(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'weight') { if (b.t >= _engBossDur('weight', b.phase)) {
         b.state = 'weightCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'crush') { if (b.t >= _engBossDur('crush', b.phase)) {
+        // 落点在前摇结束瞬间锁定玩家位置（与 hammer/leap 的 landX 同口径）——起手横移一步就能让它砸空
+        b.landX = pcx; b.state = 'crushCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'swap') { if (b.t >= _engBossDur('swap', b.phase)) {
         _engB8Swap(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'beam') { if (b.t >= _engBossDur('beam', b.phase)) {
@@ -2300,6 +2339,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     else if (b.next === 'hammer') { if (b.t >= _engBossDur('hammer', b.phase)) {
         // 落点在前摇结束的瞬间锁定玩家位置——起手后往外走一步就能让它砸空（与 leap 的 landX 同口径）
         b.landX = pcx; b.state = 'hammerCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'hchain') { if (b.t >= _engBossDur('hchain', b.phase)) {
+        b.state = 'hchainCast'; b.t = 0; b.fireN = 0; } }   // v22：每一记落锤时各自锁定位（hchainCast 内）
     break;
 
   case 'leapAir': {
@@ -2782,19 +2823,34 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
      这里只推进"这一招自己的时间线"，伤害判定全部落回 hazard/实体侧——
      与 v12 的 quell/pillar 同一分工：Boss 状态机不持有"还会不会疼"的知识。 */
 
-  case 'weightCast': { // ① 秤·砝码：三枚按 spread 依次落下（[-26,0,26] 扇形封住它正前方）
+  case 'weightCast': { // ① 秤·砝码：三枚按 spread 依次落下（[-26,0,26] 扇形封住它正前方）；P2 四连宽扇（v22）
     b.vx = 0;
     const TW = T.weight || BAL.boss8.weight;
     const WXt = L.w * _engTile;
+    const nW = (b.phase === 2 && TW.n2) ? TW.n2 : TW.n;
+    const spW = (b.phase === 2 && TW.spread2) ? TW.spread2 : TW.spread;
     const want = Math.floor(b.t / TW.gap);
-    while (b.fireN < want && b.fireN < TW.n) {
-      const off = TW.spread[b.fireN % TW.spread.length];
+    while (b.fireN < want && b.fireN < nW) {
+      const off = spW[b.fireN % spW.length];
       const mx = _engClamp(b.x + b.w / 2 + off, 10, WXt - 10);
       game.hazards.push({ kind: 'weight', x: mx, y: -20, vy: TW.vy, r: TW.r,
         dmg: TW.dmg, warn: TW.warn, warnT: TW.warn, t: 0, fall: false });
       b.fireN++;
     }
-    if (b.t >= TW.gap * TW.n + 0.30) { b.state = 'recover'; b.t = 0; }
+    if (b.t >= TW.gap * nW + 0.30) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'crushCast': { // ①b 秤·衡权压顶（v22 新招）：单枚追踪砝码砸在 landX（前摇结束瞬间锁定玩家位置）
+    b.vx = 0;
+    const TC8 = T.crush || BAL.boss8.crush;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXt = L.w * _engTile;
+      game.hazards.push({ kind: 'weight', x: _engClamp(b.landX, 10, WXt - 10), y: -20, vy: TC8.vy, r: TC8.r,
+        dmg: TC8.dmg, warn: TC8.warn, warnT: TC8.warn, t: 0, fall: false });
+      game.sfxQueue.push('shot');
+    }
+    if (b.t >= TC8.warn + 0.9) { b.state = 'recover'; b.t = 0; }
     break; }
 
   case 'beamCast': { // ② 秤·横梁：全屏水平激光（跳过去）——与 sear 同实体、不同朝向
@@ -2862,7 +2918,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= TI.dur) { b.mouthOpen = false; b.state = 'recover'; b.t = 0; }
     break; }
 
-  case 'pendulumCast': { // ⑤ 钟·钟摆：以脚下为轴，朝玩家那一侧扫 140°（躲法=出弧 或 绕到背后）
+  case 'pendulumCast': { // ⑤ 钟·钟摆：以脚下为轴，朝玩家那一侧扫（躲法=出弧 或 绕到背后）
     b.vx = 0;
     const TP = T.pendulum || BAL.boss11.pendulum;
     const cx = b.x + b.w / 2, cy = b.y + b.h - 6;
@@ -2874,8 +2930,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
       const d = Math.hypot(dx, dy);
       if (d < TP.r + 8) {
         const a = Math.atan2(dy, dx) * 180 / Math.PI;
-        // 判定带宽 16°：比视觉上的摆锤粗一档，否则 3× 下摆锤扫过却没有判定，玩家会当成穿模
-        if (Math.abs(a - b.pendA) < 16) {
+        // 判定带宽从表读（v22 默认 20°）：比视觉上的摆锤粗一档，否则扫过却没有判定，玩家会当成穿模
+        if (Math.abs(a - b.pendA) < (TP.band || 16)) {
           _engHurtPlayer(cx, TP.dmg); b.pendHitCd = 0.5;
         }
       }
@@ -2904,6 +2960,21 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         dmg: TH.dmg, warn: TH.warn, warnT: TH.warn, t: 0, fall: false, splash: TH.splash });
     }
     if (b.t >= TH.warn + 0.9) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'hchainCast': { // ⑦b 钟·双锤坠狱（v22 新招·徵）：两记钟锤连落，每一记都重新锁定玩家当下站位
+    b.vx = 0;
+    const TH2 = T.hchain || BAL.boss11.hchain;
+    const dropHammer = function () {   // 与 hammerCast 同口径：落点=出手瞬间的玩家位置
+      b.landX = pcx;
+      game.hazards.push({ kind: 'hammer', x: b.landX, y: -30, vy: TH2.vy, r: TH2.r,
+        dmg: TH2.dmg, warn: TH2.warn, warnT: TH2.warn, t: 0, fall: false, splash: TH2.splash });
+      game.sfxQueue.push('shot');
+    };
+    if (b.fireN === 0) { b.fireN = 1; dropHammer(); }          // 第一记：前摇结束立刻落影
+    const wantH2 = 1 + Math.floor(b.t / TH2.gap);              // 之后每 gap 一记
+    while (b.fireN < wantH2 && b.fireN < TH2.n) { dropHammer(); b.fireN++; }
+    if (b.t >= (TH2.n - 1) * TH2.gap + TH2.warn + 0.9) { b.state = 'recover'; b.t = 0; }
     break; }
 
   case 'rest': { // ⑧ 钟·休止符：站定不动、不出招——这是它唯一吃伤害的窗口（承伤 ×4.0，见 _engBossHurt）
@@ -3355,6 +3426,19 @@ function _engUpdateHazards(dt) {
         else if (!p.dead && _engCircleRect(e.x, e.y + e.r, e.r, p)) {
           dead = true; _engHurtPlayer(e.x, e.dmg);
           _engAddParts(e.x, e.y, 10, '#f8d048', 100, 200);
+        }
+      }
+    } else if (e.kind === 'flare') { // 烬·引燃（v22）：脚下预警圈收 0.55s 后原地爆燃——结算从 _engB7Flare 挪到这里
+      e.t += dt;
+      if (e.warnT > 0) {
+        e.warnT -= dt;
+        if (e.warnT <= 0) {
+          dead = true;
+          game.shake = Math.max(game.shake, 6); game.sfxQueue.push('boom');
+          _engFx(e.x, e.y, { ring: 1, r: 6, r1: e.r, life: 0.32, color: '#f8a030' });
+          _engAddParts(e.x, e.y, 14, '#f86038', 130, 240);
+          _engFloat(e.x, e.y - 10, '引燃 ' + (e.heat0 === undefined ? '' : Math.round(e.heat0)), '#f8a030', 1);
+          if (!p.dead && _engCircleRect(e.x, e.y, e.r, p)) _engHurtPlayer(e.x, e.dmg);
         }
       }
     } else if (e.kind === 'crawler') { // 虫群：贴地直线爬行，撞墙消失
@@ -4078,7 +4162,8 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     // 玩家明明砍在圣像身上却打不掉——受击判定必须换成立在地上的那个盒子。
     const hzBox = hz2.kind === 'totem' ? { x: hz2.x, y: hz2.y - hz2.h, w: hz2.w, h: hz2.h } : hz2;
     if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror'
-         && hz2.kind !== 'totem' && hz2.kind !== 'egg' && hz2.kind !== 'web')
+         && hz2.kind !== 'totem' && hz2.kind !== 'egg'
+         && !(hz2.kind === 'web' && hz2.hp !== undefined))   // v22：无 hp 的茧网不可打掉（用户明确），带 hp 的旧网照旧
         || hz2.hitSeq === p.atkSeq || !_engAabb(box, hzBox)) continue;
     hz2.hitSeq = p.atkSeq;
     if (hz2.kind === 'egg') {                        // v20：虫卵只扣 hp——打碎→爆幼虫的结算在 update 收尸处
@@ -4299,7 +4384,7 @@ function _engMageMeteorHit(L, m) { // 内部（v19，spec §1.2/§2.7）：法�
   const hzArr = game.hazards || (game.hazards = []);
   for (const hz of hzArr) {
     if (!hz || (hz.kind !== 'egg' && hz.kind !== 'totem' && hz.kind !== 'clone'
-       && hz.kind !== 'mirror' && hz.kind !== 'web')) continue;
+       && hz.kind !== 'mirror' && !(hz.kind === 'web' && hz.hp !== undefined))) continue;   // v22：无 hp 茧网不可打掉
     if (!_engAabb(m, hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz)) continue;
     hz.hp = (hz.hp === undefined ? 2 : hz.hp) - (hz.kind === 'web' ? 1 : md);
     hz.flashT = 0.15;
@@ -4458,7 +4543,8 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     for (let j = hzArr.length - 1; j >= 0 && !dead; j--) {
       const hz = hzArr[j];
       if (!hz || (hz.kind !== 'clone' && hz.kind !== 'core' && hz.kind !== 'mirror'
-         && hz.kind !== 'totem' && hz.kind !== 'egg' && hz.kind !== 'web')) continue;
+         && hz.kind !== 'totem' && hz.kind !== 'egg'
+         && !(hz.kind === 'web' && hz.hp !== undefined))) continue;   // v22：无 hp 茧网不可打掉（弹体穿过）
       // totem 的 y 是地面线、h 向上长（与 mist 同口径）：判定盒必须换成立在地上的那个盒子
       const hzBox = hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz;
       if (s.hitList.indexOf(hz) >= 0 || !_engAabb(s, hzBox)) continue;

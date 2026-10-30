@@ -1,9 +1,10 @@
-// node tools/_v209_audit_test.js —— v20.9 交互审计验收（node，无依赖）
+// node tools/_v209_audit_test.js —— v20.9 交互审计验收（node，无依赖；v22 更新茧网口径）
 // 覆盖用户点名的四个问题：
 //   1. 法师弹体能打破虫卵（v20.8 前弹体直接穿卵 = 无法交互 bug）
 //   2. 法师取消连击收益（命中不涨连击、弹体永不暴击；击杀回蓝保留）
-//   3. 蛛网可被打破（弹体/近战，2 血）——此前只能干等 5s
-//   4. 陨星大招砸得到 hazards（egg/web/totem 等）
+//   3. 蛛网（茧母·地网囚天）：v20.9 曾做 2 血可打掉；**v22 按用户口径改回不可打掉**——
+//      近战/弹体/陨星三条路径对无 hp 的网全部穿透，网只能等 6.5s 自然消散
+//   4. 陨星大招砸得到 hazards（egg/totem 等）
 // 加载方式同 _v19_mage_test（levels+chapters+engine 拼接，THEMES 空桩）。
 'use strict';
 const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
@@ -74,9 +75,9 @@ function makeEgg(g, x, y, hp) {
   g.hazards.push(e);
   return e;
 }
-function makeWeb(g, x, y) {
-  const e = { kind: 'web', x: x, y: y, w: 64, h: 12, life: 5.0, slow: 0.4, noJump: true, t: 0,
-    hp: 2, maxHp: 2, flashT: 0 };
+function makeWeb(g, x, y) { // v22：与引擎 _engB9Web 同构——不带 hp（不可打掉）
+  const e = { kind: 'web', x: x, y: y, w: 112, h: 12, life: 6.5, slow: 0.4, noJump: true, t: 0,
+    flashT: 0 };
   g.hazards.push(e);
   return e;
 }
@@ -136,32 +137,33 @@ console.log('[T3] 法师命中敌人：无连击、无暴击、回蓝 +4');
   ok(!s || !s.crit, '出膛弹 crit=0（永不暴击）', s && s.crit);
 }
 
-/* ==================== T4 蛛网可破坏（弹体 + 近战） ==================== */
-console.log('[T4] 蛛网 2 血可打掉');
+/* ==================== T4 蛛网不可打掉（v22：弹体 + 近战都穿网） ==================== */
+console.log('[T4] 茧网不可打掉（用户：茧网不应该被打掉）');
 {
-  // ① 法师弹体
+  // ① 法师弹体穿网：网不掉血、不消失（弹体也不因撞网而停——白名单直接跳过）
   const g = fresh('mage');
   const web = makeWeb(g, 260, 180);
   atk(g); fireAndWait(g);
-  let h1 = -1;
-  for (let f = 0; f < 90 && h1 < 0; f++) { stepHold(g, 1); if (web.hp < 2) h1 = f + 1; }
-  ok(h1 > 0, '弹体命中网：hp 2→1', 'hp=' + web.hp);
-  g.shots.length = 0;
-  for (let f = 0; f < 40; f++) stepHold(g, 1);
-  atk(g); fireAndWait(g);
-  let gone = -1;
-  for (let f = 0; f < 120 && gone < 0; f++) { stepHold(g, 1); if (!g.hazards.includes(web)) gone = f + 1; }
-  ok(gone > 0, '第二发破网：hazards 移除', 'gone=' + gone);
-  // ② 骑士近战两刀
+  let hit = -1;
+  for (let f = 0; f < 90 && hit < 0; f++) { stepHold(g, 1); if (web.hp !== undefined) hit = f + 1; }
+  ok(hit < 0 && web.hp === undefined, '弹体不与网结算（hp 保持 undefined）', 'hp=' + web.hp);
+  ok(g.hazards.includes(web), '网仍在场（没有被打掉）');
+  // ② 骑士近战穿网：两刀下去网不动
   const g2 = fresh('knight');
   const web2 = makeWeb(g2, 262, 180);
-  atk(g2); stepHold(g2, 20);                      // 一刀（判定窗 0.12s）
-  ok(web2.hp < 2, '骑士近战命中网：hp 2→1', 'hp=' + web2.hp);
+  atk(g2); stepHold(g2, 20);
   g2.player.atkCd = 0; g2.player.atkT = 0; g2.player.atkSeq++;
   atk(g2); stepHold(g2, 30);
-  let gone2 = -1;
-  for (let f = 0; f < 60 && gone2 < 0; f++) { stepHold(g2, 1); if (!g2.hazards.includes(web2)) gone2 = f + 1; }
-  ok(gone2 > 0, '骑士第二刀破网：hazards 移除', 'gone=' + gone2);
+  ok(web2.hp === undefined && g2.hazards.includes(web2), '近战两刀不破网（hp 仍 undefined、网在场）',
+    'hp=' + web2.hp + ' in=' + g2.hazards.includes(web2));
+  // ③ 网的机制照旧：减速 + 禁跳（只是不可拆）
+  const g3 = fresh('knight');
+  const web3 = makeWeb(g3, 240, 170);
+  const p3 = g3.player;
+  p3.x = web3.x + web3.w / 2 - 5; p3.y = web3.y + web3.h - p3.h;
+  for (let f = 0; f < 3; f++) stepHold(g3, 1);
+  ok(p3.mistSlow > 0 && p3.mistSlow < 1, '网内减速照旧', p3.mistSlow);
+  ok(p3.webNoJump > 0, '网内禁跳照旧');
 }
 
 /* ==================== T5 陨星大招砸得到虫卵 ==================== */
@@ -173,22 +175,23 @@ console.log('[T5] 法师 O 陨星对 hazards 结算');
   sb._engMageMeteorHit(g.level, m);
   ok(egg.hp <= 0, '陨星砸卵：dmg2 一发入碎（hp=' + egg.hp + '）');
   ok(g.combo === 0, '陨星命中不涨连击', 'combo=' + g.combo);
-  // web 也吃陨星（先清掉已碎的卵——它 hp 已 <=0,残留会先吃掉结算返回）
+  // v22：陨星对无 hp 的茧网不结算（网不可打掉）
   g.hazards.length = 0;
   const web = makeWeb(g, 260, 180);
-  sb._engMageMeteorHit(g.level, m);
-  ok(web.hp < 2, '陨星命中网：hp 2→1', 'hp=' + web.hp);
+  const hitWeb = sb._engMageMeteorHit(g.level, m);
+  ok(hitWeb === false && web.hp === undefined && g.hazards.includes(web),
+    '陨星对茧网不结算（返回 false=没砸中可打目标）', 'ret=' + hitWeb);
 }
 
 /* ==================== T6 法师弹体打不到的东西只剩「真地形」 ==================== */
 console.log('[T6] hazards 白名单完整性（静态走查）');
 {
-  const src = read('engine.js');
-  ok(/hz\.kind !== 'egg' && hz\.kind !== 'mirror' && hz\.kind !== 'web'/.test(src.replace(/\n/g, ' ').replace(/\s+/g, ' '))
-    || (/hz\.kind !== 'egg'/.test(src) && /hz\.kind !== 'web'/.test(src) && /hz\.kind !== 'totem'/.test(src)),
-    'shots hazards 白名单含 egg/web/totem（防回退）');
-  ok(/kind !== 'egg' && hz2\.kind !== 'web'/.test(src.replace(/\s+/g, ' ')),
-    '近战 hazards 白名单含 egg/web（防回退）');
+  const src = read('engine.js').replace(/\n/g, ' ').replace(/\s+/g, ' ');
+  ok(src.indexOf("hz.kind !== 'egg'") >= 0 && src.indexOf("hz.kind !== 'totem'") >= 0
+     && src.indexOf("(hz.kind === 'web' && hz.hp !== undefined)") >= 0,
+    'shots hazards 白名单：egg/totem + web 仅限带 hp 的旧网（v22 无 hp 网穿透）');
+  ok(src.indexOf("(hz2.kind === 'web' && hz2.hp !== undefined)") >= 0,
+    '近战 hazards 白名单同样按 web.hp 守卫（v22 防回退）');
 }
 
 console.log('\n=== v20.9 交互审计: %d PASS / %d FAIL ===', pass, fail);

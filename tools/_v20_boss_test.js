@@ -74,13 +74,13 @@ const hurtBoss = (dmg) => sb._engBossHurt(dmg, false);
 /* ==================== T1 去同质化矩阵 ==================== */
 console.log('[T1] 五只招牌与 map1 六只零交集（nova 之外；地图二池已无公共弹幕）');
 {
-  // 1) 逐字对表：表被人改动/换顺序时这里立刻红
+  // 1) 逐字对表：表被人改动/换顺序时这里立刻红（v22：秤加 crush / 茧加 summon / 喉找回 barrage / 钟五音）
   const SPEC = {
     7: { near: ['flare', 'lash'], far: ['sear', 'flare'] },
-    8: { near: ['weight', 'swap'], far: ['weight', 'beam', 'swap'] },
-    9: { near: ['spawn', 'web', 'swarm'], far: ['spawn', 'swarm'] },
-    10: { near: ['inhale', 'bite', 'roar'], far: ['roar', 'inhale'] },
-    11: { near: ['pendulum', 'chime', 'hammer'], far: ['chime', 'hammer'] }
+    8: { near: ['weight', 'swap', 'crush'], far: ['weight', 'beam', 'swap', 'crush'] },
+    9: { near: ['spawn', 'web', 'swarm', 'summon'], far: ['spawn', 'swarm', 'summon'] },
+    10: { near: ['inhale', 'bite', 'roar'], far: ['roar', 'inhale', 'barrage'] },
+    11: { near: ['pendulum', 'chime', 'hammer', 'hchain', 'homing'], far: ['chime', 'hammer', 'hchain', 'homing'] }
   };
   for (const k of KINDS) {
     const T = tableOf(k), S = SPEC[k];
@@ -89,8 +89,10 @@ console.log('[T1] 五只招牌与 map1 六只零交集（nova 之外；地图二
       'boss' + k + ' 池与设计表逐字一致（含顺序）',
       'near[' + (T.poolNear || []).join('/') + ']');
   }
-  // 2) 与 map1 六只求差集：除 barrage/nova 外必须为空
-  const OK_SHARED = ['barrage', 'nova'];
+  // 2) 与 map1 六只求差集：除 barrage/nova/summon/homing 外必须为空。
+  //    v22 口径：summon（通用召唤机制，茧母也用）；homing（钟的第五音「追魂余音」复用判官的
+  //    追踪弹实体，但谱驱动 + 独立招名，不算同质化——去同质化看的是"玩家的应对动作"）。
+  const OK_SHARED = ['barrage', 'nova', 'summon', 'homing'];
   for (const k of KINDS) {
     const mine = uniq(poolOf(k).concat(tableOf(k).p2Add || []));
     const collide = [];
@@ -132,24 +134,49 @@ console.log('[T2] 烬：打得多→升温；停一拍→快速散热；满值�
   ok(h1 - afterIdle > (h1 - before) * 3, '停手 1s 的散热远快于单帧（idleCool 生效）',
     h1.toFixed(1) + '→' + afterIdle.toFixed(1));
 
-  // flare 引爆：热量清零，且热量越高伤害越高
+  // flare 引燃（v22：预警圈版）——热量在出手瞬间清零；伤害延迟 warn 秒后在脚下结算。
+  // 夹具：把 Boss 摁在 stagger 且拖到角落（预警期 Boss AI 不得插手，接触伤也要避开），
+  //   但玩家保持 invT=0——引燃的伤害必须真实结算。
+  const FZ = tableOf(7).flare;
+  const parkBoss = (gg, px0) => {
+    gg.boss.state = 'stagger'; gg.boss.staggerDur = 99; gg.boss.t = 0; gg.boss.vx = 0;
+    gg.boss.x = 4; gg.player.x = px0; gg.player.vx = 0; gg.player.vy = 0;
+    gg.player.invT = 0; gg.player.dead = false;
+  };
   g.heat = 30; g.heatT = 0;
-  const hp0 = g.boss.hpTotal;
-  sb._engB7Flare(g.boss);
-  ok(g.heat === 0, '引燃后热量清零');
-  const d30 = (g.player.maxHp || 9) - g.player.hp;
+  const ph0 = g.player.hp;
+  parkBoss(g, 220); sb._engB7Flare(g.boss);
+  ok(g.heat === 0, '引燃出手瞬间热量清零');
+  const fhz = g.hazards.filter(e => e.kind === 'flare')[0];
+  ok(!!fhz && fhz.warnT > 0 && fhz.dmg >= 1, '落了预警圈（warnT>0，伤害按热量定档）',
+    fhz && ('warnT=' + fhz.warnT.toFixed(2) + ' dmg=' + fhz.dmg));
+  for (let f = 0; f < Math.ceil(FZ.warn * 60) - 6 && fhz; f++) { g.hitStop = 0; sb.updateWorld(1 / 60); }
+  ok(g.player.hp === ph0, '预警期不掉血（v22 反应时间）', 'hp=' + g.player.hp + '/' + ph0);
+  for (let f = 0; f < 16; f++) { g.hitStop = 0; sb.updateWorld(1 / 60); }
+  const d30 = ph0 - g.player.hp;
+  ok(d30 >= 1, '圈收完原地爆燃：站桩吃伤', 'd30=' + d30);
 
-  const g2 = world(7); const p2 = stand(g2, -1); p2.hp = p2.maxHp;
-  g2.heat = 90;
+  const g2 = world(7); const p2 = stand(g2, -1);
+  g2.heat = 90; parkBoss(g2, 220);
   sb._engB7Flare(g2.boss);
-  const d90 = (g2.player.maxHp || 9) - g2.player.hp;
+  for (let f = 0; f < Math.ceil(FZ.warn * 60) + 8; f++) { g2.hitStop = 0; sb.updateWorld(1 / 60); }
+  const d90 = p2.maxHp - p2.hp;
   ok(d90 > d30, '热量越高引爆越疼（90 > 30）', d30 + ' → ' + d90);
+
+  // 走出圈：预警期横移就能躲掉（这是 v22 给反应时间的意义）
+  const g4 = world(7); const p4 = stand(g4, -1);
+  g4.heat = 60; parkBoss(g4, 220);
+  sb._engB7Flare(g4.boss);
+  p4.x += 80;                                   // 立刻横移出 34px 半径（0.55s 内跑 66px 也来得及）
+  for (let f = 0; f < Math.ceil(FZ.warn * 60) + 8; f++) { g4.hitStop = 0; sb.updateWorld(1 / 60); }
+  ok(p4.hp === p4.maxHp, '预警期跑出圈=不掉血（用户：给点反应时间）', 'hp=' + p4.hp);
 
   // 热量不足 30：抬手也炸不着（这是玩家能主动运营的空间）
   const g3 = world(7); const p3 = stand(g3, -1); p3.hp = p3.maxHp;
   g3.heat = 20;
   sb._engB7Flare(g3.boss);
   ok(g3.player.hp === g3.player.maxHp, '热量低于 minHeat 时引燃打不着');
+  ok(!g3.hazards.some(e => e.kind === 'flare'), '打不着也不落圈');
 }
 
 /* ==================== T3 秤（kind8）：方位 ==================== */
@@ -279,8 +306,8 @@ console.log('[T6] 钟：非休止拍完全免伤，休止拍加倍，谱固定�
   const r0 = hurtBoss(10);
   ok(r0 === false && b.hpTotal === hp0, '非休止拍完全免伤（不是减伤，血条不动）', 'ret=' + r0 + ' d=' + (hp0 - b.hpTotal));
 
-  // 休止拍：×restMul
-  b.scoreI = 3; b.state = 'rest';                      // beats[3] = null
+  // 休止拍：×restMul（v22：五音谱 beats=[宫,商,角,徵,羽,休止]，休止在 index 5）
+  b.scoreI = SC.beats.indexOf(null); b.state = 'rest';
   const hp1 = b.hpTotal;
   hurtBoss(10);
   const dealt = hp1 - b.hpTotal;

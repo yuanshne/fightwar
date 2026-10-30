@@ -221,7 +221,8 @@ applyDashKey(dashCode); // 启动即应用存档（等价于默认值时也无�
 function codeLabel(c){ // e.code → 人话（面板显示用；未知 code 原样显示，不会出 undefined）
   const M={ArrowLeft:'←',ArrowRight:'→',ArrowUp:'↑',ArrowDown:'↓',Space:'空格',Enter:'回车',Escape:'Esc',
     Tab:'Tab',Backspace:'退格',CapsLock:'Caps',Minus:'-',Equal:'=',Comma:',',Period:'.',Slash:'/',
-    Semicolon:';',Quote:"'",BracketLeft:'[',BracketRight:']',Backslash:'\\',Backquote:'`'};
+    Semicolon:';',Quote:"'",BracketLeft:'[',BracketRight:']',Backslash:'\\',Backquote:'`',
+    Mouse4:'侧键·后退',Mouse5:'侧键·前进'};   // v22：鼠标侧键可绑冲刺（codeLabel 同表）
   if(M[c])return M[c];
   if(c.indexOf('Shift')===0)return 'Shift';
   if(c.indexOf('Control')===0)return 'Ctrl';
@@ -242,7 +243,7 @@ function handleKeyListen(code){ // 监听态消费一个 keydown：Esc 取消；
   applyDashKey(code);SFX.select();
 }
 function keyBtnRect(){ // 暂停面板改键按钮（渲染与点击热区共用同一几何，防两边漂移）
-  const lab=keyListen?'按任意键…（Esc 取消）':'冲刺键：'+codeLabel(dashCode);
+  const lab=keyListen?'按任意键 / 鼠标侧键…（Esc 取消）':'冲刺键：'+codeLabel(dashCode); // v22：侧键可绑
   const bw=Math.ceil(_textW(lab,10))+16;
   return {x:Math.round(VIEW_W/2-bw/2),y:102,w:bw,h:14};
 }
@@ -271,8 +272,25 @@ canvas.addEventListener('mousemove',e=>{
   mouse.inside=true;
 });
 canvas.addEventListener('mouseleave',()=>{mouse.inside=false;});
-canvas.addEventListener('mousedown',()=>{mouse.down=true;mouse.click=1;});
-addEventListener('mouseup',()=>{mouse.down=false;});
+// v22：鼠标侧键（后退=button3 / 前进=button4）可绑定为冲刺键——用户要求「冲刺键支持鼠标侧键」。
+//   · preventDefault 挡掉浏览器「前进/后退」导航（mousedown 层拦 Chrome 即可）；
+//   · 侧键不算 UI 点击（mouse.click 不置位），不会误触面板按钮；
+//   · 改键监听态（keyListen）下按侧键 = 直接绑定为冲刺；
+//   · 未绑定时侧键静默丢弃（不产生任何输入）。
+function _mouseSideCode(b){return b===3?'Mouse4':b===4?'Mouse5':null;}
+canvas.addEventListener('mousedown',e=>{
+  const side=_mouseSideCode(e.button);
+  if(side){
+    e.preventDefault();
+    audioUnlock();
+    if(keyListen){keyListen=false;applyDashKey(side);SFX.select();return;} // 监听态：绑定为冲刺
+    if(dashCode===side){if(!keys[side])pressed[side]=true;keys[side]=true;} // 已绑定：当冲刺键用
+    return;
+  }
+  mouse.down=true;mouse.click=1;
+});
+addEventListener('mouseup',e=>{mouse.down=false;const s=_mouseSideCode(e.button);if(s)keys[s]=false;});
+addEventListener('auxclick',e=>{if(_mouseSideCode(e.button))e.preventDefault();}); // 双保险：拦前进/后退触发
 // v6 §A.5：Tab 防焦点逃逸（为波2 背包预留；本波无 Tab 行为，仅阻断浏览器焦点移动——键盘事件可 preventDefault）
 addEventListener('keydown',e=>{if(e.code==='Tab')e.preventDefault();});
 
@@ -1970,6 +1988,7 @@ function renderHazards(tick,camX,camY){
     else if(h.kind==='crawler')_hzCrawler(h,tick,ox,oy);     // v20 §二：虫群
     else if(h.kind==='egg')_hzEgg(h,tick,ox,oy);             // v20 §二：虫卵（三阶同体）
     else if(h.kind==='web')_hzWeb(h,tick,ox,oy);             // v20 §二：蛛网（减速+禁跳）
+    else if(h.kind==='flare')_hzFlare(h,tick,ox,oy);         // v22 §一：引燃预警圈（脚下收圈后爆）
   }
 }
 
@@ -2746,6 +2765,32 @@ function _hzWeb(h,tick,ox,oy){
   ctx.globalAlpha=1;ctx.restore();
 }
 
+// ⑧ 引燃预警圈（flare，v22）：烬在玩家脚下落的火圈，warnT 倒数收圈后原地爆燃。
+//   图形语言与 weight 影子同源：外圈收缩（1→0 表示离爆多近）+ 内芯呼吸 + 四道收拢刻线。
+//   收得越紧越要跑——冲刺（无敌帧）穿过圈心也算安全，玩家用肌肉记忆学这一点。
+function _hzFlare(h,tick,ox,oy){
+  if(!h)return;
+  const cx=px(h.x-(+ox||0)),cy=px(h.y-(+oy||0));
+  const r=Math.max(8,+h.r||34);
+  const warn=Math.max(0.05,+h.warn||0.55),wt=Math.max(0,+h.warnT||0);
+  const k=clamp(wt/warn,0,1);                  // 1=刚落圈 0=将爆
+  const T=+tick||0;
+  ctx.save();
+  ctx.globalAlpha=0.14+0.16*(1-k);ctx.fillStyle='#f86038';   // 圈内焦土色随临近加深
+  ctx.beginPath();ctx.arc(cx,cy,r*(0.8+0.2*k),0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=0.55+0.40*(1-k);ctx.strokeStyle='#f86038';ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(cx,cy,r*(0.8+0.2*k),0,Math.PI*2);ctx.stroke(); // 外圈（收缩）
+  ctx.globalAlpha=0.35+0.45*(1-k)+0.1*Math.sin(T*1.6);ctx.strokeStyle='#f8a030';
+  ctx.beginPath();ctx.arc(cx,cy,r*0.55,0,Math.PI*2);ctx.stroke();        // 内芯圈（呼吸）
+  ctx.globalAlpha=0.5+0.4*(1-k);ctx.strokeStyle='#ffd090';ctx.lineWidth=1; // 四道向心刻线（收拢读数）
+  for(let i=0;i<4;i++){
+    const a=i*Math.PI/2+T*0.8,r1=r*(0.86+0.10*k),r0=r1-5+3*k;
+    ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0);
+    ctx.lineTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);ctx.stroke();
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
 
 // v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
 // 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
@@ -2858,7 +2903,14 @@ const BOSS_MOVE_NAME={leap:'饿虎扑食',barrage:'万弹穿云',charge:'疾雷�
   blink:'瞬影遁空',scythe:'死神镰斩',halo:'圣辉裁决',meteor:'星陨灭世',homing:'幽影索命',spike:'破地狂刺',clone:'残影迷踪',
   mirror:'镜花水月',push:'崩山劲推',pull:'深渊引力',flare:'燎原业火',sear:'灼日炎线',lash:'赤炎鞭挞',weight:'千钧坠杀',
   swap:'阴阳倒转',beam:'天梁横压',spawn:'卵潮涌动',web:'地网囚天',swarm:'蝗群蔽日',inhale:'吞天吸息',roar:'裂魂咆哮',
-  bite:'噬魂之口',pendulum:'审判摆锋',chime:'丧钟轰鸣',hammer:'天罚重锤'};
+  bite:'噬魂之口',pendulum:'审判摆锋',chime:'丧钟轰鸣',hammer:'天罚重锤',
+  crush:'衡权压顶',hchain:'双锤坠狱'};
+// v22：同一招键在不同 Boss 手里的专属名（预警条优先查这张，再落 BOSS_MOVE_NAME）。
+//   茧母的 summon 不叫「呼邪唤众」（那是牛魔王的）而叫「破茧亲卫」；
+//   终末之钟的 homing 不叫「幽影索命」（那是判官的）而叫「追魂余音」。
+const BOSS_MOVE_BY_KIND={9:{summon:'破茧亲卫'},11:{homing:'追魂余音'}};
+// v22：终末之钟的五音谱——预警条在招名前挂音名（宫商角徵羽），玩家背谱时按音记招。
+const BOSS_NOTE11={pendulum:'宫',chime:'商',hammer:'角',hchain:'徵',homing:'羽'};
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
 // v7 §9.3 把 kind 直接当下标用，结果整体错位一格：kind=3 取到 undefined → L16 判官整块 return 不渲染
 // （玩家看到的"最后一个 Boss 没画出来"）、kind=1 的星核被画成蛟龙、血条名字 L7 显示"蛟龙·敖渊"、
@@ -3193,8 +3245,9 @@ function renderBossWindupFx(b,bimg,bx,by){
       ctx.globalAlpha=0.8;ctx.fillStyle='#ffd0a0';ctx.fillRect(px(cx+dir*38)-2,px(gy-6),4,2);
       ctx.globalAlpha=1;break;
     }
-    case 'weight':{                                  // 砝码：三处落点影一次给出（离开它正前扇形）
-      const T=_bossCfg(b)||{},SP=(T.weight&&T.weight.spread)||[26,0,-26];
+    case 'weight':{                                  // 砝码：落点影一次给出（离开它正前扇形）；P2 四连宽扇（v22）
+      const T=_bossCfg(b)||{};
+      const SP=(b.phase===2&&T.weight&&T.weight.spread2)?T.weight.spread2:((T.weight&&T.weight.spread)||[26,0,-26]);
       const gy=top+b.h,rr0=5+3*Math.sin(clamp(k,0,1)*Math.PI);  // 收放一次：读成「要来了」
       for(let i=0;i<SP.length;i++){
         const xx=px(cx+SP[i]);
@@ -4371,17 +4424,20 @@ function renderHUD(){
     // 连段预告「主招 ▸ 接招」；招一出（state!=='windup'）整条消失——技能已在放，预警无意义。
     // 位置历经三版：v20.6 血条下 → v20.7 顶栏 → v20.9 定回血条下（用户终审：这里才对，但要威武）。
     if(b.state==='windup'&&b.next){
-      const n1=BOSS_MOVE_NAME[b.next]||'蓄势';
-      const q2=(b.comboQ&&b.comboQ.length>1)?(BOSS_MOVE_NAME[b.comboQ[1]]||'蓄势'):null;
-      const txt=q2?(n1+' ▸ '+q2):n1;
+      const bk11=(BOSS_MOVE_BY_KIND[b.kind||0]&&BOSS_MOVE_BY_KIND[b.kind||0][b.next])||null; // v22：Boss 专属招名
+      const n1=bk11||BOSS_MOVE_NAME[b.next]||'蓄势';
+      const q2k=(b.comboQ&&b.comboQ.length>1)?((BOSS_MOVE_BY_KIND[b.kind||0]&&BOSS_MOVE_BY_KIND[b.kind||0][b.comboQ[1]])||BOSS_MOVE_NAME[b.comboQ[1]]||'蓄势'):null;
+      // v22：终末之钟按五音谱出招——招名前挂「宫/商/角/徵/羽 · 」，背谱按音记
+      const note=(b.kind===11&&BOSS_NOTE11[b.next])?BOSS_NOTE11[b.next]+' · ':'';
+      const txt=q2k?(note+n1+' ▸ '+q2k):(note+n1);
       const tw=Math.ceil(_textW(txt,11)),pw=tw+30,tcx=128+87;   // 居中血条（128..302）
-      const dc=q2?'#f84848':'#f0c860';                           // 连段红、单招金
+      const dc=q2k?'#f84848':'#f0c860';                           // 连段红、单招金
       ctx.fillStyle='rgba(40,8,16,.92)';ctx.fillRect(tcx-pw/2,40,pw,15);  // 深红黑底
       ctx.fillStyle='#8a5a18';ctx.fillRect(tcx-pw/2,39,pw,1);ctx.fillRect(tcx-pw/2,55,pw,1); // 外暗金
       ctx.fillStyle='#f0c860';ctx.fillRect(tcx-pw/2,40,pw,1);ctx.fillRect(tcx-pw/2,54,pw,1); // 内亮金
       drawCNText('◆',tcx-pw/2+9,41,11,dc,'center');              // 左右菱形饰
       drawCNText('◆',tcx+pw/2-9,41,11,dc,'center');
-      drawCNText(txt,tcx,42,11,q2?'#f8b040':'#f8d048','center'); // 主文字
+      drawCNText(txt,tcx,42,11,q2k?'#f8b040':'#f8d048','center'); // 主文字
       ctx.globalAlpha=0.45+0.4*Math.abs(Math.sin(game.tick*0.25)); // 呼吸描边
       ctx.strokeStyle=dc;ctx.lineWidth=1;
       ctx.strokeRect(tcx-pw/2+0.5,40.5,pw-1,14);
@@ -4837,9 +4893,9 @@ function renderPause(){
   ctx.fillRect(kr.x,kr.y,kr.w,kr.h);
   ctx.strokeStyle=keyListen?(game.tick%30<15?'#f84848':'#a8b4d8'):'#f0c860';ctx.lineWidth=1;
   ctx.strokeRect(kr.x+0.5,kr.y+0.5,kr.w-1,kr.h-1);
-  drawCNText(keyListen?'按任意键…（Esc 取消）':'冲刺键：'+codeLabel(dashCode),
+  drawCNText(keyListen?'按任意键 / 鼠标侧键…（Esc 取消）':'冲刺键：'+codeLabel(dashCode),
     VIEW_W/2,kr.y+2,10,keyListen?'#f8d048':'#f0f4ff','center');
-  if(hov&&!keyListen)drawPixelText('点击改键',kr.x+kr.w+5,kr.y+5,1,'#a8b4d8');
+  if(hov&&!keyListen)drawPixelText('点击改键（支持鼠标侧键）',kr.x+kr.w+5,kr.y+5,1,'#a8b4d8');
   if(keyErrT>0){keyErrT-=1/60;drawCNText(keyErr,VIEW_W/2,kr.y+kr.h+3,9,'#f84848','center');}
   drawPixelText('P: CONTINUE  R: RESTART',VIEW_W/2,130,1,'#a8b4d8','center');
   drawPixelText('ESC: MENU',VIEW_W/2,141,1,'#a8b4d8','center');
