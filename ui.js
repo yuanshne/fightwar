@@ -2854,6 +2854,7 @@ const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥�
 // v20.9：招名全换四字武学风（用户：原名「跳扑/弹幕」太土）——语义与旧表一一对应，只换皮
 const BOSS_MOVE_NAME={leap:'饿虎扑食',barrage:'万弹穿云',charge:'疾雷突袭',summon:'呼邪唤众',nova:'灭世环爆',dive:'坠日俯冲',
   grab:'摄魂之爪',quake:'裂地崩山',pillar:'炼狱石棘',quell:'天倾镇魂',core:'晶核自爆',sweep:'横扫千军',breath:'怒涛吐息',
+  bomb:'爆裂流弹',
   blink:'瞬影遁空',scythe:'死神镰斩',halo:'圣辉裁决',meteor:'星陨灭世',homing:'幽影索命',spike:'破地狂刺',clone:'残影迷踪',
   mirror:'镜花水月',push:'崩山劲推',pull:'深渊引力',flare:'燎原业火',sear:'灼日炎线',lash:'赤炎鞭挞',weight:'千钧坠杀',
   swap:'阴阳倒转',beam:'天梁横压',spawn:'卵潮涌动',web:'地网囚天',swarm:'蝗群蔽日',inhale:'吞天吸息',roar:'裂魂咆哮',

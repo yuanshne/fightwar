@@ -1394,7 +1394,12 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
     B.skew = 0; B.mouthOpen = false; B.scoreI = 0; B.scoreT = 0; B.lastPcx = undefined;
     if (B.state !== 'revive') { B.state = 'idle'; B.t = 0; } // 阶段切换演出不打断
   }
+  // v21：Boss 关野怪「死一次就没了」——尸体留在数组里（e.dead>0 只是死亡动画态），普通关
+  // 死亡=全图野怪复位重打这一段，Boss 关照搬会把 Boss 战变成无限清杂（用户定调：不要刷新）。
+  // 活着的（含 Boss 召唤体）照常复位位置；已死的一律 keep dead，不复活。
+  const bossLv = !!(L.meta && L.meta.boss);
   for (const e of L.enemies) {
+    if (bossLv && e.dead > 0) continue;
     e.dead = 0;
     if (e.type === 'bat') { e.x = e.ax; e.y = e.ay; }
     else { e.x = e.hx; e.y = e.hy; e.vy = 0; e.grounded = false; }
@@ -1759,6 +1764,11 @@ function _engBossPick(b) { // 内部：确定性轮转选招（设计 §2，不�
   /* v13.1：召唤是「技能」，不是常驻循环。冷却期内直接滚出池子——
      否则队伍清得再快，下一轮轮转又把 summon 排上来，玩家会一直处于打小怪状态。 */
   if ((b.summonCd || 0) > 0) pool = pool.filter(function (n) { return n !== 'summon'; });
+  /* v21：召唤/产卵整场限一轮——用过一次就永久出池。此前 summon(cd 16s)/spawn(cd 9s) 冷却结束
+     就再排上，玩家杀完一波过十几秒又来一波，Boss 战退化成无限清杂（用户定调「死了一次就不要刷新」）。
+     标志跨死亡保留（respawn 的 Boss 重置块不清它），所以死两次也不会再刷出第二批。 */
+  if (b.summonUsed) pool = pool.filter(function (n) { return n !== 'summon'; });
+  if (b.spawnUsed) pool = pool.filter(function (n) { return n !== 'spawn'; });
   if (!pool.length) pool = ['barrage'];
   /* v10：轮转游标改为「在未过滤 lastPattern 的池上按位递增，撞到上一招就顺延一位」。
      旧写法先 filter 掉 lastPattern 再取模，池长每帧都在 4/5 之间跳，索引会漂——
@@ -2061,12 +2071,12 @@ function _engB8Swap(b) { // 秤 · 换位：与玩家交换 x（唯一一只敢�
 }
 
 /* ---- 茧（kind 9）：卵与网由独立数组承载（不进 hazards——它们要跨招存活，且有自己的进化计时） ---- */
-function _engB9Spawn(b) { // 茧 · 产卵：玩家两侧 + 自身脚下各 1 枚
+function _engB9Spawn(b) { // 茧 · 产卵：玩家两侧 + 自身脚下各 1 枚（v21：返回是否真产出了卵——cap 满空放返回 false，调用处不消耗一次性额度）
   const T = _engBossTable(9).spawn, p = game.player, L = game.level;
   const hz = game.hazards || (game.hazards = []);
   let nEgg = 0;
   for (const e of hz) if (e.kind === 'egg') nEgg++;
-  if (nEgg >= T.cap) return;                      // 场上卵到上限就不再产（防卵海淹人）
+  if (nEgg >= T.cap) return false;                // 场上卵到上限就不再产（防卵海淹人）
   const WXt = L.w * _engTile;
   const spots = [p.x + p.w / 2 - 40, p.x + p.w / 2 + 40, b.x + b.w / 2 - 8];
   for (let i = 0; i < T.n && nEgg < T.cap; i++) {
@@ -2078,6 +2088,7 @@ function _engB9Spawn(b) { // 茧 · 产卵：玩家两侧 + 自身脚下各 1 �
     nEgg++;
   }
   game.sfxQueue.push('spit');
+  return true;
 }
 
 function _engB9Web(b) { // 茧 · 蛛网：Boss 与玩家之间铺一片（挡移动、挡跳，不挡攻击）
@@ -2194,6 +2205,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     else if (b.next === 'summon') { if (b.t >= _engBossDur('summon', b.phase)) {
         b.state = 'summonCast'; b.t = 0;
         b.summonCd = (T.summon && T.summon.cd) || 16;   // v13.1：召唤进入冷却
+        b.summonUsed = true;                            // v21：整场限一轮（冷却机制随之名存实亡，保留兼容）
         _engBossSummon(T); } } // v7 §6.2：召唤工厂化（kind1 slime×2 与内联构造等价，见 _engBossSummon 注）
     else if (b.next === 'nova') { if (b.t >= _engBossDur('nova', b.phase)) {
         b.state = 'novaCast'; b.t = 0; b.fireN = 0; } }
@@ -2265,7 +2277,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     else if (b.next === 'beam') { if (b.t >= _engBossDur('beam', b.phase)) {
         b.state = 'beamCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'spawn') { if (b.t >= _engBossDur('spawn', b.phase)) {
-        _engB9Spawn(b); b.state = 'recover'; b.t = 0; } }
+        if (_engB9Spawn(b)) b.spawnUsed = true;   // v21：真产出了卵才消耗本轮额度（cap 满空放不算）
+        b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'web') { if (b.t >= _engBossDur('web', b.phase)) {
         _engB9Web(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'swarm') { if (b.t >= _engBossDur('swarm', b.phase)) {
