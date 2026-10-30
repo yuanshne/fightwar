@@ -606,11 +606,11 @@ const BAL = {
     // 机制：玩家的伤害被它记成「热量」（playerHeat 0..100，engine 每帧在 _engUpdateBoss 里维护）。
     //   flare 抬手时若热量 ≥ minHeat 就当场引爆，伤害随热量线性上升；引爆后热量清零。
     //   这是全作第一次要求玩家「停手」——map1 的六只都是「越快越好」。
-    hp: 360, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 40,
+    hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 40,   // v20.3：540=180×3 对标牛魔王（满装 TTK 61→~91s）
     windup: { flare: 0.72, sear: 0.55, lash: 0.46, barrage: 0.42, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.46, 0.34], walk: [22, 28],
+    p2WindMul: 0.85, idleT: [0.46, 0.34], stalk: true, walk: [46, 58],   // 火活物步伐快，贴身也游走
     barrage: { v: 118, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-10, 10] },
     /* flare 引燃：范围 34px 的圆形爆炸（比 nova 环小得多，是"点名"不是"清场"）。
        minHeat=30 是门槛——低于 30 它抬了手也炸不起来，这是玩家能主动运营的空间
@@ -629,25 +629,25 @@ const BAL = {
     /* lash 火鞭：贴地短波（h=14，跳即躲），速度 235 快于玩家跑速 120——
        看到再跑来不及，必须提前跳。这是本战唯一的"反应"招，其余都考耐心。 */
     lash: { w: 26, h: 14, v: 235, life: 0.85, dmg: 1 },
-    nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
+    nova: { v: 118, t: [0.55, 0.95], endT: 1.2, n: 10 },   // P2 环：10 向快弹
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { flare: 0.6, sear: 0.5, lash: 0.45, barrage: 0.45, nova: 0.6 },
     // 招牌：flare 引燃 / sear 灼视线 / lash 火鞭
-    poolNear: ['flare', 'lash', 'barrage'],
-    poolFar: ['barrage', 'sear', 'flare'],
+    poolNear: ['flare', 'lash'],
+    poolFar: ['sear', 'flare'],   // v20.3：撤公共弹幕——轮到的每一下都是自己的招牌
     p2Add: ['nova'], contactDmg: 1, drop1: 'ember1', drop2: 'ember2' },
 
   boss8: { // 双生天秤（L21，aether）——「一直打同一侧是打不动的」
     // 机制：skew 记录玩家连续从同一侧命中的次数（-3..3）。同侧连击会把血"偷"回去
     //   （|skew| 达 3 触发回血），左右交替则承伤 ×1.25（"对秤"奖励）。
     //   判定唯一依据是「玩家相对 Boss 中心的方位」——所以玩家的动作是「穿到另一边打」。
-    hp: 180, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,
+    hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,   // v20.3：540=180×3 对标牛魔王（偷血按新血量重定 0.5%）
     windup: { weight: 0.62, swap: 0.58, beam: 0.70, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.50, 0.36], walk: [24, 30],
+    p2WindMul: 0.85, idleT: [0.50, 0.36], stalk: true, walk: [40, 50],
     barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-12, 12] },
-    skew: { max: 3, stallMul: 0.2, healPct: 1.2, goodMul: 1.25 },   // 失衡（同侧第3击）：承伤×0.2+偷回1.2%总血；真穿身击承伤 ×1.25
+    skew: { max: 3, stallMul: 0.2, healPct: 0.5, goodMul: 1.25 },   // 失衡（同侧第3击）：承伤×0.2+偷回0.5%总血（450血基准≈2.3/次，威慑不拖时）；真穿身击承伤 ×1.25；P2 减伤加深 0.2→0.1
     /* weight 砝码：三枚从上方砸落，落点各自带 0.7s 影子预警。
        ✗ 不是 meteor 的复用：meteor 是"跟着玩家跑的三连"，这招落点是**固定扇形**，
        逼玩家离开 Boss 正前方——和"绕到另一侧打"的机制是同一件事的两面。 */
@@ -662,47 +662,47 @@ const BAL = {
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { weight: 0.55, swap: 0.5, beam: 0.6, barrage: 0.45, nova: 0.6 },
     // 招牌：weight 砝码 / swap 换位 / beam 横梁
-    poolNear: ['weight', 'swap', 'barrage'],
-    poolFar: ['barrage', 'weight', 'beam', 'swap'],
+    poolNear: ['weight', 'swap'],
+    poolFar: ['weight', 'beam', 'swap'],   // v20.3：撤公共弹幕；swap 把远程玩家直接拽回贴身圈
     p2Add: ['nova'], contactDmg: 1, drop1: 'scale1', drop2: 'scale2' },
 
   boss9: { // 孵化之间（L22，husk）——「打早了是亏的」
     // 机制：虫卵（game.eggs）每 3s 进化一级（0 卵 → 1 幼虫 → 2 成虫）。
     //   打卵只爆幼虫；打成虫掉能量核（回蓝）。卵到期未清 → 成虫爬回 Boss 处喂它回血。
     //   玩家的动作从「怎么打」变成「什么时候打」——这是 map1 完全没有的一层。
-    hp: 342, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,
+    hp: 720, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,   // v20.3：720=240×3 对标牛魔王（满装 TTK 38→~81s）
     windup: { spawn: 0.65, web: 0.60, swarm: 0.62, barrage: 0.48, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.55, 0.40], walk: [14, 18],   // 本体笨重（蛹），走得慢
+    p2WindMul: 0.85, idleT: [0.55, 0.40], stalk: true, walk: [30, 38],   // 本体笨重（蛹）走得慢，但不再罚站
     barrage: { v: 110, rounds: 3, pairGap: 0.20, endT: 0.5, deg: [-14, 0, 14] },
     /* spawn 产卵：在玩家左右各产 1 枚 + Boss 脚下 1 枚（共 3）。
        卵的进化链与收益见 engine 的 _engUpdateEggs（3s 一级，两跳成虫）。
        cap=6：场上最多 6 枚，满了不再产——否则玩家一个走位失误就被卵海淹掉。 */
-    spawn: { n: 3, cap: 6, cd: 7.0, stageT: 3.0, hp: 2, larvaHp: 3, adultHp: 5, feed: 3.0 },
+    spawn: { n: 3, cap: 6, cd: 7.0, stageT: 3.0, hp: 2, larvaHp: 3, adultHp: 5, feed: 3.0 },   // feed=成虫爬回 Boss 喂的血（v20.3 接线；P2 ×1.5）——不清杂它就一直回
     /* web 蛛网：地面铺一片减速区（-60%），并且**禁跳**——地图一的减速雾（mist）不挡跳，
        这招挡跳，所以"被网住 + 火鞭/落锤"才是组合技，而不是单纯走得慢。 */
     web: { w: 64, h: 12, life: 5.0, slow: 0.4, noJump: true },
     /* swarm 虫群：一排小虫自 Boss 侧向玩家横穿（低矮、可跳），逼玩家跳起——
        跳起时正好看不见脚下的网/网外的卵。 */
     swarm: { n: 5, gap: 0.12, v: 130, w: 10, h: 8, dmg: 1, life: 3.0 },
-    nova: { v: 100, t: [0.55, 0.95], endT: 1.2 },
+    nova: { v: 100, t: [0.55, 0.95], endT: 1.2, n: 6 },   // P2 环：6 向疏缝，虫群补密度
     stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
     recover: { spawn: 0.6, web: 0.55, swarm: 0.55, barrage: 0.5, nova: 0.6 },
     // 招牌：spawn 产卵 / web 蛛网 / swarm 虫群
-    poolNear: ['spawn', 'web', 'swarm', 'barrage'],
-    poolFar: ['barrage', 'spawn', 'swarm'],
+    poolNear: ['spawn', 'web', 'swarm'],
+    poolFar: ['spawn', 'swarm'],   // v20.3：撤公共弹幕；卵产在玩家两侧，远程也压得住
     p2Add: ['nova'], contactDmg: 1, drop1: 'husk1', drop2: 'husk2' },
 
   boss10: { // 无声之喉（L23，maw）——「喂它东西等于给它回血」
     // 机制：inhale 张嘴吸气，飞行物（玩家弹体/法师法术）被吸进嘴（b.mouth 数组）并转成它的血。
     //   打嘴（x 在嘴框内且嘴张开）会把积食打爆，一次结算 3 伤 × 积食数——
     //   喂得越多、爆得越疼，但喂太多它会 roar 反刍成弹幕。玩家的动作是「挑窗口输出」。
-    hp: 342, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 44,
+    hp: 660, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 44,   // v20.3：660=220×3 对标牛魔王（满装 TTK 43→~83s）
     windup: { inhale: 0.60, roar: 0.75, bite: 0.50, barrage: 0.55, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.58, 0.42], walk: [16, 20],   // 扎根型，移动极慢
+    p2WindMul: 0.85, idleT: [0.58, 0.42], stalk: true, walk: [34, 44],   // 扎根型也缓步挪——一动不动就是活靶
     barrage: { v: 108, rounds: 3, pairGap: 0.22, endT: 0.55, deg: [-16, 0, 16] },
     /* inhale 吸气：dur=1.6s 持续，吞弹半径 120。吞 1 发回 0.6% 总血（cap 6%）。
        ✗ 不要做成"全屏吞"——那会让法师完全无法输出，是要玩家换位置而不是换角色。 */
@@ -712,12 +712,12 @@ const BAL = {
     roar: { v: 140, dmg: 1, spread: 22 },
     /* bite 咬：近身 34px，2 伤，前摇 0.5s。它唯一的高伤害招，逼玩家别贴脸。 */
     bite: { r: 34, dmg: 2 },
-    nova: { v: 105, t: [0.55, 0.95], endT: 1.2 },
+    nova: { v: 95, t: [0.55, 0.95], endT: 1.2, n: 12 },   // P2 环：12 向慢弹密墙
     stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
     recover: { inhale: 0.6, roar: 0.6, bite: 0.5, barrage: 0.5, nova: 0.6 },
     // 招牌：inhale 吞弹 / roar 反刍 / bite 咬
-    poolNear: ['inhale', 'bite', 'roar', 'barrage'],
-    poolFar: ['barrage', 'inhale', 'roar'],
+    poolNear: ['inhale', 'bite', 'roar'],
+    poolFar: ['roar', 'inhale'],   // v20.3：撤公共弹幕；inhale 把远程玩家拽进 bite 圈
     p2Add: ['nova'], contactDmg: 1, drop1: 'maw1', drop2: 'maw2' },
 
   boss11: { // 终末之钟（L24，bell）——「只有休止符吃伤害」
@@ -731,7 +731,7 @@ const BAL = {
     windup: { pendulum: 0.50, chime: 0.55, hammer: 0.65, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
-    p2WindMul: 0.85, idleT: [0.44, 0.32], walk: [20, 26],
+    p2WindMul: 0.85, idleT: [0.44, 0.32], stalk: true, walk: [36, 46],   // 钟也挪步：摆锚跟着脚下走，背谱还得跟着它走位
     barrage: { v: 122, rounds: 4, pairGap: 0.15, endT: 0.5, deg: [-14, 0, 14] },
     /* score 曲谱：beats 是每拍的招式名（null=休止符）。
        四拍一轮：pendulum → chime → hammer → 休止（null）。休止 3s 是输出窗口。
@@ -752,8 +752,8 @@ const BAL = {
     stagger: 1.5, enrage: 1.2, dying: 2.8, revive: 0.9,
     recover: { pendulum: 0.5, chime: 0.55, hammer: 0.6, barrage: 0.45, nova: 0.6 },
     // 招牌：pendulum 钟摆 / chime 声波 / hammer 钟锤（+ 曲谱决定何时能打）
-    poolNear: ['pendulum', 'chime', 'hammer', 'barrage'],
-    poolFar: ['barrage', 'chime', 'hammer'],
+    poolNear: ['pendulum', 'chime', 'hammer'],
+    poolFar: ['chime', 'hammer'],   // 曲谱独占出招，池是占位（_engBossPick 对 kind11 直接走 _engBossScore）,
     p2Add: ['nova'], contactDmg: 1, drop1: 'bell1', drop2: 'bell2' },
 
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 42 }, ghost: { hp: 36 }, // v7 §8：精英怪
@@ -1850,7 +1850,7 @@ function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击
         // 失衡：秤向这一侧倾斜——这一击只吃 40%（站桩 DPS 腰斩，换边才有输出），
         // 并偷回 3% 总血作为可见惩罚（不跨段，口径同召唤回血）。
         // 注意不取整、不设下限：max(1,round(0.4)) 会让无装玩家（每刀 1~2 血）完全吃不到减伤。
-        real = real * (SK.stallMul || 0.2);
+        real = real * (b.phase === 2 ? 0.1 : (SK.stallMul || 0.2));   // v20.3：P2 失衡减伤加深 0.2→0.1（站桩在末段更亏，触发频率不变）
         // 失衡的真正獠牙：晃动吞掉破绽。站桩玩家的 DPS 大头是破绽期爆发（×1.5/×2.0），
         // 若失衡只减伤不吞破绽，破绽期伤害照样打满，惩罚被完全盖过（机器人实测站桩不慢反快）。
         if (b.state === 'stagger' || b.breakT > 0) {
@@ -1876,7 +1876,8 @@ function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击
   /* ③ 余烬回响：把这一下的伤害记成玩家身上的热量（记账用 real，破绽/破防加倍的热量也算进去——
      "打得更狠更快烧穿"是这条机制唯一自洽的口径）。 */
   if (b.kind === 7 && T.heat) {
-    game.heat = Math.min(T.heat.cap, (game.heat || 0) + real * T.heat.perDmg);
+    // v20.3：P2 烧得更狠（perDmg ×1.25）——怒火随段位升温，压热量的运营在 P2 更紧。
+    game.heat = Math.min(T.heat.cap, (game.heat || 0) + real * T.heat.perDmg * (b.phase === 2 ? 1.25 : 1));
     game.heatT = 0;
   }
 
@@ -1942,7 +1943,7 @@ function _engBossNovaRing(b, deg, v, n) { // 内部：环向放射弹（第二�
   // 慢弹也穿不过去；6 向把缝拉到 60°，才符合"走位穿缝"而不是"贴边硬挤"。
   const T = _engBossTable(b.kind || 0);
   const bcx = b.x + b.w / 2, bcy = b.y + 20, spd = v || T.nova.v;
-  const cnt = (n && n > 2) ? n : 8, step = 360 / cnt;
+  const cnt = (n && n > 2) ? n : (T.nova.n || 8), step = 360 / cnt;   // v20.3：n 可由各 Boss 表的 nova.n 覆盖（环密度即性格）
   for (let i = 0; i < cnt; i++) { const a = (i * step + deg) * Math.PI / 180;
     game.bullets.push({ x: bcx - 4, y: bcy - 4, w: 8, h: 8,
       vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, star: true }); }
@@ -2051,7 +2052,7 @@ function _engB9Spawn(b) { // 茧 · 产卵：玩家两侧 + 自身脚下各 1 �
   const hz = game.hazards || (game.hazards = []);
   let nEgg = 0;
   for (const e of hz) if (e.kind === 'egg') nEgg++;
-  if (nEgg >= T.cap) return;                       // 场上卵到上限就不再产（防卵海淹人）
+  if (nEgg >= T.cap) return;                      // 场上卵到上限就不再产（防卵海淹人）
   const WXt = L.w * _engTile;
   const spots = [p.x + p.w / 2 - 40, p.x + p.w / 2 + 40, b.x + b.w / 2 - 8];
   for (let i = 0; i < T.n && nEgg < T.cap; i++) {
@@ -2154,7 +2155,12 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
 
   case 'idle': {
     b.face = pcx < bcx ? -1 : 1;
-    if (Math.abs(pcx - bcx) > 140) b.vx = b.face * T.walk[b.phase - 1]; // 缓步逼近（walk 读表）
+    // v20.3：stalk（地图二，全地板场地）——待机不再罚站：远了逼近，贴身也缓步施压，
+    //   否则玩家一贴上来它就站成木桩。无 stalk 的地图一 Boss 保持旧行为
+    //   （>140 才走：它们的场地有坑有沟，全程追人会把 Boss 自己追下沟）。
+    const gapIdle = Math.abs(pcx - bcx) - b.w / 2 - p.w / 2;
+    if (T.stalk ? gapIdle > 10 : Math.abs(pcx - bcx) > 140)
+      b.vx = b.face * T.walk[b.phase - 1]; // 缓步逼近/施压（walk 读表）
     else b.vx = 0;
     _engBossPhysX(dt, b);
     if (b.t >= T.idleT[b.phase - 1]) _engBossPick(b); // idleT 读表
@@ -2795,13 +2801,14 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
   case 'inhaleCast': { // ④ 喉·吸气：吞飞行物 + 把玩家往回拽（drag），1.6s
     b.vx = 0; b.mouthOpen = true;
     const TI = T.inhale || BAL.boss10.inhale;
+    const R2 = TI.r * (b.phase === 2 ? 1.2 : 1);   // v20.3：P2 吸力圈 ×1.2（嘴张得更大）
     const cx = b.x + b.w / 2, cy = b.y + b.h - 22;
     /* ① 吞弹：只有法师有远程（game.shots），骑士靠"被吸过去"感受这一招——
        两者都受影响，但方式不同，这样换角色不用换打法。 */
     const shots = game.shots || [];
     for (let i = shots.length - 1; i >= 0; i--) {
       const s = shots[i];
-      if (Math.hypot(s.x - cx, s.y - cy) > TI.r) continue;
+      if (Math.hypot(s.x - cx, s.y - cy) > R2) continue;
       shots.splice(i, 1);
       const meals = game.mawMeals || (game.mawMeals = []);
       if (meals.length < 12) meals.push({ kind: s.kind });
@@ -2820,7 +2827,7 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
        ✗ 不做成"无法反抗的吸附"——那会让这 1.6s 变成纯挨打时间，玩家只能站着数秒。 */
     if (!p.dead) {
       const dx = cx - (p.x + p.w / 2);
-      if (Math.abs(dx) < TI.r && Math.abs(p.x + p.w / 2 - cx) > 18) {
+      if (Math.abs(dx) < R2 && Math.abs(p.x + p.w / 2 - cx) > 18) {
         const pull = Math.sign(dx) * Math.min(TI.pull, Math.abs(dx) * 4);
         p.x += pull * dt; p.vx = 0;
       }
@@ -2872,12 +2879,15 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= TH.warn + 0.9) { b.state = 'recover'; b.t = 0; }
     break; }
 
-  case 'rest': { // ⑧ 钟·休止符：站定不动、不出招——这是它唯一吃伤害的窗口（承伤 ×1.6，见 _engBossHurt）
+  case 'rest': { // ⑧ 钟·休止符：站定不动、不出招——这是它唯一吃伤害的窗口（承伤 ×4.0，见 _engBossHurt）
     b.vx = 0;
-    if (b.t >= (T.score.restBeat || 1.6)) { b.state = 'idle'; b.t = 0; }
+    // v20.3：P2 渐快（accelerando）——休止窗口缩 20%，曲谱越打越急，背谱的价值在末段兑现
+    if (b.t >= (T.score.restBeat || 1.6) * (b.phase === 2 ? 0.8 : 1)) { b.state = 'idle'; b.t = 0; }
     break; }
 
-  case 'recover':  b.vx = 0; b.parryOn = false;   // v13：离开任何状态的统一兜底（parry 只活在 parryCast）
+  case 'recover':  b.parryOn = false;   // v13：离开任何状态的统一兜底（parry 只活在 parryCast）
+    // v20.3：stalk Boss 收招期也挪步——收招是玩家最敢贴的时刻，原地罚站等于白给输出窗口
+    b.vx = (T.stalk && Math.abs(pcx - bcx) - b.w / 2 - p.w / 2 > 10) ? b.face * T.walk[b.phase - 1] : 0;
     // 注：伪代码 `{...}[b.next] || 0.5` 按 JS 优先级恒真（(b.t>=X)||0.5），此处修正为取值后兜底
     if (b.t >= (T.recover[b.next] || 0.5)) {
       /* v10 连段 / 破绽：
@@ -3365,10 +3375,31 @@ function _engUpdateHazards(dt) {
           game.sfxQueue.push('spit');
         }
       } else if (e.stage > 0 && !p.dead) {
-        // 幼虫/成虫会贴地爬向玩家（成虫更快）。卵阶段不动——它是"等着你决定"的东西。
-        const spd = e.stage === 1 ? 38 : 68;
-        const dir = (p.x + p.w / 2) < (e.x + 8) ? -1 : 1;
-        e.x += dir * spd * dt;
+        /* v20.3 兑现 spec 承诺（feed 此前是死配置）：幼虫爬向玩家；成虫掉头爬回 Boss 喂血——
+           "不打成虫"从收益问题变成防御问题。P2 喂食 ×1.5（虫群更饿）。 */
+        if (e.stage === 1) {
+          const dir = (p.x + p.w / 2) < (e.x + 8) ? -1 : 1;
+          e.x += dir * 38 * dt;
+        } else {
+          const b2 = game.boss;
+          if (b2 && b2.hpTotal > 0) {
+            const bc2 = b2.x + b2.w / 2;
+            const dir = bc2 < (e.x + 8) ? -1 : 1;
+            e.x += dir * 68 * dt;
+            if (Math.abs((e.x + 8) - bc2) < b2.w / 2 + 6) {
+              const ceil = (3 - b2.bandBreak) * b2.bandMax;
+              const back = Math.min(TE.feed * (b2.phase === 2 ? 1.5 : 1), Math.max(0, ceil - b2.hpTotal));
+              b2.hpTotal += back; b2.hp = _engSegHp(b2);
+              _engFloat(e.x + 8, e.y - 4, '喂食 +' + Math.round(back), '#f86048', 0.9);
+              _engAddParts(e.x + 8, e.y + 8, 8, '#f86048', 80, 160);
+              game.sfxQueue.push('break');
+              dead = true;
+            }
+          } else {
+            const dir = (p.x + p.w / 2) < (e.x + 8) ? -1 : 1;
+            e.x += dir * 68 * dt;
+          }
+        }
         if (e.hitCd > 0) e.hitCd -= dt;
         if (_engAabb(e, p) && e.hitCd <= 0) {
           _engHurtPlayer(e.x + 8, 1); e.hitCd = 0.8;

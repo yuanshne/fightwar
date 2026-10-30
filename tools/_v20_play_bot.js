@@ -77,6 +77,11 @@ function makeBot(o) {
     const kind = b.kind || 0;
     const REACH = 14;
 
+    // v20.3：挥砍窗口（atkT>0）内锁朝向。引擎每帧按 dir 刷 face，而下面的威胁规避
+    // 每帧都在反向压方向键——face 一被掰回去，判定框瞬间跳到 Boss 背后，这刀必挥空。
+    // （茧战实测 99 挥 7 中的真凶。人类玩家会自然按住方向键，机器人必须显式做。）
+    if (p.atkT > 0) { if (toBoss > 0) I.right = 1; else I.left = 1; return; }
+
     // 机制：什么时候这一刀算数
     let may = true;
     if (mech && kind === 7 && (g.heat || 0) > 55) may = false;       // 烬：热量过半停一拍
@@ -100,9 +105,11 @@ function makeBot(o) {
       if (gap > REACH - 2) moving = toBoss;
       else if (gap < 6) moving = -toBoss;            // 别贴进接触伤
     } else {
-      // 等窗口（烬散热 / 钟等休止符）：贴着待命，别站到半个场地外干等
+      // 等窗口（烬散热 / 钟等休止符）：贴着待命。⚠️ 不能撤向墙角——stalk Boss 会追，
+      // 被钉在墙上 + 贴脸重叠 = 永久停摆（v20.3 实测教训）。
+      const atWall = p.x < 24 || p.x + p.w > g.level.w * 16 - 24;
       if (gap > 26) moving = toBoss;
-      else if (gap < 16) moving = -toBoss;
+      else if (gap < 16 && !atWall) moving = -toBoss;
     }
 
     if (moving > 0) I.right = 1; else if (moving < 0) I.left = 1;
@@ -112,9 +119,30 @@ function makeBot(o) {
 
     if (moving !== 0 && gap > 26 && unstuck(st, p, I)) return;
 
-    if (may && gap <= REACH && gap >= 2 && p.atkCd <= 0) {
-      // 出手帧压住朝向：引擎在 dir≠0 的帧刷 face，判定 3 帧后才结算，朝向要保持到那时
-      if (gap > 6) { if (toBoss > 0) I.right = 1; else I.left = 1; }
+    // v20.3：清杂——够得着的虫就顺手拍：同一挥砍的判定框本来就能同时够到 Boss 与虫
+    // （egg 在攻击白名单里），所以拍虫不亏输出；成虫更必拍（它在喂血路上）。
+    // 只拍够得着的、绝不上赶着追——否则被虫遛着满场跑。
+    if (mech && p.atkCd <= 0 && SAFE[b.state]) {
+      let addT = null, addGap = 99;
+      for (const h of g.hazards) {
+        if (h.kind !== 'egg' || (h.stage || 0) < 1) continue;
+        const hw = h.w || 16;
+        const g2 = Math.abs((h.x + hw / 2) - pcx) - hw / 2 - p.w / 2;
+        if (g2 <= REACH + 8 && g2 < addGap) { addGap = g2; addT = h; }
+      }
+      if (addT) {
+        const adx = (addT.x + (addT.w || 16) / 2) - pcx;
+        if (adx > 0) I.right = 1; else I.left = 1;
+        I.attackHit = 1; I.attack = 1;
+        return;
+      }
+    }
+
+    if (may && gap <= REACH + 4 && p.atkCd <= 0) {
+      // 出手帧无条件压朝向：引擎在 dir≠0 的帧刷 face。旧逻辑 gap≤6 时不压方向——
+      // 贴脸缠斗一旦 face 翻转（比如等散热时后撤过）就会永远朝后挥空。
+      // ⚠️ 不设 gap 下限：被追到墙角时玩家会和 Boss 重叠（gap<0），再卡「gap>=2」就永远不出手。
+      if (toBoss > 0) I.right = 1; else I.left = 1;
       I.attackHit = 1; I.attack = 1;
     }
   };

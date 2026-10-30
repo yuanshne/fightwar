@@ -2,7 +2,7 @@
 // 真值唯一来源：engine.js 的 BAL.boss7~boss11（表即规格）+ chapter4.js 的关卡数据。
 //
 // 断言口径一律是「玩家该感受到的现象」，不是「某个函数被调用了」：
-//   T1 去同质化：五只的招式池与 map1 六只、以及彼此之间，除 barrage（普攻）/ nova（P2）外零交集。
+//   T1 去同质化：五只的招式池与 map1 六只、以及彼此之间，除 nova（P2）外零交集；v20.3 起地图二池不含公共弹幕。
 //   T2 烬（kind7）：打得多→热量涨；停手 idleAfter 后散热加速（这才是「停一拍」有意义）；热量满自爆。
 //   T3 秤（kind8）：同侧连击到上限→偷血；左右交替→承伤 ×goodMul 并打出「对秤」。
 //   T4 茧（kind9）：产卵 3 枚且不超 cap；打碎卵不消失而是进化一级（打早了=提前放出来）；
@@ -72,15 +72,15 @@ function park(g, farX) {                  // 把玩家挪到指定 x（不跟 Bo
 const hurtBoss = (dmg) => sb._engBossHurt(dmg, false);
 
 /* ==================== T1 去同质化矩阵 ==================== */
-console.log('[T1] 五只招牌与 map1 六只零交集（barrage/nova 之外）');
+console.log('[T1] 五只招牌与 map1 六只零交集（nova 之外；地图二池已无公共弹幕）');
 {
   // 1) 逐字对表：表被人改动/换顺序时这里立刻红
   const SPEC = {
-    7: { near: ['flare', 'lash', 'barrage'], far: ['barrage', 'sear', 'flare'] },
-    8: { near: ['weight', 'swap', 'barrage'], far: ['barrage', 'weight', 'beam', 'swap'] },
-    9: { near: ['spawn', 'web', 'swarm', 'barrage'], far: ['barrage', 'spawn', 'swarm'] },
-    10: { near: ['inhale', 'bite', 'roar', 'barrage'], far: ['barrage', 'inhale', 'roar'] },
-    11: { near: ['pendulum', 'chime', 'hammer', 'barrage'], far: ['barrage', 'chime', 'hammer'] }
+    7: { near: ['flare', 'lash'], far: ['sear', 'flare'] },
+    8: { near: ['weight', 'swap'], far: ['weight', 'beam', 'swap'] },
+    9: { near: ['spawn', 'web', 'swarm'], far: ['spawn', 'swarm'] },
+    10: { near: ['inhale', 'bite', 'roar'], far: ['roar', 'inhale'] },
+    11: { near: ['pendulum', 'chime', 'hammer'], far: ['chime', 'hammer'] }
   };
   for (const k of KINDS) {
     const T = tableOf(k), S = SPEC[k];
