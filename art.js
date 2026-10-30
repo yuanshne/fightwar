@@ -2942,84 +2942,113 @@ const _MG_POSE = {
   dashWind: { dy: 2, leg: [1, -1], arm: 1, staff: -1, sway: 0, glow: 0, lean: -1 },
   squash: { dy: 2, leg: [2, -2], arm: 1, staff: 0, sway: 0, glow: 0, lean: 0 }
 };
-function _mgDraw(g, o) {
+function _mgDraw(g, o, PL) { // PL=调色板（v19.4：换色皮肤传入自己的一份；缺省=本命 _P_MG）
+  PL = PL || _P_MG;
   const dy = o.dy || 0, lean = o.lean || 0, sway = o.sway || 0;
   const P = function (x, y, w, h, c) { g.fillStyle = c; g.fillRect(x + lean, y + dy, w, h); };
   /* ---- 法杖（身体右侧 x=13，先画=在袍后） ---- */
   if (o.staff === 2) {                       // 横刺：杖杆横置 y=9
     P(7, 8, 7, 1, '#8a6a48'); P(7, 7, 7, 1, '#c8a870');
-    P(14, 7, 2, 2, _P_MG.O); P(15, 8, 1, 1, _P_MG.w);
+    P(14, 7, 2, 2, PL.O); P(15, 8, 1, 1, PL.w);
   } else if (o.staff === 1) {                // 高举：杆 y=2..11，宝珠顶到 y=0
     P(13, 2, 1, 10, '#8a6a48'); P(13, 2, 1, 1, '#c8a870');
-    P(12, 0, 2, 2, _P_MG.O); P(12, 0, 1, 1, _P_MG.o); P(13, 1, 1, 1, _P_MG.w);
+    P(12, 0, 2, 2, PL.O); P(12, 0, 1, 1, PL.o); P(13, 1, 1, 1, PL.w);
   } else if (o.staff === -1) {               // 低垂：杆 y=9..15
     P(13, 9, 1, 7, '#8a6a48'); P(13, 9, 1, 1, '#c8a870');
-    P(12, 13, 2, 2, _P_MG.O); P(12, 13, 1, 1, _P_MG.w);
+    P(12, 13, 2, 2, PL.O); P(12, 13, 1, 1, PL.w);
   } else {                                   // 竖持：杆 y=5..15，宝珠 y=3
     P(13, 5, 1, 11, '#8a6a48'); P(13, 5, 1, 1, '#c8a870');
-    P(12, 3, 2, 2, _P_MG.O); P(12, 3, 1, 1, _P_MG.o); P(13, 4, 1, 1, _P_MG.w);
+    P(12, 3, 2, 2, PL.O); P(12, 3, 1, 1, PL.o); P(13, 4, 1, 1, PL.w);
   }
   if (o.glow > 0) {                          // 宝珠光晕（cast/attack 帧，四角 1px 半透明）
     g.globalAlpha = 0.5;
     const gx = o.staff === 1 ? 12 : o.staff === 2 ? 15 : 12;
     const gy = o.staff === 1 ? 0 : o.staff === 2 ? 7 : o.staff === -1 ? 13 : 3;
-    P(gx - 1, gy, 1, 1, _P_MG.o); P(gx + 2, gy, 1, 1, _P_MG.o);
-    P(gx, gy - 1, 1, 1, _P_MG.o); P(gx, gy + 2, 1, 1, _P_MG.o);
-    if (o.glow > 1) { P(gx, gy, 1, 1, _P_MG.w); }
+    P(gx - 1, gy, 1, 1, PL.o); P(gx + 2, gy, 1, 1, PL.o);
+    P(gx, gy - 1, 1, 1, PL.o); P(gx, gy + 2, 1, 1, PL.o);
+    if (o.glow > 1) { P(gx, gy, 1, 1, PL.w); }
     g.globalAlpha = 1;
   }
   /* ---- 尖顶帽：逐行加宽（尖 y0 → 檐 y4） ---- */
   const HAT = [[7, 1], [6, 3], [5, 5], [4, 7], [2, 12]];
   for (let r = 0; r < HAT.length; r++) {
     const x0 = HAT[r][0], w = HAT[r][1];
-    P(x0, r, w, 1, _P_MG.k);
-    if (w > 2) P(x0 + 1, r, w - 2, 1, r >= 3 ? _P_MG.B : _P_MG.b);
-    if (r >= 2 && r <= 3) P(x0 + 1, r, 1, 1, _P_MG.W);   // 左侧亮阶
+    P(x0, r, w, 1, PL.k);
+    if (w > 2) P(x0 + 1, r, w - 2, 1, r >= 3 ? PL.B : PL.b);
+    if (r >= 2 && r <= 3) P(x0 + 1, r, 1, 1, PL.W);   // 左侧亮阶
   }
-  P(5, 3, 4, 1, _P_MG.y);                    // 帽带金饰
+  P(5, 3, 4, 1, PL.y);                    // 帽带金饰
   /* ---- 脸（3/4 侧面，朝右；帽檐下 4 行） ---- */
-  P(5, 5, 6, 4, _P_MG.k);
-  P(6, 6, 4, 3, _P_MG.s);
-  P(6, 5, 4, 1, _P_MG.B);                    // 帽檐投影/刘海
-  P(9, 6, 1, 1, _P_MG.e); P(8, 6, 1, 1, _P_MG.w); // 大眼 + 高光（朝右）
-  P(6, 7, 1, 1, _P_MG.p);                    // 腮红
-  P(9, 8, 1, 1, _P_MG.e);                    // 小嘴
+  P(5, 5, 6, 4, PL.k);
+  P(6, 6, 4, 3, PL.s);
+  P(6, 5, 4, 1, PL.B);                    // 帽檐投影/刘海
+  P(9, 6, 1, 1, PL.e); P(8, 6, 1, 1, PL.w); // 大眼 + 高光（朝右）
+  P(6, 7, 1, 1, PL.p);                    // 腮红
+  P(9, 8, 1, 1, PL.e);                    // 小嘴
   /* ---- 袍身（肩 → 摆，腰带金饰） ---- */
-  P(4, 9, 8, 1, _P_MG.k); P(5, 9, 6, 1, _P_MG.b); P(5, 9, 1, 1, _P_MG.W);
-  P(4, 10, 8, 1, _P_MG.k); P(5, 10, 6, 1, _P_MG.b);
-  P(3, 11, 10, 1, _P_MG.k); P(4, 11, 8, 1, _P_MG.y); P(7, 11, 2, 1, _P_MG.w); // 腰带+扣
-  P(2, 12, 12, 1, _P_MG.k); P(3 + sway, 12, 10, 1, _P_MG.b);
-  P(2, 13, 12, 1, _P_MG.k); P(3 + sway, 13, 10, 1, _P_MG.b); P(4 + sway, 13, 1, 1, _P_MG.W);
-  P(2, 14, 12, 1, _P_MG.k); P(3 + sway, 14, 10, 1, _P_MG.B);
-  P(2, 15, 12, 1, _P_MG.k); P(3 + sway, 15, 10, 1, _P_MG.y); // 袍摆金边
+  P(4, 9, 8, 1, PL.k); P(5, 9, 6, 1, PL.b); P(5, 9, 1, 1, PL.W);
+  P(4, 10, 8, 1, PL.k); P(5, 10, 6, 1, PL.b);
+  P(3, 11, 10, 1, PL.k); P(4, 11, 8, 1, PL.y); P(7, 11, 2, 1, PL.w); // 腰带+扣
+  P(2, 12, 12, 1, PL.k); P(3 + sway, 12, 10, 1, PL.b);
+  P(2, 13, 12, 1, PL.k); P(3 + sway, 13, 10, 1, PL.b); P(4 + sway, 13, 1, 1, PL.W);
+  P(2, 14, 12, 1, PL.k); P(3 + sway, 14, 10, 1, PL.B);
+  P(2, 15, 12, 1, PL.k); P(3 + sway, 15, 10, 1, PL.y); // 袍摆金边
   /* ---- 手臂：右臂（持杖侧）用袍色覆盖杖杆中段，形成"握住"的层次 ---- */
   if (o.arm === 2) {                         // 双手上举（施法）
-    P(11, 6, 2, 3, _P_MG.k); P(11, 7, 1, 2, _P_MG.b);
-    P(4, 7, 2, 3, _P_MG.k); P(4, 8, 1, 2, _P_MG.b);
+    P(11, 6, 2, 3, PL.k); P(11, 7, 1, 2, PL.b);
+    P(4, 7, 2, 3, PL.k); P(4, 8, 1, 2, PL.b);
   } else if (o.arm === -1) {                 // 后摆
-    P(3, 10, 2, 3, _P_MG.k); P(3, 10, 1, 2, _P_MG.b);
+    P(3, 10, 2, 3, PL.k); P(3, 10, 1, 2, PL.b);
   } else if (o.arm === 1) {                  // 前伸
-    P(11, 9, 2, 2, _P_MG.k); P(11, 9, 1, 1, _P_MG.b);
-    P(4, 10, 2, 2, _P_MG.k); P(4, 10, 1, 1, _P_MG.b);
+    P(11, 9, 2, 2, PL.k); P(11, 9, 1, 1, PL.b);
+    P(4, 10, 2, 2, PL.k); P(4, 10, 1, 1, PL.b);
   } else {                                   // 自然下垂
-    P(4, 10, 2, 3, _P_MG.k); P(4, 10, 1, 2, _P_MG.b);
-    P(11, 9, 2, 2, _P_MG.k); P(11, 9, 1, 1, _P_MG.b);
+    P(4, 10, 2, 3, PL.k); P(4, 10, 1, 2, PL.b);
+    P(11, 9, 2, 2, PL.k); P(11, 9, 1, 1, PL.b);
   }
   /* ---- 双腿/靴（按 pose 左右错开；袍摆下沿 y=15 不留空） ---- */
   const leg = o.leg || [0, 0];
-  P(4 + leg[0], 15, 3, 1, _P_MG.k);
-  P(9 + leg[1], 15, 3, 1, _P_MG.k);
-  P(5 + leg[0], 15, 1, 1, _P_MG.B);
-  P(10 + leg[1], 15, 1, 1, _P_MG.B);
+  P(4 + leg[0], 15, 3, 1, PL.k);
+  P(9 + leg[1], 15, 3, 1, PL.k);
+  P(5 + leg[0], 15, 1, 1, PL.B);
+  P(10 + leg[1], 15, 1, 1, PL.B);
 }
-function _mgSprite(name) { // 内部：单帧 16×16（squash 用画布变换压扁，其余直接绘制）
+function _mgSprite(name, PL) { // 内部：单帧 16×16（squash 用画布变换压扁，其余直接绘制；PL 见 _mgDraw）
   const c = _makeCanvas(16, 16), g = c.getContext('2d');
   let o = _MG_POSE[name];
   if (!o && name.indexOf('run') === 0) o = _MG_POSE.run[+name.slice(3)] || _MG_POSE.run[0];
   if (!o) o = _MG_POSE.idle1;
   if (name === 'squash') { g.translate(0, 15); g.scale(1.16, 0.8); g.translate(0, -15); }
-  _mgDraw(g, o);
+  _mgDraw(g, o, PL);
   return c;
+}
+/* v19.4：法师换色皮肤——直接复用骑士那 19 套的颜色，按角色映射到法师调色板。
+   映射规则：袍身三阶 b/B/W 直取（这是皮肤的辨识色）；帽带/腰带/袍摆金饰 ← y；
+   法杖宝珠 ← 围巾系 o/y（法师身上唯一的高光焦点，制服色一变宝珠跟着变才看得出换了皮）；
+   肤色 s / 描边 k / 五官 e,p 一律不动——换衣服不该换脸。
+   'blue' 刻意**不映射**，直接落回 _P_MG：那是法师本命配色（紫袍+青珠），
+   一改就和技能图标（mgU/mgL 的紫+青）对不上，且第二角色上线时已按这套做过目检。 */
+const _MAGE_SKIN_FRAME = ['idle1', 'idle2', 'jump', 'fall', 'attack', 'cast', 'dash', 'dashWind', 'squash'];
+function _magePalFromSkin(sk) {
+  const p = sk.pal;
+  // 宝珠取围巾系的「亮一档」那两级（o < s < y 是皮肤自己的明度契约）：
+  //   O=宝珠体用 s（保住皮肤色相）/ o=宝珠心用 y（当高光）。
+  // ✗ 不要用 o 当宝珠体——它是围巾三级的暗端，2×2 的暗红/暗金在天空上像个果子，不像发光的珠子。
+  return { k: p.k, B: p.B, b: p.b, W: p.W, w: '#ffffff', y: p.y,
+           s: _P_MG.s, e: _P_MG.e, p: _P_MG.p,
+           o: p.y, O: p.s };
+}
+function getMageSkin(id) { // 取某套皮肤对应的法师帧（惰性生成 + 缓存）；blue/未知 → null（调用方直接用 SPR.mg*）
+  const sk = _heroSkinDef(id);
+  if (sk.id === 'blue') return null;
+  if (!SPR.mageSkins) SPR.mageSkins = {};
+  if (SPR.mageSkins[sk.id]) return SPR.mageSkins[sk.id];
+  const PL = _magePalFromSkin(sk);
+  const f = { run: [0, 1, 2, 3, 4, 5].map(function (i) { return _mgSprite('run' + i, PL); }) };
+  _MAGE_SKIN_FRAME.forEach(function (k) { f[k] = _mgSprite(k, PL); });
+  Object.freeze(f.run);
+  SPR.mageSkins[sk.id] = Object.freeze(f);
+  return SPR.mageSkins[sk.id];
 }
 function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调用一次；幂等由外层守卫）
   // 姿态名 → SPR 键：一律 mg 前缀（ui 直接取 SPR.mgIdle1 等；无前缀键会被当成新全局精灵，且与 hero* 撞命名域）

@@ -410,12 +410,22 @@ function skinName(id){const i=skinIdx(id);return i<0?(id||'星蓝'):(SKIN_LIST[i
 function skinFrames(id){ // v7.7：取某套皮肤全部帧（art.js 侧惰性生成+缓存；接口未合入 → null 走 SPR.* 兜底）
   return (typeof getHeroSkin==='function')?getHeroSkin(id||'blue'):null;
 }
+function mageSkinFrames(id){ // v19.4：同一套皮肤对应的法师帧（blue/未知/art 未合入 → null，调用方直接用 SPR.mg*）
+  return (typeof getMageSkin==='function')?getMageSkin(id||'blue'):null;
+}
 function skinOwned(){ // v7.7：已解锁套数（按 SKIN_LIST 计，存档里若残留未知 id 不会被算进 N/17）
   let n=0;for(let i=0;i<SKIN_LIST.length;i++)if(progress.skins.indexOf(SKIN_LIST[i].id)>=0)n++;
   return n;
 }
 function skinIdle1(id){ // v7.7：某套皮肤的待机帧（缺键/未合入 → SPR.heroIdle1；衣橱缩略图与背包预览共用）
-  const f=skinFrames(id===undefined?progress.skin:id);
+  // v19.4：按当前出战英雄取——法师走 mageSkinFrames（blue 返回 null → 落回 SPR.mgIdle1 本命配色），
+  //        衣橱缩略图/背包肖像因此会随角色切换，而不是永远显示骑士。
+  const key=(id===undefined?progress.skin:id);
+  if(game.hero==='mage'){
+    const m=mageSkinFrames(key);
+    return (m&&m.idle1)?m.idle1:(SPR.mgIdle1||SPR.heroIdle1);
+  }
+  const f=skinFrames(key);
   return (f&&f.idle1)?f.idle1:SPR.heroIdle1;
 }
 // ---------- v19 英雄表（engine.js HEROES 为唯一真值；守卫式兜底保证 ui 在旧引擎上照常运行） ----------
@@ -428,10 +438,10 @@ const HERO_FALLBACK={
             o:{name:'流星连斩',desc:'时停十字斩：屏内敌人全灭并清弹幕', cd:20,mana:0,ult:true},
             l:{name:'星刃回旋',desc:'掷出回旋星刃，去回两程割草',   cd:6, mana:0}}},
   mage:{id:'mage',name:'星语法师',short:'法师',hpBase:4,usesMana:true,
-    skills:{u:{name:'冰晶长矛',desc:'掷出穿透三敌的冰矛，命中重击',       cd:6, mana:30},
+    skills:{u:{name:'霜爆新星',desc:'身周炸开八道冰锥，命中冻结 0.8 秒',        cd:7, mana:25},
             i:{name:'星辉屏障',desc:'2.5 秒内吸收 2 次伤害',            cd:10,mana:25},
             o:{name:'陨星风暴',desc:'锁定全屏落星：六颗陨星轰击敌阵',   cd:20,mana:0,ult:true},
-            l:{name:'追星弹',  desc:'三枚追踪星弹锁定最近的敌人',       cd:6, mana:25}}}
+            l:{name:'引力奇点',desc:'丢出奇点吸附敌人，1.1 秒后引爆',   cd:8, mana:30}}}
 };
 function heroDef(id){ // 内部：英雄表项（engine 未合入/非法 id → spec 同值兜底）
   if(typeof HEROES!=='undefined'&&HEROES&&HEROES[id]&&HEROES[id].skills)return HEROES[id];
@@ -3094,7 +3104,14 @@ function magePoseImg(tick){
   const p=game.player;
   if(!p)return SPR.heroIdle1;
   const flip=p.face<0;
-  const park=(k,fb)=>{ // 内部：单帧取帧——法师帧优先，缺失回落骑士帧；左向优先 ...L 变体
+  /* v19.4：法师也吃换色皮肤。sk=本套皮肤的法师帧集；blue（本命配色）/art 未合入 → null，
+     此时一切走 SPR.mg*，与 v19 上线时逐像素一致（守卫式降级）。 */
+  const sk=mageSkinFrames(progress.skin);
+  const park=(k,fb)=>{ // 内部：单帧取帧——皮肤帧 > 法师帧 > 骑士帧；皮肤帧没有 ...L 变体，翻转用 flipCache
+    // 注意键名：形参是 SPR 键（mgIdle1），皮肤帧集用的是姿态名（idle1）——去掉 mg 前缀再把首字母转小写。
+    const mn=(k.indexOf('mg')===0)?(k.charAt(2).toLowerCase()+k.slice(3)):k;
+    const sf=sk&&sk[mn];
+    if(sf)return flip?flipCache(sf):sf;
     if(SPR[k])return flip?(SPR[k+'L']||SPR[k]):SPR[k];
     if(flip&&SPR[fb+'L'])return SPR[fb+'L'];
     return SPR[fb]||SPR.heroIdle1;
@@ -3104,9 +3121,12 @@ function magePoseImg(tick){
   else anim=Math.abs(p.vx)>10?'run':'idle';
   if(anim==='idle')img=(tick%40<38)?park('mgIdle1','heroIdle1'):park('mgIdle2','heroIdle2');
   else if(anim==='run'){
-    const runR=(SPR.mgRun&&SPR.mgRun.length)?SPR.mgRun:null;
-    const runL=(flip&&SPR.mgRunL&&SPR.mgRunL.length)?SPR.mgRunL:runR;
-    if(runR){const i=(p.animT*12|0)%runR.length;img=runL[i]||runR[i];}
+    const src=(sk&&sk.run&&sk.run.length)?sk.run:((SPR.mgRun&&SPR.mgRun.length)?SPR.mgRun:null);
+    if(src){
+      const i=(p.animT*12|0)%src.length;
+      if(sk)img=flip?flipCache(src[i]||src[0]):(src[i]||src[0]);
+      else img=(flip&&SPR.mgRunL&&SPR.mgRunL[i])?SPR.mgRunL[i]:src[i]; // 本命配色走预烘焙 ...L
+    }
     else img=park('mgRun','heroRun');
   }
   else if(anim==='jump')img=park('mgJump','heroJump');
@@ -3120,7 +3140,7 @@ function magePoseImg(tick){
   return img;
 }
 function heroPoseImg(tick){
-  if(game.hero==='mage')return magePoseImg(tick); // v19：法师走独立取帧（无皮肤/无装备）
+  if(game.hero==='mage')return magePoseImg(tick); // v19：法师走独立取帧（v19.4 起也吃换色皮肤）
   const p=game.player;
   let anim;
   if(!p.onGround)anim=p.vy<0?'jump':'fall';
@@ -3183,9 +3203,12 @@ function renderPlayer(tick){
   if(p.dead){ // 死亡表现：旋转上抛渐隐（替代 v1 的 0.9s 完全隐形）
     // v19 §3.3：法师用 mgFall（左向取 mgFallL，缺素材回落 heroFall）；骑士路径逐字不变
     const sk=skinFrames(progress.skin); // v7.7：死亡帧同样随皮肤（缺键/未合入 → SPR.heroFall）
-    const df=(game.hero==='mage')
-      ?(p.face<0?(SPR.mgFallL||SPR.mgFall||SPR.heroFall):(SPR.mgFall||SPR.heroFall))
-      :heroLook((sk&&sk.fall)?sk.fall:SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
+    let df;
+    if(game.hero==='mage'){ // v19.4：法师死亡帧也随皮肤；blue/未合入 → 本命 mgFall + 预烘焙 mgFallL
+      const ms=mageSkinFrames(progress.skin);
+      const f=(ms&&ms.fall)?ms.fall:(SPR.mgFall||SPR.heroFall);
+      df=ms?(p.face<0?flipCache(f):f):(p.face<0?(SPR.mgFallL||f):f);
+    }else df=heroLook((sk&&sk.fall)?sk.fall:SPR.heroFall,'idle'); // v6 §F：死亡分支直接调 heroLook（右向基准，朝向随 heroLook）
     ctx.save();
     ctx.translate(px(p.x-3)+df.width/2,px(p.y-2)+df.height-2);
     ctx.rotate(p.deadT*9);
@@ -3969,8 +3992,9 @@ function renderBag(tick){
   _panel(24,8,336,208);
   // 左·角色区：外观预览 ×3（48×48）@ (44,24)（SPR.look 未合入=现主角帧直通）
   // v7.7：预览帧跟随当前皮肤（守卫：getHeroSkin 未合入 → SPR.heroIdle1）
-  // v19 §3.2：法师→mgIdle1（无皮肤/无装备外观合成，缺素材回落骑士帧）
-  const pv=(game.hero==='mage')?heroFrame('mage'):heroLook(skinIdle1(progress.skin),'idle');
+  // v19 §3.2：法师→mgIdle1（无装备外观合成，缺素材回落骑士帧）
+  // v19.4：法师肖像也跟随换色皮肤（blue → skinIdle1 内部回落 mgIdle1 本命配色）
+  const pv=(game.hero==='mage')?skinIdle1(progress.skin):heroLook(skinIdle1(progress.skin),'idle');
   if(pv)ctx.drawImage(pv,44,24,48,48);
   // 属性行（读 game.equip；攻击=基攻+装备加成，加成绿字；§7.2/工单 §C）
   const atkBase=(typeof BAL!=='undefined'&&BAL&&BAL.player&&BAL.player.atkBase)||1;
@@ -4090,7 +4114,11 @@ function renderWardrobe(tick){
     _panel(x,y,WD_CELL[0],WD_CELL[1],{cut:3,alpha:own?0.85:0.5});
     if(own){
       const th=skinIdle1(id);                 // v7.7：缩略图用该皮肤 idle1（未合入/缺键 → SPR.heroIdle1）
-      if(th)ctx.drawImage(th,x+12,y+3,16,20);
+      // v19.4：法师帧是 16×16，骑士是 16×20——按 16×20 拉伸会把法师压扁，故按角色换目标框并居中
+      if(th){
+        if(game.hero==='mage')ctx.drawImage(th,x+12,y+5,16,16);
+        else ctx.drawImage(th,x+12,y+3,16,20);
+      }
       drawCNText(SKIN_LIST[i].name||id,x+20,y+25,7,cur?'#f8d048':'#dfe4f4','center');
     }else{ // 未解锁：格面压暗 + 中央锁形 + 名字 ???
       ctx.fillStyle='rgba(4,8,20,0.55)';ctx.fillRect(x+2,y+2,WD_CELL[0]-4,WD_CELL[1]-4);

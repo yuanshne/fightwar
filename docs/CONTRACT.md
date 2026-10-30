@@ -830,7 +830,13 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
   `#a8e8ff` 体 / `#ffffff` 心）、`singularity[2]` 14×14（v19.3 引力奇点：纯黑视界 + 细光子环 +
   稀疏螺旋吸积臂，外圈留空）、`starMeteor[2]` 10×12、`mgU/mgI/mgO/mgL` 12×12、`cover.mageSil` 24×28。
   v19.3 起 `iceLance`/`seeker` 两个键已删除（旧 U/L 的素材，随技能一起下线）。
-- `HERO_SKINS` 仍恰 20 套；法师不吃换色皮肤。
+- `HERO_SKINS` 仍恰 20 套；**v19.4 起两个角色都吃换色皮肤**：
+  `getHeroSkin(id)` 给骑士帧（`hero*` 键集合，19 套 + blue 复用），
+  `getMageSkin(id)` 给法师帧（`{idle1,idle2,run[6],jump,fall,attack,cast,dash,dashWind,squash}` 各 16×16）。
+  **`getMageSkin('blue')` 返回 `null`**——星蓝就是法师本命配色，直接用 `SPR.mg*`，不做映射（零重复绘制）。
+  映射规则在 `_magePalFromSkin`：袍身 `b/B/W` 直取、金饰（帽带/腰带/袍摆）取 `y`、
+  法杖宝珠体取 `s` 芯取 `y`（围巾系亮档，够亮才像发光）、**肤色 `s` 与五官 `e/p` 固定为 `_P_MG`**。
+  帧缓存在 `SPR.mageSkins[id]`（惰性 + 冻结），不进 `SPR.skins`（那是骑士的）。
 
 ### ui.js 契约（第 5 节以外的界面口径）
 - `progress.hero`（'knight'|'mage'，缺省/非法回落 knight）；选角覆盖层 `heroOpen`、
@@ -840,6 +846,12 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 - 法力条画在血条面板 `(1,16,104,14)` 右半区（`MP` 64,21 / 槽 72,21,28,5），**不新增纵向空间**
   （否则与 Boss 血条 y=29 相撞）。
 - `renderSlash` 对法师直接 return；`renderUlt` 按 hero 分派；技能卡/CD 分母读 `HEROES`。
+- `magePoseImg()`（v19.4）：取帧顺序 `mageSkinFrames(progress.skin)` → `SPR.mg*` → 骑士帧。
+  ⚠️ 皮肤帧集的键是**姿态名**（`idle1`），函数形参是 **SPR 键**（`mgIdle1`）——查表前必须去掉 `mg` 前缀
+  并把首字母转小写，否则永远查空（首版就是这么回落到本命配色、局内看着"皮肤没生效"，而衣橱却是好的）。
+  皮肤帧没有 `...L` 变体，左向用 `flipCache()` 运行时镜像；本命配色仍走预烘焙的 `SPR.mg*L`。
+- `skinIdle1(id)` 按当前 `game.hero` 分派：法师走 `mageSkinFrames`，衣橱缩略图与背包肖像因此随角色切换。
+  衣橱缩略图尺寸按角色分：法师 16×16 @ y+5、骑士 16×20 @ y+3（法师帧是 16×16，按 16×20 拉伸会压扁）。
 - `renderShots()`（新增，内部）：`renderSlash()` 之后、世界空间内绘制 `game.shots`
   （bolt 取 `SPR.arcaneBolt[(tick>>2)%2]` / shard 取 `SPR.iceShard`（**不旋转**——八向冰锥要看清朝向），
   `s.vx<0` 水平翻转，尾段 0.12s 渐隐，素材缺失时程序化兜底）。**引擎不画弹体、UI 不判命中**。

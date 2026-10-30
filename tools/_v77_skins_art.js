@@ -31,7 +31,7 @@ function mkCanvas(w, h) {
 function sandbox(code) { // 每次独立上下文（art.js 顶层零 DOM，只在函数体内取 document）
   const doc = { createElement: t => (t === 'canvas' ? mkCanvas(1, 1) : {}), getElementById: () => null };
   return new Function('document', 'window', code
-    + '\n;return {SPR,HERO_SKINS,getHeroSkin,buildSprites,GRIDS:{' // 主角网格（内部 const，此处只为「调色板键齐不齐」审计导出）
+    + '\n;return {SPR,HERO_SKINS,getHeroSkin,getMageSkin,magePal:_magePalFromSkin,buildSprites,GRIDS:{' // 主角网格（内部 const，此处只为「调色板键齐不齐」审计导出）
     + 'idle1:_H_IDLE1,idle2:_H_IDLE2,run:_H_RUNS,jump:_H_JUMP,fall:_H_FALL,attack:_H_ATTACK,'
     + 'dash:_H_DASH,squash:_H_SQUASH,dashWind:_H_DASHWIND}};')(doc, {});
 }
@@ -177,6 +177,36 @@ console.log('\n耗时（canvas 桩环境，交替 5 轮取最小）：buildSprit
   + 'ms → v7.7 启动增量 ' + (tDelta >= 0 ? '+' : '') + tDelta.toFixed(2) + 'ms（阈值 <30ms；负值=纯噪声，即预生成 blue 不画像素）');
 console.log('惰性成本参考：首次取 19 套皮肤 ' + tLazyAll.toFixed(2) + 'ms（均摊 ' + (tLazyAll / 19).toFixed(2) + 'ms/套，只在用到时才付）');
 if (tDelta >= 30) fails.push('buildSprites 的 v7.7 启动增量 ≥30ms（' + tDelta.toFixed(2) + 'ms）');
+
+/* ---------- ⑥ v19.4 法师换色皮肤（同一套调色板映射到 mg* 帧） ---------- */
+const MG_FRAME = ['idle1', 'idle2', 'jump', 'fall', 'attack', 'cast', 'dash', 'dashWind', 'squash'];
+const P_MG_FACE = { s: '#f8d0a8', e: '#241848', p: '#f8a0b0' }; // 法师固定三项：肤色/五官（换衣服不该换脸）
+if (A.getMageSkin('blue') !== null) fails.push("getMageSkin('blue') 应为 null——本名配色直接用 SPR.mg*，不做映射");
+if (A.getMageSkin('不存在的id') !== null) fails.push('getMageSkin 未知 id 应回落 blue→null');
+const mageIds = [];
+for (const sk of SKINS) {
+  if (sk.id === 'blue') continue;
+  const f = A.getMageSkin(sk.id);
+  if (!f) { fails.push('getMageSkin(' + sk.id + ') 返回空'); continue; }
+  for (const k of MG_FRAME)
+    if (!f[k] || f[k].width !== 16 || f[k].height !== 16) fails.push(sk.id + '.mage.' + k + ' 缺失或尺寸不是 16×16');
+  if (!Array.isArray(f.run) || f.run.length !== 6) fails.push(sk.id + '.mage.run 应为 6 帧');
+  else f.run.forEach((c, i) => { if (!c || c.width !== 16) fails.push(sk.id + '.mage.run[' + i + '] 不是有效 canvas'); });
+  if (!Object.isFrozen(f) || !Object.isFrozen(f.run)) fails.push(sk.id + '.mage 帧对象未冻结');
+  if (A.getMageSkin(sk.id) !== f) fails.push(sk.id + ' 法师帧未命中缓存（同 id 应同对象）');
+  const pal = A.magePal(sk);
+  if (pal.b !== sk.pal.b || pal.B !== sk.pal.B || pal.W !== sk.pal.W)
+    fails.push(sk.id + ' 法师袍色未跟随皮肤的 b/B/W');
+  if (pal.y !== sk.pal.y) fails.push(sk.id + ' 法师金饰（帽带/腰带/袍摆）未跟随皮肤的 y');
+  if (pal.s !== P_MG_FACE.s || pal.e !== P_MG_FACE.e || pal.p !== P_MG_FACE.p)
+    fails.push(sk.id + ' 法师肤色/五官被皮肤改动了（换衣服不该换脸）');
+  if (pal.O === pal.b) fails.push(sk.id + ' 法杖宝珠与袍身同色（会糊进袍子里，看不出是根法杖）');
+  mageIds.push(sk.id);
+}
+const mageCacheN = Object.keys(A.SPR.mageSkins || {}).length;
+if (mageCacheN !== SKINS.length - 1) fails.push('SPR.mageSkins 缓存数应为 ' + (SKINS.length - 1) + '，实为 ' + mageCacheN);
+console.log('\n法师皮肤: ' + mageIds.length + ' 套可换色（blue 走本命配色），每套 ' + MG_FRAME.length + ' 单帧 + run6 = ' +
+  (MG_FRAME.length + 6) + ' 个 canvas，缓存 ' + mageCacheN + ' 套');
 
 /* ---------- 汇总 ---------- */
 if (fails.length) {
