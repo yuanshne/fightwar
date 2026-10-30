@@ -793,9 +793,11 @@ const BAL = {
     trash: [70, 24, 5, 1, 0], trashDrop: 0.07 },
   /* v19：第二角色「星语法师」数值（spec docs/specs/2026-10-29-v19-mage.md §1.2，唯一真值）。
      设计意图（调参前必读）：
-       · 普攻 DPS≈2/0.38≈5.3，与骑士 5.7 基本持平；但弹道有飞行时间 + 射程 255px（0.85s×300），
+       · 普攻 DPS≈2/0.46≈4.3，低于骑士 5.7——v20.4 用户实测「法师太强」三连削后的定位：
+         攻速 0.38→0.46、射程 255→210px（life 0.85→0.70）、自然回蓝 5→3、命中回蓝 8→5；
          换来的安全性由「少 1 心 + 法力门槛」支付——不是白送的远程优势。
-       · 法力循环：满 100；每秒回 5；普攻命中 +8；击杀 +12。U+L 一轮 55 法力 ⇒ 约 11 秒自然回蓝，
+       · 法力循环：满 100；每秒回 3；普攻命中 +5；击杀 +12。U+L 一轮 55 法力 ⇒ 约 18 秒自然回蓝，
+         且命中回蓝不再近乎无限（v20.4 前连中 13 发≈5 秒回满 =「相当于没有限制」），
          鼓励持续命中（保持连击/回蓝）而不是站桩丢技能。
        · O 不耗蓝，是唯一的爆发出口：6×3=18 点 Boss 伤害（骑士大招 5 点 + 全屏清怪），
          但法师大招不清弹幕、不秒杀小怪，只提供伤害——所以总价值相当。
@@ -803,8 +805,8 @@ const BAL = {
   heroes: {
     mage: {
       hpBase: 4,                 // 玻璃大炮：比勇者少 1 心
-      manaMax: 100, manaRegen: 5, manaPerHit: 8, manaPerKill: 12,
-      bolt: { cd: 0.38, dmg: 2, v: 300, life: 0.85, w: 8, h: 6, homeR: 110, homeDeg: 26, turn: 6 },
+      manaMax: 100, manaRegen: 3, manaPerHit: 5, manaPerKill: 12,
+      bolt: { cd: 0.46, dmg: 2, v: 300, life: 0.70, w: 8, h: 6, homeR: 110, homeDeg: 26, turn: 6 },
       u: { cd: 7,  mana: 25, n: 8, dmg: 3, v: 300, life: 0.36, freeze: 0.8, w: 7, h: 7 },   // v19.3 霜爆新星：八向冰锥 + 冻结
       i: { cd: 10, mana: 25, dur: 2.5, absorb: 2 },                    // 复用骑士护盾实现，只换参数
       o: { cd: 20, mana: 0,  t: [0.35, 0.90, 1.20], n: 6, dmg: 3, aoe: 30, fallV: 340, gap: 0.08 },
@@ -4499,7 +4501,7 @@ function _engUpdatePlayer(dt, L, p) {
   // 死亡冻结 0.9s 后重生（契约算法 12）
   if (p.dead) { p.deadT += dt; if (p.deadT >= 0.9) respawn(); return; }
 
-  /* ---- v19（spec §2.8）：法师法力自然回复 5/s + 「法力不足」提示计时 ----
+  /* ---- v19（spec §2.8）：法师法力自然回复 3/s（v20.4：5→3）+ 「法力不足」提示计时 ----
      骑士 usesMana=false ⇒ 本块整段跳过（mana 恒 0，零行为变化/零浮点累加）。 */
   if (_engHero().usesMana) {
     const manaNow = Number.isFinite(game.mana) ? game.mana : 0;
@@ -4527,7 +4529,7 @@ function _engUpdatePlayer(dt, L, p) {
     p.abuf -= dt;
     if (p.atkCd <= 0 && p.dashT <= 0) { // v5 §C：冲刺期间不起手（三段占用操控）
       p.abuf = 0;
-      // v19（spec §2.4）：法师攻速取英雄表（0.38s），骑士仍走 _engAtkCd（0.35s，字节等价）
+      // v19（spec §2.4）：法师攻速取英雄表（0.46s，v20.4：0.38→0.46），骑士仍走 _engAtkCd（0.35s，字节等价）
       p.atkCd = _engHero().usesMana ? BAL.heroes.mage.bolt.cd : _engAtkCd;
       p.atkAnim = _engAtkAnim; p.atkWind = _engAtkWind; p.atkT = 0;
       p.atkSeq = (p.atkSeq || 0) + 1; // v5：新摆新序号（§N.c 一摆一伤口径）

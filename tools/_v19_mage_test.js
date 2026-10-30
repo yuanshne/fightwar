@@ -114,12 +114,12 @@ console.log('[T1] HEROES 注册表 / BAL.heroes.mage 完整性');
   const mk = M || {}, keys = ['hpBase', 'manaMax', 'manaRegen', 'manaPerHit', 'manaPerKill', 'bolt', 'u', 'i', 'o', 'l'];
   const missing = keys.filter(k => mk[k] === undefined);
   ok(missing.length === 0, 'BAL.heroes.mage 键完整（hp/mana/bolt/u/i/o/l）', '缺 ' + missing.join(','));
-  ok(mk.manaMax === 100 && mk.manaRegen === 5 && mk.manaPerHit === 8 && mk.manaPerKill === 12,
-    '法力循环参数 100 / +5s / 命中+8 / 击杀+12');
+  ok(mk.manaMax === 100 && mk.manaRegen === 3 && mk.manaPerHit === 5 && mk.manaPerKill === 12,
+    '法力循环参数 100 / +3s（v20.4：5→3）/ 命中+5（v20.4：8→5）/ 击杀+12');
   const b = mk.bolt || {}, u = mk.u || {}, i = mk.i || {}, o = mk.o || {}, l = mk.l || {};
-  ok(b.cd === 0.38 && b.dmg === 2 && b.v === 300 && b.life === 0.85 && b.w === 8 && b.h === 6
+  ok(b.cd === 0.46 && b.dmg === 2 && b.v === 300 && b.life === 0.70 && b.w === 8 && b.h === 6
     && b.homeR === 110 && b.homeDeg === 26 && b.turn === 6,
-    'bolt 表：0.38s / 2 伤 / 300px/s / 0.85s / 8×6 / 追踪 110px±26°', JSON.stringify(b));
+    'bolt 表（v20.4：0.38→0.46 / 0.85→0.70）：0.46s / 2 伤 / 300px/s / 0.70s / 8×6 / 追踪 110px±26°', JSON.stringify(b));
   ok(u.cd === 7 && u.mana === 25 && u.n === 8 && u.dmg === 3 && u.freeze === 0.8 && u.v === 300 && u.life === 0.36,
     'u 表（v19.3 霜爆新星）：7s / 25 蓝 / 8 道 / 3 伤 / 冻结 0.8s / 300px/s / 0.36s', JSON.stringify(u));
   ok(i.cd === 10 && i.mana === 25 && i.dur === 2.5 && i.absorb === 2, 'i 表：10s / 25 蓝 / 2.5s / 吸 2 次', JSON.stringify(i));
@@ -186,8 +186,8 @@ console.log('[T3] mage：4 血 / 满蓝 / 普攻生成弹体并在 1s 内命中'
   const fShot = waitShots(g, 24, pinE(e));   // 0.4s = 24 帧
   ok(fShot > 0 && g.shots.length === 1, '普攻 0.4s 内生成 1 发弹体（第 ' + fShot + ' 帧）', g.shots.length);
   const s = g.shots[0] || {};
-  ok(s.kind === 'bolt' && s.w === 8 && s.h === 6 && Math.abs(s.vx) === 300 && near(s.life, 0.85, 0.02),
-    '弹体形态：kind=bolt / 8×6 / ±300px/s / life≈0.85', JSON.stringify({ k: s.kind, vx: s.vx, life: s.life }));
+  ok(s.kind === 'bolt' && s.w === 8 && s.h === 6 && Math.abs(s.vx) === 300 && near(s.life, 0.70, 0.02),
+    '弹体形态：kind=bolt / 8×6 / ±300px/s / life≈0.70（v20.4：0.85→0.70）', JSON.stringify({ k: s.kind, vx: s.vx, life: s.life }));
   let hitF = -1;
   for (let f = 0; f < 60 && hitF < 0; f++) { stepHold(g, 1, pinE(e)); if (e.hp < hp0) hitF = fShot + f + 1; }
   ok(hitF > 0 && hitF <= 60, '弹体飞行并在 1s 内命中敌人（总第 ' + hitF + ' 帧，hp 10→' + e.hp + '）', hitF);
