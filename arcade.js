@@ -77,80 +77,81 @@
   const STAGES = {
     0: {
       type: 'mine', genre: '动作扫雷', title: '草原寻雷',
-      cols: 7, rows: 5, mines: 7, par: 36, limit: 120, totalCoin: 1,
-      objective: '挥剑翻开所有安全格，避开 7 颗地雷',
+      cols: 9, rows: 6, mines: 12, par: 45, limit: 110, totalCoin: 1,
+      objective: '挥剑翻开所有安全格，避开 12 颗地雷',
       controls: '方向移动 · J/空格 翻开 · K 插旗 · 鼠标点格',
-      hint: '攻击=翻开格子，K=插旗。第一剑必定安全；踩雷扣 1 心。'
+      hint: '9×6 雷区共 12 颗雷。先翻零格扩散，再用数字推理；踩雷扣 1 心。'
     },
     1: {
       type: 'mole', genre: '打地鼠', title: '洞窟敲击',
-      quota: 10, cols: 3, rows: 2, rate: 0.62, upMin: 0.70, upMax: 1.05, bomb: 0,
-      par: 32, limit: 60, totalCoin: 3,
-      objective: '敲中 10 只地鼠；金鼠会多给 1 枚奖励币',
+      quota: 12, cols: 3, rows: 2, rate: 0.52, upMin: 0.55, upMax: 0.85, bomb: 0.15,
+      par: 30, limit: 50, totalCoin: 3,
+      objective: '敲中 12 只地鼠；金鼠 +1 奖励币，炸弹会扣 1 心',
       controls: '方向移动 · J/空格 敲击 · 鼠标点地鼠',
-      hint: '地鼠冒头再打；每 3 只里有一只是金鼠，别放过。'
+      hint: '地鼠冒头就敲，别等它缩回去；引线冒火的炸弹千万别碰。'
     },
     2: {
       type: 'lights', genre: '点灯', title: '天空灯阵',
-      cols: 4, rows: 4, scramble: 6, parMoves: 9, par: 48, limit: 140, totalCoin: 1,
-      objective: '把所有灯点亮；每次会翻转自己与上下左右',
+      cols: 5, rows: 5, scramble: 10, parMoves: 12, par: 60, limit: 150, totalCoin: 1,
+      objective: '把 5×5 灯阵全部点亮；每次翻转自己与上下左右',
       controls: '方向移动 · J/空格 翻转 · 鼠标点灯',
-      hint: '先想后按：步数 ≤ 目标步数可拿满奖励，乱点会把灯按回去。'
+      hint: '先想后按：步数 ≤ 12 可拿满奖励，乱点会把灯按回去。'
     },
     3: {
       type: 'memory', genre: '记忆翻牌', title: '齿轮配对',
-      pairs: 6, cols: 4, par: 55, limit: 130, totalCoin: 1,
-      objective: '翻开并配对 6 对图案，零失误可拿满奖励',
+      pairs: 8, cols: 4, par: 60, limit: 140, totalCoin: 1,
+      objective: '翻开并配对 8 对图案，零失误可拿满奖励',
       controls: '方向移动 · J/空格 翻牌 · 鼠标点牌',
-      hint: '先连续翻两张记位置；配错会盖回去，但不会扣心。'
+      hint: '16 张牌、8 对图案；先连续翻两张记位置，配错会盖回去。'
     },
     4: {
       type: 'sokoban', genre: '推箱子', title: '烈焰货仓',
-      map: ['#########', '#.......#', '#.o.....#', '#..#....#', '#..b....#', '#...p...#', '#########'],
-      parMoves: 8, par: 45, limit: 150, totalCoin: 1,
-      objective: '把木箱推到金色目标上；只能推，不能拉',
+      map: ['#########', '#.......#', '#.o...o.#', '#.......#', '#..b.b..#', '#...p...#', '#########'],
+      parMoves: 12, par: 40, limit: 130, totalCoin: 1,
+      objective: '把 2 个木箱推到金色目标上；只能推，不能拉',
       controls: '方向移动 · K 撤销一步 · 鼠标不参与',
-      hint: '箱子推进死角就 K 撤销；先把箱子挪到目标正下方再往上推。'
+      hint: '两个箱子要分别绕到上方目标；推进死角就 K 撤销，最短 12 步。'
     },
     5: {
       type: 'snake', genre: '贪吃蛇', title: '塔内灵蛇',
-      target: 8, cols: 18, rows: 10, speed: 0.16, par: 58, limit: 130, totalCoin: 1,
-      objective: '吃掉 8 颗灵果；撞墙、撞自己会扣心',
+      target: 10, cols: 18, rows: 10, speed: 0.145, par: 50, limit: 120, totalCoin: 1,
+      walls: [[3, 2], [8, 1], [14, 2], [3, 7], [10, 8], [14, 7]],
+      objective: '吃掉 10 颗灵果；撞墙、撞自己会扣心',
       controls: '方向键 / WASD 转向 · 鼠标不参与',
-      hint: '不能原地掉头；吃到灵果会长一节，撞一次扣 1 心。'
+      hint: '场中多了石柱，不能原地掉头；吃到灵果会长一节，撞一次扣 1 心。'
     },
     7: {
       type: 'gold', genre: '矿脉寻宝', title: '翡翠矿脉',
-      quota: 6, emeralds: 4, rocks: 2, par: 55, limit: 140, totalCoin: 3,
-      objective: '放钩抓取 6 颗宝石；翡翠每次 +1 奖励币',
+      quota: 7, emeralds: 5, rocks: 3, par: 60, limit: 130, totalCoin: 3,
+      objective: '放钩抓取 7 颗宝石；翡翠每次 +1 奖励币，石头拖慢回收',
       controls: 'J/空格 放钩 · 鼠标点击放钩',
-      hint: '钩子左右摆动，看准翡翠再放；石头很重，会拖慢回收。'
+      hint: '钩子左右摆动，看准翡翠再放；石头又重又挡路，宁可空钩也别碰。'
     },
     8: {
       type: 'tetris', genre: '落块筑墙', title: '王城筑墙',
-      quota: 4, cols: 10, rows: 16, par: 60, limit: 150, totalCoin: 1,
-      objective: '消掉 4 行城墙；堆到顶会塌一段并扣 1 心',
+      quota: 6, cols: 10, rows: 16, par: 60, limit: 150, totalCoin: 1,
+      objective: '消掉 6 行城墙；堆到顶会塌一段并扣 1 心',
       controls: '←→ 移动 · ↑/J 旋转 · ↓ 加速 · 空格 直落',
       hint: '先铺平再消行；一次消多行也只算 1 行进度，稳比快重要。'
     },
     9: {
       type: 'dodge', genre: '弹幕生存', title: '星屑风暴',
-      survive: 30, shards: 8, par: 48, limit: 90, totalCoin: 1,
-      objective: '撑过 30 秒并收集 8 枚星屑；被陨星擦到扣 1 心',
+      survive: 40, shards: 10, par: 52, limit: 100, totalCoin: 1,
+      objective: '撑过 40 秒并收集 10 枚星屑；被陨星擦到扣 1 心',
       controls: '方向键 / WASD 移动 · 鼠标不参与',
-      hint: '陨星会越来越密；先保命，再趁空档绕去捡星屑。'
+      hint: '陨星会越来越密；先保命，再趁空档绕去捡星屑，星屑落得很快。'
     },
     10: {
       type: 'simon', genre: '编钟', title: '龙宫编钟',
-      bells: 5, rounds: 5, par: 75, limit: 190, totalCoin: 1,
-      objective: '听钟声顺序并复敲；每一轮多一个音',
+      bells: 5, rounds: 6, par: 75, limit: 190, totalCoin: 1,
+      objective: '听钟声顺序并复敲；每一轮多一个音，共 6 轮',
       controls: '←→ 选钟 · J/空格 敲响 · 鼠标点钟',
       hint: '一轮比一轮长；敲错扣 1 心并重听本轮，3 心用完失败。'
     },
     11: {
       type: 'bubble', genre: '泡泡消除', title: '珊瑚泡泡',
-      cols: 11, rows: 9, fillRows: 5, colors: 5, dangerRow: 7, par: 70, limit: 180, totalCoin: 1,
-      objective: '打空所有珊瑚泡泡；3 颗同色相连即破',
+      cols: 11, rows: 9, fillRows: 5, colors: 5, dangerRow: 7, quota: 150, par: 80, limit: 180, totalCoin: 1,
+      objective: '累计消除 150 颗珊瑚泡泡；3 颗同色相连即破，悬空会掉落',
       controls: '←→ 调整角度 · J/空格 发射 · 鼠标瞄准点击',
       hint: '瞄准同色扎堆处；打空支撑后，悬空的泡泡会一起掉下来。'
     },
@@ -167,21 +168,22 @@
         '#S..o.#o.o..o.#',
         '###############'
       ],
-      par: 65, limit: 150, totalCoin: 1,
+      rate: 0.40, hold: 2.2, holdReset: 1.0,
+      par: 75, limit: 150, totalCoin: 1,
       objective: '捡齐 6 张灵符，再走到右上角鬼门；被鬼差碰到扣 1 心',
       controls: '方向键 / WASD 移动 · 鼠标不参与',
-      hint: '鬼差走最短路径，绕转角甩开；灵符捡完鬼门才会开。'
+      hint: '鬼差走最短路径且比之前更快，绕转角甩开；灵符捡完鬼门才会开。'
     },
     14: {
       type: 'jumper', genre: '垂直攀跃', title: '熔渊攀跃',
-      target: 900, par: 75, limit: 150, totalCoin: 1,
-      objective: '踩着浮石向上攀 900 尺；掉进熔岩扣 1 心',
+      target: 1200, par: 90, limit: 160, totalCoin: 1,
+      objective: '踩着浮石向上攀 1200 尺；掉进熔岩扣 1 心',
       controls: '←→ / AD 移动 · 落到浮石上自动弹跳',
-      hint: '左右可穿屏；浮石会左右移动，提前落位别犹豫。'
+      hint: '左右可穿屏；浮石会左右移动，落点要提前判断，掉下去就前功尽弃。'
     },
     16: {
       type: 'breakout', genre: '打砖块', title: '冥渊封印',
-      cols: 9, rows: 5, par: 90, limit: 200, totalCoin: 1,
+      cols: 9, rows: 6, paddle: 46, speed: 168, par: 110, limit: 200, totalCoin: 1,
       objective: '击碎封印墙上的全部砖块；球掉下去扣 1 心',
       controls: '←→ / 鼠标移动挡板 · J/空格 发射',
       hint: '挡板边缘反弹角度更斜；先打穿一侧，再救中间的赤核。'
@@ -1159,7 +1161,7 @@
         if (d.round >= d.rounds) {
           game.coins = A.hearts === 3 ? 1 : 0;
           game.deaths = 3 - A.hearts;
-          A.status = '五轮全对';
+          A.status = d.rounds + ' 轮全对';
           win();
         } else {
           d.phase = 'wait'; d.waitT = 0.9; d.msg = '正确！下一轮…';
@@ -1274,9 +1276,10 @@
         w: d.brickW, h: d.brickH, hp: hp, max: hp, row: r, core: r === 2 && c === (d.cols / 2 | 0)
       });
     }
-    d.paddle = { x: W / 2 - 26, y: 193, w: 52, h: 7 };
+    const pw = st.paddle || 52;
+    d.paddle = { x: W / 2 - pw / 2, y: 193, w: pw, h: 7 };
     d.ball = { x: W / 2, y: 185, vx: 0, vy: 0, r: 3, stuck: true };
-    d.speed = 158; d.trail = []; d.bump = 0;
+    d.speed = st.speed || 158; d.trail = []; d.bump = 0;
   };
   function breakoutResetBall(d) {
     d.ball.stuck = true; d.ball.vx = 0; d.ball.vy = 0;
@@ -1426,10 +1429,15 @@
     d.quota = st.quota; d.got = 0; d.em = 0; d.emTotal = st.emeralds;
     d.gems = []; d.spark = 0;
     function put(kind) {
-      for (let t = 0; t < 120; t++) {
+      for (let t = 0; t < 160; t++) {
         const r = kind === 'rock' ? 11 : 8;
-        const x = 20 + Math.random() * (W - 40);
-        const y = 112 + Math.random() * 78;
+        const y = 112 + Math.random() * 72;
+        // 只在吊臂 ±1.05 rad、够得到的扇形里生成，避免出现永远抓不到的宝石。
+        const half = Math.tan(1.05) * (y - d.ay);
+        const lo = Math.max(16 + r, d.ax - half), hi = Math.min(W - 16 - r, d.ax + half);
+        if (hi <= lo) continue;
+        const x = lo + Math.random() * (hi - lo);
+        if (Math.hypot(x - d.ax, y - d.ay) > d.maxLen - 6) continue;
         if (d.gems.some(g => Math.hypot(g.x - x, g.y - y) < 26)) continue;
         d.gems.push({
           x: x, y: y, kind: kind, r: r,
@@ -1924,6 +1932,9 @@
       const k = bubIdx(d, r, c);
       if (d.grid[k] >= 0 && !conn.has(k)) { d.grid[k] = -1; drop++; }
     }
+    // v29：消除配额计数（掉落也算），通关条件改为累计消除达到 quota。
+    // 原「打空全盘」在随机 5 色盘上会剩无法连三的孤球，真人也会被卡死。
+    d.pops += cl.length + drop;
     if (drop) addFloat('悬空掉落 +' + drop, '#8ae8f8', W / 2, bubY(d, 1));
   }
   function bubSnap(d, px, py, hitR, hitC) {
@@ -1954,11 +1965,6 @@
       return;
     }
     bubResolve(d, r, c);
-    if (!A.done && bubCount(d) === 0) {
-      game.coins = A.hearts === 3 ? 1 : 0;
-      A.status = '珊瑚泡泡清空';
-      win();
-    }
   }
   function bubStep(d, dt) {
     const s = d.shot;
@@ -2000,6 +2006,7 @@
     d.angle = 0;
     d.cur = (Math.random() * d.colors) | 0; d.next = (Math.random() * d.colors) | 0;
     d.shot = null; d.shots = 0;
+    d.pops = 0; d.quota = st.quota || 120;
   };
   UPDATE.bubble = function (dt, inp) {
     const d = A.data;
@@ -2012,7 +2019,13 @@
     }
     if (inp.attackHit || inp.confirmHit) bubFire(d);
     if (d.shot) bubStep(d, dt);
-    A.status = '剩余 ' + bubCount(d) + '　发射 ' + d.shots;
+    if (!A.done && (d.pops >= d.quota || bubCount(d) === 0)) {
+      game.coins = A.hearts === 3 ? 1 : 0;
+      A.status = '珊瑚泡泡消除 ' + d.pops + ' 颗';
+      win();
+      return;
+    }
+    A.status = '消除 ' + d.pops + '/' + d.quota + '　剩余 ' + bubCount(d) + '　发射 ' + d.shots;
   };
   RENDER.bubble = function () {
     const d = A.data;
@@ -2063,6 +2076,7 @@
     ax.fillStyle = BUB_COL[d.next] || '#fff';
     ax.beginPath(); ax.arc(d.shooter.x + 34, d.shooter.y - 2, 6, 0, TAU); ax.fill();
     txt('下一颗', d.shooter.x + 34, d.shooter.y + 12, 7, '#7e8ca8', 'center');
+    txt('消除 ' + d.pops + '/' + d.quota, W - 50, 187, 8, '#8ae8f8', 'center');
   };
 
   /* ============================================================
@@ -2115,9 +2129,10 @@
     d.ghosts = d.ghostSpawns.map(p => ({
       x: p.x, y: p.y, px: mazePixelX(d, p.x), py: mazePixelY(d, p.y), t: 0
     }));
-    d.rate = 0.46;
-    // 开局 2.6 秒鬼差不动，给玩家看清地图的时间；被抓重置后也给 1.2 秒喘息。
-    d.hold = 2.6;
+    d.rate = st.rate || 0.46;
+    // 开局给玩家看清地图的时间；被抓重置后也留一段喘息，均可由关卡配置。
+    d.hold = st.hold != null ? st.hold : 2.6;
+    d.holdReset = st.holdReset != null ? st.holdReset : 1.2;
   };
   function mazePixelX(d, cx) { return d.bx + cx * d.cell + d.cell / 2; }
   function mazePixelY(d, cy) { return d.by + cy * d.cell + d.cell / 2; }
@@ -2134,7 +2149,7 @@
       g.x = s.x; g.y = s.y; g.px = mazePixelX(d, g.x); g.py = mazePixelY(d, g.y);
     }
     d.cd = 0.9;
-    d.hold = 1.2;
+    d.hold = d.holdReset;
   }
   function mazeGhostStep(d, g) {
     const dist = mazeDist(d, d.player.y, d.player.x);

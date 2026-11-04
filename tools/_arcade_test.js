@@ -1,7 +1,9 @@
-// node tools/_arcade_test.js —— v26/v27 街机小关验收（node，无依赖）
+// node tools/_arcade_test.js —— v26/v27/v29 街机小关验收（node，无依赖）
 // 用户口径：「小关完全放弃横屏从左向右走，改成其他游戏类型；只有选关时按钮才和 Boss 放一块」
 // v27 追加：14 个小关 14 种玩法两两不同（原 6 对重复各换掉一个），新增
 //           矿脉寻宝 / 落块筑墙 / 弹幕生存 / 泡泡消除 / 迷宫追逃 / 垂直攀跃。
+// v29 追加：用户要求普通关有难度；本文件断言 14 关的难度旋钮不低于 v29 基线，
+//           真实输入可达性由 tools/_v29_arcade_reach.js 单独证明。
 // 覆盖：14 个非 Boss 关全部有独立街机配置、Boss 关一个都不占；14 种玩法齐全；
 //       start 建立伪关卡（tiles=null）→ 结算/星级/解锁所需的 totalCoin/par 齐全；
 //       _forceWin/_forceFail 正确落 clear/fail；每个类型空输入跑 2 秒 + 渲染不崩；
@@ -109,8 +111,11 @@ console.log('[T2c] 新玩法核心机制：放钩 / 消行 / 受击 / 发射 / �
   // 矿脉寻宝：钩到翡翠 → 宝石+1、奖励币+1；集满配额 → 自然胜利
   A.start(7);
   let s = A._state(), d = s.data;
-  ok(d.gems.length === 14, 'L8 矿脉生成 14 个物件', d.gems.length);
-  ok(d.gems.filter(g => g.kind === 'emerald').length === 4, 'L8 翡翠 4 颗', d.gems.filter(g => g.kind === 'emerald').length);
+  ok(d.gems.length === 16, 'L8 矿脉生成 16 个物件', d.gems.length);
+  ok(d.gems.filter(g => g.kind === 'emerald').length === 5, 'L8 翡翠 5 颗', d.gems.filter(g => g.kind === 'emerald').length);
+  ok(d.gems.every(g => Math.abs(Math.atan2(g.x - d.ax, g.y - d.ay)) <= 1.06 &&
+    Math.hypot(g.x - d.ax, g.y - d.ay) <= d.maxLen - 5),
+    'L8 所有宝石都在吊臂可达扇形内', d.gems.length);
   d.gems = [{ x: d.ax, y: d.ay + 80, kind: 'emerald', r: 8, w: 1.15, taken: false }];
   d.angle = 0; d.state = 'extend'; d.len = 12;
   for (let f = 0; f < 240 && d.state !== 'swing'; f++) A.step(1 / 60, {});
@@ -119,11 +124,11 @@ console.log('[T2c] 新玩法核心机制：放钩 / 消行 / 受击 / 发射 / �
   A.stop();
   A.start(7);
   s = A._state(); d = s.data;
-  d.got = 5;
+  d.got = 6;
   d.gems = [{ x: d.ax, y: d.ay + 80, kind: 'gem', r: 8, w: 1, taken: false }];
   d.angle = 0; d.state = 'extend'; d.len = 12;
   for (let f = 0; f < 240 && !s.done; f++) A.step(1 / 60, {});
-  ok(s.done && s.win === true, 'L8 集满 6 颗触发胜利', s.done + '/' + s.win);
+  ok(s.done && s.win === true, 'L8 集满 7 颗触发胜利', s.done + '/' + s.win);
   A.stop();
 
   // 落块筑墙：消行 + 直落；消满 4 行自然胜利
@@ -135,33 +140,33 @@ console.log('[T2c] 新玩法核心机制：放钩 / 消行 / 受击 / 发射 / �
   d.piece = { m: [[1, 1, 1, 1]], ci: 0, x: 0, y: 14 };
   A.step(1 / 60, { confirmHit: true });
   ok(d.lines === 1, 'L9 直落补满一行 → 消行 1', d.lines);
-  ok(!s.done, 'L9 消 1 行还不通关（目标 4）', d.lines);
+  ok(!s.done, 'L9 消 1 行还不通关（目标 6）', d.lines);
   const m0 = d.piece.m.map(r => r.join(''));
   A.step(1 / 60, { upHit: true });
   ok(!s.done, 'L9 旋转后仍可继续', m0);
   A.stop();
   A.start(8);
   s = A._state(); d = s.data;
-  d.lines = 3; d.board.fill(-1);
+  d.lines = 5; d.board.fill(-1);
   for (let c = 4; c < 10; c++) d.board[15 * 10 + c] = 0;
   d.piece = { m: [[1, 1, 1, 1]], ci: 0, x: 0, y: 14 };
   A.step(1 / 60, { confirmHit: true });
-  ok(s.done && s.win === true, 'L9 消满 4 行触发胜利', d.lines + '/' + s.done);
+  ok(s.done && s.win === true, 'L9 消满 6 行触发胜利', d.lines + '/' + s.done);
   A.stop();
 
   // 弹幕生存：被陨星命中扣心 + 1.2s 无敌；星屑拾取；撑满 30s + 8 枚 → 胜利
   A.start(9);
   s = A._state(); d = s.data;
-  ok(d.p && d.need === 8 && d.survive === 30, 'L10 生存参数就位');
+  ok(d.p && d.need === 10 && d.survive === 40, 'L10 生存参数就位（40s / 10 枚）');
   d.bullets = [{ x: d.p.x, y: d.p.y, vx: 0, vy: 0, r: 3 }];
   A.step(1 / 60, {});
   ok(s.hearts === 2 && d.inv > 0, 'L10 陨星命中扣 1 心并进入无敌', s.hearts + '/' + d.inv.toFixed(2));
   d.picks = [{ x: d.p.x, y: d.p.y, vy: 0 }];
   A.step(1 / 60, {});
   ok(d.got === 1, 'L10 星屑拾取 +1', d.got);
-  d.elapsed = 29.99; d.got = 8;
+  d.elapsed = 39.99; d.got = 10;
   for (let f = 0; f < 10 && !s.done; f++) A.step(1 / 60, {});
-  ok(s.done && s.win === true, 'L10 撑满并集齐星屑 → 胜利', d.elapsed.toFixed(2));
+  ok(s.done && s.win === true, 'L10 撑满 40s 并集齐 10 枚 → 胜利', d.elapsed.toFixed(2));
   A.stop();
 
   // 泡泡消除：发射 → 吸附成泡；发射计数递增
@@ -196,17 +201,42 @@ console.log('[T2c] 新玩法核心机制：放钩 / 消行 / 受击 / 发射 / �
   // 垂直攀跃：自动弹跳 / 初始浮石 / 左右穿屏 / 高度达标胜利
   A.start(14);
   s = A._state(); d = s.data;
-  ok(d.plats.length > 0 && d.target === 900, 'L15 浮石生成 + 目标 900 尺', d.plats.length);
+  ok(d.plats.length > 0 && d.target === 1200, 'L15 浮石生成 + 目标 1200 尺', d.plats.length);
   let minY = d.p.y;
   for (let f = 0; f < 240; f++) { A.step(1 / 60, {}); if (d.p.y < minY) minY = d.p.y; }
   ok(d.maxH > 0, 'L15 落到浮石自动弹跳（高度 > 0）', d.maxH.toFixed(1));
   d.p.x = 395; d.p.vy = 0;
   A.step(1 / 60, {});
   ok(d.p.x < 0, 'L15 越过右边界从左侧穿出', d.p.x.toFixed(1));
-  d.maxH = 899; d.p.y = d.startY - 901;
+  d.maxH = 1199; d.p.y = d.startY - 1201;
   A.step(1 / 60, {});
-  ok(s.done && s.win === true, 'L15 攀到 900 尺触发胜利', d.maxH.toFixed(1));
+  ok(s.done && s.win === true, 'L15 攀到 1200 尺触发胜利', d.maxH.toFixed(1));
   A.stop();
+}
+
+console.log('[T2d] v29 难度配置：14 关都已加码（防止回退成无聊小游戏）');
+{
+  const expect = {
+    0: st => st.cols * st.rows >= 54 && st.mines >= 12,
+    1: st => st.quota >= 12 && st.bomb > 0 && st.upMax <= 0.9,
+    2: st => st.cols >= 5 && st.rows >= 5 && st.scramble >= 10,
+    3: st => st.pairs >= 8,
+    4: st => (st.map.join('').split('b').length - 1) >= 2 && st.parMoves >= 12,
+    5: st => st.target >= 10 && (st.walls || []).length >= 6 && st.speed <= 0.15,
+    7: st => st.quota >= 7 && st.rocks >= 3,
+    8: st => st.quota >= 6,
+    9: st => st.survive >= 40 && st.shards >= 10,
+    10: st => st.rounds >= 6,
+    11: st => st.quota >= 150,
+    13: st => st.rate <= 0.42 && st.holdReset <= 1.1,
+    14: st => st.target >= 1200,
+    16: st => st.rows >= 6 && st.paddle <= 48 && st.speed >= 165
+  };
+  for (const i of NONBOSS) {
+    const st = A.stages[i], fn = expect[i];
+    ok(!!fn && fn(st), 'L' + (i + 1) + ' ' + st.type + ' 难度参数达标',
+      JSON.stringify({ q: st.quota, tar: st.target, cols: st.cols, rows: st.rows, mines: st.mines }));
+  }
 }
 
 console.log('[T3] start：伪关卡供结算/星级/解锁复用');
@@ -301,7 +331,7 @@ console.log('[T6] ui.js / index.html 接入点');
   ok(ui.includes("drawPixelText('MINI'"), '选关卡有 MINI 角标');
   const iArc = html.indexOf('arcade.js'), iEng = html.indexOf('engine.js'), iUi = html.indexOf('ui.js');
   ok(iEng >= 0 && iArc > iEng && iUi > iArc, '加载顺序 engine → arcade → ui', [iEng, iArc, iUi].join(','));
-  ok(/arcade\.js\?v=41/.test(html), 'arcade.js 带缓存版本号 v41');
+  ok(/arcade\.js\?v=42/.test(html), 'arcade.js 带缓存版本号 v42');
 }
 
 console.log('[T7] 不含平台横向玩法残留：伪关卡不会进入 updateWorld 路径');

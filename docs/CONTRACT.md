@@ -1174,3 +1174,51 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 - `python tools/_v28_shots2.py`：三只本体 + 10 个招牌前摇 + 第五章选关目检。
 - 旧测试保持全绿：`_arcade_test.js` 431 项、`_v20_boss_test.js` 44 项、`_v10_*` 系列。
 - 缓存版本：`index.html` 全部脚本 `?v=41`（v28 发版）。
+
+## v29 增补（普通关难度与真实输入可达性，2026-11-04）
+
+### 范围
+- 用户口径：「普通的关卡你应该测试可达性，同时有一定的难度，要不然太无聊了」。
+- v29 不改 Boss 关、不改街机与 ui 的契约；只调 14 个街机关的 `STAGES` 难度参数，
+  并把三个写死的旋钮改成配置读取。
+
+### 难度基线（`arcade.js STAGES`）
+- L1 mine 9×6、12 雷；L2 mole 12 只、炸弹率 0.15、上浮 0.55~0.85s、生成 0.52s；
+  L3 lights 5×5、打乱 10、目标 ≤12 步；L4 memory 8 对；L5 sokoban 双箱、最短 12 步；
+  L6 snake 10 果、0.145s/格、6 根石柱；L8 gold 7 颗、5 翡翠、3 石；
+  L9 tetris 6 行；L10 dodge 40s + 10 星屑；L11 simon 6 轮；L12 bubble 150 颗；
+  L14 maze `rate 0.40 / hold 2.2 / holdReset 1.0`；L15 jumper 1200 尺；
+  L17 breakout 6 行 / 46px 挡板 / 球速 168。
+- 所有 `objective/controls/hint` 同步改写，选关详情与画布底栏读同一份配置。
+- `par` 与 `limit` 按新规模重定（如 L10 par 52 / limit 100、L17 par 110 / limit 200）；
+  `par` 只影响第三颗星，不判失败。
+
+### 新增/改动的配置旋钮
+- `maze`：`INIT.maze` 读 `st.rate/st.hold/st.holdReset`，`mazeCatch` 用 `d.holdReset`；
+  缺省仍回落到 0.46/2.6/1.2。
+- `breakout`：`INIT.breakout` 读 `st.paddle/st.speed`，缺省 52/158。
+- `gold`：`put()` 只在吊臂 ±1.05 rad、`maxLen-6` 的扇形内生成（底边按 `tan(1.05)·dy`
+  反算 x 范围），保证每颗宝石都存在可达角度；配额 7。
+- `bubble`：胜利 = `pops >= quota` 或清盘；`bubResolve` 把「消除簇 + 掉落」计入 `d.pops`；
+  不要求清空盘面，避免随机 5 色盘偶尔留下孤泡导致无解。
+- `simon`：胜利文案改为 `d.rounds + ' 轮全对'`，不再写死「五轮」。
+
+### 可达性验收（v29 核心交付）
+- `node tools/_v29_arcade_reach.js`：不调用 `_forceWin`，每关用与玩家相同的 `inp`
+  驱动 `ARCADE.step`；机器人可读 `ARCADE._state()`（完美信息），但只能输出方向/攻击/
+  冲刺/鼠标等合法输入。
+- 判定：14 关 × 3 个种子（默认 1/7/19）都必须 `limit` 内自然 `win`，并再跑 70 帧确认
+  结算落到 `game.state='clear'`；每关另用空输入跑 25s 做「不会自己赢」负例。
+- 环境变量：`REACH_ONLY=0,5`、`REACH_SEEDS=1,2,3`、`REACH_VERBOSE=1`、`REACH_DEBUG=1`。
+- 首轮结果：`RESULT PASS pass=42 fail=0`；各关完美信息机器人用时见 README v29 表。
+- 机器人要点（避免回退）：扫雷逐格点开；点灯 GF(2) 消元求最小点击集；记忆翻牌按记忆翻；
+  推箱子 BFS 状态搜索；贪吃蛇 BFS 追果 + 空间校验 + 追尾；矿脉等角度对准再放钩；
+  俄罗斯方块枚举旋转/落点；弹幕按 1.2s 轨迹采样；编钟按序敲；泡泡枚举角度打同色；
+  迷宫用鬼差距离场算时间余量并提交逃跑路径；攀跃/打砖块做 90 帧物理前向模拟。
+
+### 测试与验收
+- `node tools/_arcade_test.js`：追加 v29 难度基线断言（14 关参数不得回退），
+  并更新金矿 16 物件/5 翡翠、方块 6 行、弹幕 40s/10 枚、攀跃 1200 尺等用例（446 项）。
+- `python tools/_v26_arcade_qa.py`：旧用例继续跑 14 关真按键与截图（v29 下全 PASS）。
+- `python tools/_live_v29_check.py`：线上 v=42、27 关、14 关新难度参数与街机可进入。
+- 缓存版本：`index.html` 全部脚本 `?v=42`（v29 发版）。
