@@ -1108,3 +1108,69 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 - `python tools/_v26_arcade_qa.py`：截图前缀改 `v27_*`，逐关断言 type 唯一，14 型真实按键全走；
   迷宫用例依赖开局 2.6s 待机，不能把 `hold` 改回 0。
 - 缓存版本：`index.html` 全部脚本 `?v=40`（v27 发版）。
+
+## v28 增补（地图三·终焉镜海：L25~L27 三只 Boss，2026-11-04）
+
+### 范围与分支点
+- 新增 `chapter5.js`，契约同 chapter2~4：顶层只许 `'use strict'` + 注释 + 一个 IIFE + IIFE 内 `CHAPTERS.push`；
+  只摆字符，不做聚合。`CHAPTERS.push({ id: 5, name: '地图三·终焉镜海', levels: [L25, L26, L27] })`。
+- `index.html` 在 `chapter4.js` 与 `engine.js` 之间加载 `chapter5.js`；全部脚本升到 `?v=41`。
+- `ALL_LEVELS` 27 关（下标 0~26）：L25 index24 `boss:12` / L26 index25 `boss:13` / L27 index26 `boss:14`。
+  三关全为 Boss 关：`nP=0`、无神龛、无坑无刺；场地 72×18 / 72×18 / 80×18 全平。
+  出生点 (2,14)，检查点 (34/34/38,14)，Boss 锚点 (48/50/56,14)；木箱 4 个压在 5~10 列入场段，
+  史莱姆 3 只（充能饲料，三只 Boss 都吃 O 技能）。主题 anthem / mirror / abyss，par 205/210/235。
+
+### BAL（engine.js）
+- `boss12` 律动·俄耳甫斯：hp 600、actDist 176、w52 h56；`beat / staccato / tutti / fermata`；
+  `poolNear ['staccato','fermata','tutti']`、`poolFar ['tutti','staccato','fermata']`、`p2Add ['nova']`。
+- `boss13` 镜渊·无相：hp 570、actDist 176、w48 h56；`shards / prism / rain / march`；
+  `poolNear ['prism','march','rain']`、`poolFar ['prism','rain','march']`、`p2Add ['nova']`。
+- `boss14` 终焉·阿刻戎：hp 660、actDist 200、w64 h64；`gaze / stare / focus / fracture / rain`；
+  `poolNear ['stare','fracture','focus','rain']`、`poolFar ['rain','focus','fracture','stare']`、`p2Add ['nova']`。
+- 三只 windup 全部 ≥0.42s，伤害最多 2 心，全部走 `_engHurtPlayer`（护盾/无敌帧有效）；
+  drop 各两件（`lyre1/2`、`mirror1/2`、`eye1/2`）。
+
+### 承伤入口（`_engBossHurt` 第三参 `raw`）
+- `raw=true` 仅限碎镜的 5% 固定伤害：跳过破绽/破防/踩拍/镜片全部倍率，只保留段位切换与死亡演出。
+- kind12 律动：`off = min(beatT, period - beatT)`，`off <= win` → `real ×2`、`beatStreak+1`、
+  `beatFlash=0.28`；连中 `need` 且当前非 stagger/breakT → 进 `stagger 1.4s + breakT 2.0s`；
+  否则 `real ×0.7` 且 `beatStreak=0`。破防不叠在已有破绽上（防无限罚站）。
+- kind13 镜渊：`nSh = _engShardCount()`，`real × mul[3-nSh]`（0.2 / 0.35 / 0.55 / 1.0）。
+  `raw` 分支在前，碎镜伤害不吃镜片减伤——否则 5% 会被自己减成 1%。
+
+### 每帧机制（`_engUpdateBoss`，主 switch 之前）
+- kind12：`beatT = (beatT + dt) % period`；`beatFlash` 衰减。相位只在这里推进，UI 只读。
+- kind13：
+  - 镜片是 `hazards.kind==='shard'`（w14 h16、hp4），绕 Boss 中心 `(x+w/2, y+18)` 椭圆半径 36/22 公转
+    （1.5 rad/s，约 4.2s 一圈），初始 `a0=-90+i*120`。
+  - 冲刺碎镜：`p.dashT>0` 且 `_engAabb(b,p)` 且 `shardDashCd<=0` → `_engShatterShard`（最近一片），
+    cd 0.45s，并把 `p.invT` 盖到 `p.dashT+0.12`，防冲刺尾段被接触判定反咬。
+  - 归零：`shardPrev>0` → `shardT=regen 16s`，同时 `state='stagger' 1.2s`、`breakT=max(...,2.0)`；
+    再生走 `_engSpawnShards`（登场/重铸共用）。
+  - 碎镜统一 `_engShardBroke`：`_engBossHurt(maxHp*5%, false, true)`。镜片可被近战/弹体/大招打，
+    每次固定 1 伤害（4 下碎一片）；碎镜结算延后到 hazard 收尸处（`shardBrokeN`/`wallShatter`），
+    禁止在遍历中 splice。
+- kind14：`still = !p.dead && p.onGround && |p.vx|<14 && p.dashT<=0`；
+  站定 `gaze += rate`（P2 ×1.35），否则 `gaze -= calm`；满槽且 `state ∈ {idle, recover}` →
+  清零并强制 `next='stare'` 进 windup（不打断进行中的大招）。
+
+### hazard 新实体（engine + ui）
+- `shard`：可打目标，字段 `x/y/w/h/hp/maxHp/a0/t/flashT`；Boss 死亡或无主时立即收掉，
+  绝不留「免伤罩」挂在场上；镜片本身接触玩家 1 伤。
+- `shardwall`：镜墙推进，字段 `x/y/w=14/h=64/v=76/dir/warnT=0.9/hitCd/dashHit`；
+  未预警完不推；接触非冲刺玩家 2 伤 + 顶开（`vx=dir*210, vy=-170`），同一面墙 0.8s 最多撞一次；
+  冲刺穿墙 → `dashHit=true; wallShatter=true`（墙继续推，结算在循环后碎一片镜）。
+- `sweepbeam`：贯目光带，`warn 0.45s`、`w 12`、`dur 1.6s`、`speed 60px/s` 追玩家横向、
+  `hitCd 0.6s`；总寿命 = warn + dur。
+- `column` 复用 v25.5 天穹光柱（fermata/stare 传 `tone:'gold'/'abyss'`）；`spike` 复用 v10 地刺，
+  新增 `tone:'abyss'`（fracture）——`_hzSpike` 读 tone 加青金底光，否则暗红石牙在墨青底上读不出来。
+- UI 渲染：`_hzShard / _hzShardwall / _hzSweepbeam`；血条下方依次是节拍器拍点（金）、
+  镜片计数（粉）、凝视槽（青金），不新增 HUD 面板。
+
+### 测试与验收
+- `node tools/gate.js levels/engine/art/puzzle` + `reach` 27/27：三关终点与检查点走真物理路径。
+- `python tools/_v28_boss_qa.py`：实机逐招验证合拍/失拍/四拍破防、镜片 20%/35%/55%/撞碎/重铸、
+  凝视涨落/满槽/P2 三柱、断奏/全奏/延长音柱、棱镜/镜雨/镜墙、凝视/贯目/石牙/陨石，PASS 0 失败。
+- `python tools/_v28_shots2.py`：三只本体 + 10 个招牌前摇 + 第五章选关目检。
+- 旧测试保持全绿：`_arcade_test.js` 431 项、`_v20_boss_test.js` 44 项、`_v10_*` 系列。
+- 缓存版本：`index.html` 全部脚本 `?v=41`（v28 发版）。

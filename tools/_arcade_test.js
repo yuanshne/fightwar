@@ -13,11 +13,11 @@ const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 
 const themes = {};
 ['grass', 'cave', 'sky', 'factory', 'lava', 'tower', 'boss', 'wind', 'castle', 'star', 'sea', 'nether',
-  'ember', 'aether', 'husk', 'maw', 'bell'].forEach(k => themes[k] = { skyT: '#101020', skyB: '#202040' });
+  'ember', 'aether', 'husk', 'maw', 'bell', 'anthem', 'mirror', 'abyss'].forEach(k => themes[k] = { skyT: '#101020', skyB: '#202040' });
 
-// 1) 关卡表：与 ui.js 相同的加载顺序（levels + 三章），再显式聚合
+// 1) 关卡表：与 ui.js 相同的加载顺序（levels + 四章），再显式聚合
 const levels = new Function('THEMES', read('levels.js') + read('chapter2.js') + read('chapter3.js')
-  + read('chapter4.js') + '\n;return {ALL_LEVELS,aggregateLevels};')(themes);
+  + read('chapter4.js') + read('chapter5.js') + '\n;return {ALL_LEVELS,aggregateLevels};')(themes);
 // 注意：aggregateLevels() 会「重新赋值」ALL_LEVELS，返回值才是聚合后的新数组；
 // 先聚合再取，不能拿注册前的旧引用（否则只有第一章 10 关）。
 const ALL = levels.aggregateLevels();
@@ -58,9 +58,9 @@ const NONBOSS = ALL.map((l, i) => (l.boss ? -1 : i)).filter(i => i >= 0);
 const TYPES = ['mine', 'mole', 'lights', 'memory', 'sokoban', 'snake', 'gold', 'tetris',
   'dodge', 'simon', 'bubble', 'maze', 'jumper', 'breakout'];
 
-console.log('[T1] 关卡覆盖：14 小关有街机、10 Boss 没有');
+console.log('[T1] 关卡覆盖：14 小关有街机、13 Boss 没有');
 {
-  ok(ALL.length === 24, '总关卡 24', ALL.length);
+  ok(ALL.length === 27, '总关卡 27', ALL.length);
   ok(NONBOSS.length === 14, '非 Boss 关 14 个', NONBOSS.length);
   const missing = NONBOSS.filter(i => !A.has(i));
   ok(missing.length === 0, '每个非 Boss 关都有街机配置' + (missing.length ? '（缺 L' + missing.map(i => i + 1).join('/L') + '）' : ''), missing);
@@ -301,7 +301,7 @@ console.log('[T6] ui.js / index.html 接入点');
   ok(ui.includes("drawPixelText('MINI'"), '选关卡有 MINI 角标');
   const iArc = html.indexOf('arcade.js'), iEng = html.indexOf('engine.js'), iUi = html.indexOf('ui.js');
   ok(iEng >= 0 && iArc > iEng && iUi > iArc, '加载顺序 engine → arcade → ui', [iEng, iArc, iUi].join(','));
-  ok(/arcade\.js\?v=40/.test(html), 'arcade.js 带缓存版本号 v40');
+  ok(/arcade\.js\?v=41/.test(html), 'arcade.js 带缓存版本号 v41');
 }
 
 console.log('[T7] 不含平台横向玩法残留：伪关卡不会进入 updateWorld 路径');

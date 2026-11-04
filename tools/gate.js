@@ -27,7 +27,8 @@ function need(src, names, label) {
 function chapterState() {
   const hasContract = /const CHAPTERS/.test(read('levels.js'));
   // v20：chapter4.js（地图二 · 回响之厅，5 关全 Boss）——同一拼接口径，文件不存在则整章跳过
-  const files = ['chapter2.js', 'chapter3.js', 'chapter4.js'].filter(f => fs.existsSync(path.join(ROOT, f)));
+  // v28：chapter5.js（地图三 · 终焉镜海，3 关全 Boss）——同一拼接口径
+  const files = ['chapter2.js', 'chapter3.js', 'chapter4.js', 'chapter5.js'].filter(f => fs.existsSync(path.join(ROOT, f)));
   return { hasContract: hasContract, n: files.length, src: files.map(f => read(f)).join('\n') };
 }
 // ---- v4 数独校验辅助（界面队；仅 gate 内部使用，不属游戏导出） ----
@@ -144,7 +145,8 @@ try {
     // 契约未合入窗口：注入 ALL_LEVELS 桩（engine 读侧引用该符号；聚合前语义=LEVELS）
     const stub = ch.hasContract ? '' : '\n;var ALL_LEVELS = LEVELS;';
     const agg = ch.hasContract ? '\n;aggregateLevels();' : '';
-    const themes = {}; ['grass','cave','sky','factory','lava','tower','boss','wind','castle','star','sea','nether'].forEach(k => themes[k] = {}); // v3 §F①桩补第 7 主题；v5 §D③补 wind/castle/star；v7 §1.5 补 sea/nether
+    const themes = {}; ['grass','cave','sky','factory','lava','tower','boss','wind','castle','star','sea','nether',
+      'ember','aether','husk','maw','bell','anthem','mirror','abyss'].forEach(k => themes[k] = {}); // v3 §F①桩补第 7 主题；v5 §D③补 wind/castle/star；v7 §1.5 补 sea/nether；v20 补 ember~bell；v28 补 anthem/mirror/abyss
     // v4：附带导出 PUZZLES/puzzleSolved（未合入时为 undefined，供下方 v4 冒烟块条件守卫）；
     // v7：追加 ALL_LEVELS 与 BAL（Boss 冒烟 maxHp 断言读 BAL.boss/boss2/boss3）
     const glue = '\n;return {PHY,Level,game,loadLevel,respawn,killPlayer,levelClear,updateWorld,LEVELS,ALL_LEVELS,'
@@ -177,8 +179,8 @@ try {
     for (const bi of bossIdxs) {
       const meta = sandbox.ALL_LEVELS[bi];
       const kind = meta.boss === true ? 1 : meta.boss; // v7 §6.1：boss:true≡kind1
-      if (!(kind >= 1 && kind <= 11)) {   // v7.9：扩到 5；v12：扩到 6（L19 牛魔王）；v20：扩到 11（地图二 L20~L24）
-        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2..11）');
+      if (!(kind >= 1 && kind <= 14)) {   // v7.9：扩到 5；v12：扩到 6；v20：扩到 11；v28：扩到 14（地图三 L25~L27）
+        console.error('L' + (bi + 1) + ' Boss 违约: meta.boss=' + meta.boss + '（值域 true|2..14）');
         process.exit(1);
       }
       sandbox.loadLevel(bi, false);
@@ -198,7 +200,8 @@ try {
         process.exit(1);
       }
       const wantHp = [SBAL.boss, SBAL.boss2, SBAL.boss3, SBAL.boss4, SBAL.boss5, SBAL.boss6,
-                      SBAL.boss7, SBAL.boss8, SBAL.boss9, SBAL.boss10, SBAL.boss11][kind - 1].hp; // v7.9：扩到 5 表；v12：扩到 6；v20：扩到 11
+                      SBAL.boss7, SBAL.boss8, SBAL.boss9, SBAL.boss10, SBAL.boss11,
+                      SBAL.boss12, SBAL.boss13, SBAL.boss14][kind - 1].hp; // v7.9：扩到 5 表；v12：扩到 6；v20：扩到 11；v28：扩到 14
       if (g.boss.maxHp !== wantHp) {
         console.error('L' + (bi + 1) + ' Boss maxHp 违约: 实际 ' + g.boss.maxHp + '（应 BAL 表 ' + wantHp + '）');
         process.exit(1);

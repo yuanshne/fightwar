@@ -841,6 +841,91 @@ const BAL = {
     poolFar: ['chime', 'hammer', 'hchain', 'homing'],
     p2Add: ['nova'], contactDmg: 1, drop1: 'bell1', drop2: 'bell2' },
 
+  /* ==================== v28：地图三·终焉镜海（kind 12~14）====================
+     三只 Boss 的共同前提：场地全平、零坑零刺，解法全部依赖横向走位。
+     差异从「威胁长什么样」推进到「你自己怎么动」：
+       L25 律动：伤害挂在拍子上——踩拍才疼，失拍减伤（参照 Crypt of the NecroDancer / Hi-Fi Rush）。
+       L26 镜渊：威胁要主动撞——冲刺撞碎粉色镜弹/镜墙才能破防（参照 Cuphead 粉色弹反 / 只狼弹刀）。
+       L27 终焉：不许站桩——凝视槽在不动时上涨，满了就落石化光柱（参照 Weeping Angels）。
+     三只共用的平衡口径：hp 按 200×3 一档，actDist 176/200，windup 全部 ≥0.42s，
+     伤害最多 2 心，全部走 _engHurtPlayer（护盾/无敌帧有效）。 */
+
+  boss12: { // 律动·俄耳甫斯（L25，anthem）——「踩拍打」
+    hp: 600, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 52, h: 56,
+    windup: { staccato: 0.46, tutti: 0.58, fermata: 0.62, barrage: 0.42, nova: 0.55 },
+    p2WindMul: 0.88, idleT: [0.42, 0.30], stalk: true, walk: [36, 46],
+    barrage: { v: 118, rounds: 3, pairGap: 0.18, endT: 0.45, deg: [-12, 0, 12] },
+    /* beat 节拍：beatT 在引擎里按 period 循环（UI 读 beatPh 画头顶节拍器摆杆）。
+       命中时距拍点 ≤win 秒 = 合拍：伤害 ×2、连拍 +1；四拍全中直接破防。
+       失拍 ×0.7 且连拍清零——全作第一次要求玩家「等拍子」，而不是能打就打。
+       period 1.15s ≈ 52 BPM：慢到能用眼睛看，又快到不能站着等下一拍。 */
+    beat: { period: 1.15, win: 0.085, goodMul: 2.0, offMul: 0.7, need: 4, breakT: 2.0, stagger: 1.4 },
+    /* staccato 断奏：4 发快速单音，每发重新瞄准玩家当前位置（间隔 0.16s）。
+       与 barrage 的分工：barrage 是一轮散射，断奏是追着打的连点，必须持续移动。 */
+    staccato: { n: 4, gap: 0.16, v: 190, dmg: 1 },
+    /* tutti 全奏：两轮 12 向环弹，每轮留 4 条相邻安全缝并旋转 30°。
+       缝宽 120°——够跑过去，但两轮缝不重合，必须换位置。 */
+    tutti: { v: 112, n: 12, skip: 4, t: [0.18, 0.72], endT: 1.15, spin: 30 },
+    /* fermata 延长音柱：玩家脚下 + 左右各一根金色光柱（同时预警 0.68s）。
+       三根间距 36px：站中间必被夹，必须提前选一边。 */
+    fermata: { n: 3, warn: 0.68, dur: 0.55, w: 16, dmg: 2, spread: 36, tone: 'gold' },
+    nova: { v: 106, t: [0.55, 0.95], endT: 1.2, n: 10 },
+    stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
+    recover: { staccato: 0.5, tutti: 0.55, fermata: 0.55, barrage: 0.45, nova: 0.6 },
+    // 招牌：staccato 断奏连音 / tutti 全奏轰鸣 / fermata 延长音柱
+    poolNear: ['staccato', 'fermata', 'tutti'],
+    poolFar: ['tutti', 'staccato', 'fermata'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'lyre1', drop2: 'lyre2' },
+
+  boss13: { // 镜渊·无相（L26，mirror）——「主动撞碎镜壁」
+    hp: 570, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 56,
+    windup: { prism: 0.56, rain: 0.58, march: 0.66, barrage: 0.44, nova: 0.55 },
+    p2WindMul: 0.88, idleT: [0.46, 0.32], stalk: true, walk: [34, 44],
+    barrage: { v: 116, rounds: 3, pairGap: 0.20, endT: 0.5, deg: [-14, 0, 14] },
+    /* shards 镜片：三枚未碎时本体只吃 20% 伤害（mul[3-shards]）。
+       碎一枚直接扣 5% 总血（raw=true，绕过减伤）；三枚全碎进 1.2s 破绽 + 2.0s 破防。
+       16s 后自动重铸三枚——拖久了会回到减伤状态，逼玩家在窗口期打完。 */
+    shards: { n: 3, mul: [0.2, 0.35, 0.55, 1.0], breakPct: 5, regen: 16, stagger: 1.2, breakT: 2.0 },
+    /* prism 棱镜散射：5 发慢速粉弹扇形，两轮（第二轮整体偏 12°）。 */
+    prism: { n: 5, vol: 2, gap: 0.34, v: 138, spread: 22, dmg: 1, r: 5 },
+    /* rain 镜雨：头顶四道粉色镜弹砸落（横坐标覆盖玩家左右 48px）。 */
+    rain: { n: 4, gap: 0.15, vy: 250, off: [-48, -16, 16, 48], dmg: 1, r: 5 },
+    /* march 镜墙推进：一面 14×64 的镜墙从 Boss 侧向玩家推，速度 76。
+       唯一正解是冲刺穿墙（碎一枚镜片），普通接触掉 2 心并被顶开。 */
+    march: { w: 14, h: 64, v: 76, warn: 0.9, dmg: 2, gap: 1.1 },
+    nova: { v: 104, t: [0.55, 0.95], endT: 1.2, n: 10 },
+    stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
+    recover: { prism: 0.5, rain: 0.5, march: 0.6, barrage: 0.45, nova: 0.6 },
+    // 招牌：prism 棱镜散射 / rain 镜雨 / march 镜墙推进
+    poolNear: ['prism', 'march', 'rain'],
+    poolFar: ['prism', 'rain', 'march'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'mirror1', drop2: 'mirror2' },
+
+  boss14: { // 终焉·阿刻戎（L27，abyss）——「不许站桩」
+    hp: 660, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 64, h: 64,
+    windup: { stare: 0.36, focus: 0.58, fracture: 0.60, rain: 0.56, barrage: 0.44, nova: 0.55 },
+    p2WindMul: 0.86, idleT: [0.46, 0.32], stalk: true, walk: [28, 36],
+    barrage: { v: 112, rounds: 3, pairGap: 0.20, endT: 0.5, deg: [-16, 0, 16] },
+    /* gaze 凝视：站着不动时上涨（rate/s），移动/跳跃/冲刺时回落（calm/s）。
+       满槽强制进入 stare（只在 idle/recover 触发，不打断正在进行的大招）。
+       P2 上涨 ×1.35，光柱 1 根→3 根。 */
+    gaze: { rate: 16, calm: 26, cap: 100, p2Mul: 1.35 },
+    /* stare 石化凝视：光柱落在玩家所在列（P2 三根 ±44px），warn 0.5s。 */
+    stare: { n: 3, n1: 1, gap: 0.28, warn: 0.50, dur: 0.75, w: 16, dmg: 2, spread: 44, tone: 'abyss' },
+    /* focus 贯目之光：一条竖光带缓慢追着玩家扫（60px/s，跑速 120 可甩开）。 */
+    focus: { warn: 0.45, dur: 1.6, w: 12, dmg: 1, speed: 60, hitCd: 0.6 },
+    /* fracture 裂界石牙：四根石刺依次从玩家脚下朝外冒出（每根间隔 0.14s）。 */
+    fracture: { n: 4, gap: 0.14, h: 26, life: 1.1, spread: 34 },
+    /* rain 陨石雨：五颗慢速石弹砸向玩家横向范围（可走出落点）。 */
+    rain: { n: 5, gap: 0.12, vy: 240, off: [-56, -28, 0, 28, 56], dmg: 1 },
+    nova: { v: 102, t: [0.55, 0.95], endT: 1.2, n: 12 },
+    stagger: 1.5, enrage: 1.2, dying: 2.8, revive: 0.9,
+    recover: { stare: 0.4, focus: 0.55, fracture: 0.55, rain: 0.5, barrage: 0.45, nova: 0.6 },
+    // 招牌：stare 石化凝视 / focus 贯目之光 / fracture 裂界石牙 / rain 陨石雨
+    poolNear: ['stare', 'fracture', 'focus', 'rain'],
+    poolFar: ['rain', 'focus', 'fracture', 'stare'],
+    p2Add: ['nova'], contactDmg: 1, drop1: 'eye1', drop2: 'eye2' },
+
   elite: { scale: 1.75, spdMul: 0.8, kbMul: 0.25, lancer: { hp: 42 }, ghost: { hp: 36 }, // v7 §8：精英怪
     // v8.0：三种新敌的精英血量（工厂 _engMkEnemy 会读 BAL.elite[type].hp，缺键会在 elite=true 时 TypeError）。
     // 口径沿用既有两条：≈4 倍基础血（lancer 3→14、ghost 3→12）。
@@ -871,6 +956,11 @@ const BAL = {
     husk1:  [10, 22, 28, 26, 14], husk2:  [4, 14, 30, 30, 22],
     maw1:   [8, 20, 28, 28, 16],  maw2:   [3, 12, 28, 32, 25],
     bell1:  [4, 14, 28, 30, 24],  bell2:  [2, 8, 26, 34, 30],
+    // v28 第五章三场（权重和=100，序=白/绿/蓝/紫/金）：终章档，紫+金 40%~48%——
+    // 第五章只有三场且全是 Boss，装备供给必须撑起一次满强化。
+    lyre1:  [12, 24, 28, 24, 12], lyre2:  [5, 16, 30, 29, 20],
+    mirror1:[10, 22, 28, 26, 14], mirror2:[4, 14, 30, 30, 22],
+    eye1:   [6, 18, 30, 28, 18],  eye2:   [3, 12, 28, 32, 25],
     hidden: [15, 25, 25, 22, 13], eliteK: [25, 30, 25, 20, 0],
     // v7.8：普通怪掉落（补齐装备供给）。此前装备只有 Boss 必掉 + 10% 精英掉，而前 6 关没有 Boss，
     // 玩家打完 L1~L6 背包仍是空的——升阶要 3 碎片，碎片只能靠分解装备，整条养成链压根跑不起来。
@@ -2084,11 +2174,13 @@ function _engOnScreen(e) { // 内部：实体矩形是否在视口内（连斩�
 function _engBossTable(kind) { // 内部：v7 Boss 参数表选择（kind 0/1=星核巨兽，2=蛟龙·敖渊，3=幽冥判官，4=冥古龙，5=曜光·圣裁者，6=烈焰·牛魔王）
   // R4：全部 Boss 差异只允许来自本选择器命中的参数表；禁止第二份 Boss 状态机 switch。
   // v20：7~11 为地图二五只（余烬回响 / 双生天秤 / 孵化之间 / 无声之喉 / 终末之钟）。
+  // v28：12~14 为第五章三只（律动·俄耳甫斯 / 镜渊·无相 / 终焉·阿刻戎）。
   return kind === 2 ? BAL.boss2 : kind === 3 ? BAL.boss3
        : kind === 4 ? BAL.boss4 : kind === 5 ? BAL.boss5
        : kind === 6 ? BAL.boss6
        : kind === 7 ? BAL.boss7 : kind === 8 ? BAL.boss8 : kind === 9 ? BAL.boss9
        : kind === 10 ? BAL.boss10 : kind === 11 ? BAL.boss11
+       : kind === 12 ? BAL.boss12 : kind === 13 ? BAL.boss13 : kind === 14 ? BAL.boss14
        : BAL.boss;   // v12：L19 牛魔王
 }
 
@@ -2133,7 +2225,19 @@ function _engMkBoss(cx, py, kind) { // 内部：Boss 实体（cx=锚点中心x, 
        scoreI    钟：当前曲谱拍号 0..7
        scoreT    钟：本拍已进行秒数
        没有独立的「炎」字段：烬读的是玩家侧 game.heat，Boss 自己不需要记账。 */
-    skew: 0, mouthOpen: false, scoreI: 0, scoreT: 0, lastPcx: undefined
+    skew: 0, mouthOpen: false, scoreI: 0, scoreT: 0, lastPcx: undefined,
+    /* ---- v28 第五章机制态（每只 Boss 只用其中一组，其余保持初值零副作用） ----
+       beatT      律动：节拍器相位（0..T.beat.period 循环），承伤判定按它离整拍的距离走
+       beatStreak 律动：连续踩拍数（踩中 +1 / 踏空清零 / 满 need 断拍破防）
+       beatFlash  律动：踩拍闪光计时（UI 读它把节拍器点亮）
+       shardDashCd 镜渊：冲刺穿身碎镜冷却（一次冲刺最多碎一片，防一路穿过去把三片全撞没）
+       shardT     镜渊：镜片全碎后的再生倒计时（T.shards.regen）
+       shardPrev  镜渊：上一帧镜片数——0 片转破防只在「刚归零」那一帧触发，不重复罚站
+       shardFlash 镜渊：碎镜闪光计时（UI 读它画全屏碎屑）
+       gaze       终焉：凝视槽 0..T.gaze.cap（站桩涨、跑跳冲刺退，满槽强制石化凝视） */
+    beatT: 0, beatStreak: 0, beatFlash: 0,
+    shardDashCd: 0, shardT: 0, shardPrev: 0, shardFlash: 0,
+    gaze: 0
   };
 }
 
@@ -2215,8 +2319,9 @@ function _engSegHp(b) { // 当前段内剩余（= UI 画填充用的 hp）
   return _engClamp(b.hpTotal - (2 - b.bandBreak) * b.bandMax, 0, b.bandMax);
 }
 
-function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
+function _engBossHurt(dmg, isUlt, raw) { // 内部：Boss 唯一承伤入口（攻击/星陨/连斩都走这里；五态免伤+v7 blink 隐身免伤）
   // v13 §四：isUlt=true 仅限大招（U 星陨 / O 连斩）——它决定能不能破 parry 架势。
+  // v28：raw=true 仅限碎镜结算——固定值直落，跳过踩拍/镜片/破绽/破防全部倍率（见 _engShardBroke）。
   const b = game.boss, p = game.player;   // v20：秤的方位判定要读玩家位置（此前漏声明，打 kind8 必 ReferenceError）
   if (!b || b.state === 'dormant' || b.state === 'intro' || b.state === 'enrage'
         || b.state === 'dying' || b.state === 'dead' || b.state === 'revive'
@@ -2259,6 +2364,42 @@ function _engBossHurt(dmg, isUlt) { // 内部：Boss 唯一承伤入口（攻击
   /* v10 破绽期 ×1.5；v13 §五 破防窗口 ×2.0（优先）。只改内部 real，不动 b.hp 派生值。 */
   const mul = (b.breakT > 0) ? 2.0 : (b.state === 'stagger' ? 1.5 : 1);
   let real = mul === 1 ? dmg : Math.max(1, Math.round(dmg * mul));
+  /* ==================== v28 第五章 · 承伤侧的三个机制 ====================
+     两套是「这一下算多少」，一套是「什么时候该打」。
+     ① 律动（12）：命中时离整拍 ≤win 秒 = 合拍 ×2 + 连拍；踏空 ×0.7 且清零。
+        连中 need 拍触发断拍破防（不叠在已有破绽/破防上，防无限罚站）。
+     ② 镜渊（13）：镜片未碎时本体按剩余片数吃 0.2/0.35/0.55；碎光 = ×1.0 + 破防（在 Boss 侧记账）。
+     ③ raw：碎镜的 5% 固定伤害——绕过这里所有倍率，只享受段位切换/死亡演出等公共流程。 */
+  if (raw) {
+    real = Math.max(1, Math.round(dmg));
+  } else if (b.kind === 12 && T.beat) {
+    const BT = T.beat;
+    const off = Math.min(b.beatT || 0, BT.period - (b.beatT || 0));
+    if (off <= (BT.win || 0.085)) {
+      real = Math.max(1, Math.round(real * (BT.goodMul || 2)));
+      b.beatStreak = (b.beatStreak || 0) + 1;
+      b.beatFlash = 0.28;
+      _engFloat(b.x + b.w / 2, b.y - 4, '合拍 ×' + b.beatStreak, '#f8d048', 0);
+      game.sfxQueue.push('combo');
+      if (b.beatStreak >= (BT.need || 4) && b.state !== 'stagger' && !(b.breakT > 0)) {
+        b.beatStreak = 0;
+        b.state = 'stagger'; b.staggerDur = BT.stagger || 1.4; b.breakT = BT.breakT || 2.0;
+        b.t = 0; b.comboQ = []; b.comboN = 0; b.vx = 0;
+        _engFloat(b.x + b.w / 2, b.y - 16, '断拍! 破防', '#f8d048', 1);
+        game.sfxQueue.push('bossbreak'); _engShake(8, 0);
+        _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 18, '#f8d048', 120, 240);
+      }
+    } else {
+      real = Math.max(1, Math.round(real * (BT.offMul || 0.7)));
+      b.beatStreak = 0;
+    }
+  } else if (b.kind === 13 && T.shards) {
+    const SH = T.shards;
+    const nSh = _engShardCount();
+    const shMul = (SH.mul && SH.mul[3 - nSh] !== undefined) ? SH.mul[3 - nSh] : 0.2;
+    real = Math.max(1, Math.round(real * shMul));
+    if (nSh > 0) _engFloat(b.x + b.w / 2, b.y - 4, '镜壁 ' + Math.round(shMul * 100) + '%', '#c8b8e0', 0);
+  }
   /* ==================== v20 地图二 · 承伤侧的三个机制 ====================
      三只 Boss 的差异全在"这一下算不算数 / 算多少"，所以钩子只能挂在这里——
      挂在攻击路径上会漏掉星陨/连斩/法师弹体三条支线。 */
@@ -2401,6 +2542,58 @@ function _engBossSummon(T) { // 内部：v7 §6.2 参数化召唤（type/n/off �
     e.leech = true;    // v12 §一.2：存活且 leech 的召唤体按 T.summon.leech 给 Boss 回血（先清小怪才断奶）
     L.enemies.push(e);
   }
+}
+
+/* ==================== v28 第五章 · 三套机制辅助（内部） ====================
+   ① 律动（kind 12）：beatT 按 T.beat.period 循环，承伤入口按「离整拍多近」结算倍率；
+      这里只做节拍器走时与 UI 要读的闪光计时。
+   ② 镜渊（kind 13）：三枚镜片是 hazards.kind==='shard'（可打、可被冲刺撞碎、跨段清场兼容），
+      碎一片 = 5% 总血 raw 伤害（绕过减伤）——镜片不是"护盾数值"，是三个具体目标。
+   ③ 终焉（kind 14）：凝视槽在 Boss 侧记账（站桩涨/移动退），满槽在自己回合强制放 stare。 */
+function _engShardCount() { // 内部（v28）：场上存活镜片数（0..3）
+  let n = 0;
+  for (const e of (game.hazards || [])) if (e.kind === 'shard') n++;
+  return n;
+}
+
+function _engSpawnShards(b) { // 内部（v28）：重铸三枚镜片（登场 / 16s 再生共用）
+  const SH = _engBossTable(13).shards || BAL.boss13.shards;
+  const hz = game.hazards || (game.hazards = []);
+  const cx = b.x + b.w / 2, cy = b.y + 18;
+  for (let i = 0; i < (SH.n || 3); i++) {
+    const a0 = -90 + i * 120;
+    const a = a0 * Math.PI / 180;
+    hz.push({ kind: 'shard', x: cx + Math.cos(a) * 36 - 7, y: cy + Math.sin(a) * 22 - 8,
+      w: 14, h: 16, hp: 4, maxHp: 4, a0: a0, t: 0, flashT: 0 });
+  }
+  b.shardFlash = 0.3;
+  _engFx(cx, cy, { ring: 1, r: 6, r1: 48, life: 0.4, color: '#f8a0d0' });
+  game.sfxQueue.push('shield');
+}
+
+function _engShardBroke(b) { // 内部（v28）：镜片碎片的唯一结算（raw=true：固定 5% 总血，不吃任何倍率）
+  if (!b || b.hpTotal <= 0 || b.state === 'dying' || b.state === 'dead') return;
+  const SH = _engBossTable(13).shards || BAL.boss13.shards;
+  b.shardFlash = 0.3;
+  game.sfxQueue.push('shieldbreak');
+  _engBossHurt(b.maxHp * ((SH.breakPct || 5) / 100), false, true);
+}
+
+function _engShatterShard(b) { // 内部（v28）：冲刺穿身/穿墙时主动碎一片（离 Boss 最近的一片优先）
+  const hz = game.hazards || [];
+  const bcx = b.x + b.w / 2;
+  let bi = -1, bd = 1e9;
+  for (let i = 0; i < hz.length; i++) if (hz[i].kind === 'shard') {
+    const d = Math.abs(hz[i].x + 7 - bcx);
+    if (d < bd) { bd = d; bi = i; }
+  }
+  if (bi < 0) return false;
+  const e = hz[bi];
+  hz.splice(bi, 1);
+  _engAddParts(e.x + 7, e.y + 8, 14, '#f8a0d0', 110, 230);
+  _engFx(e.x + 7, e.y + 8, { ring: 1, r: 3, r1: 22, life: 0.28, color: '#f8a0d0' });
+  _engShardBroke(b);
+  return true;
 }
 
 /* ==================== v20 地图二 · 招式结算（单发招在前摇结束那一帧调用）====================
@@ -2629,6 +2822,61 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
   }
   const pcx = p.x + p.w / 2, bcx = b.x + b.w / 2;
 
+  /* ==================== v28 第五章 · 三套每帧机制 ====================
+     放在 switch 之前：节拍器/镜片/凝视槽是「战斗底层状态」，不随招式切换重置。 */
+  if (b.state !== 'dormant' && b.state !== 'dying' && b.state !== 'dead') {
+    /* ① 律动：节拍器走时（承伤判定在 _engBossHurt，这里只负责相位与闪光） */
+    if (b.kind === 12 && T.beat) {
+      b.beatT = (b.beatT + dt) % T.beat.period;
+      if (b.beatFlash > 0) b.beatFlash = Math.max(0, b.beatFlash - dt);
+    }
+    /* ② 镜渊：冲刺穿身碎镜 + 全部镜片的破防/再生记账 */
+    if (b.kind === 13 && T.shards) {
+      const SH = T.shards;
+      if (b.shardDashCd > 0) b.shardDashCd = Math.max(0, b.shardDashCd - dt);
+      if (b.shardFlash > 0) b.shardFlash = Math.max(0, b.shardFlash - dt);
+      if (!p.dead && p.dashT > 0 && b.shardDashCd <= 0 && _engShardCount() > 0 && _engAabb(b, p)) {
+        if (_engShatterShard(b)) {          // 一次冲刺最多碎一片：给「用无敌帧换破防」的代价定价
+          b.shardDashCd = 0.45;
+          p.invT = Math.max(p.invT, p.dashT + 0.12);   // 盖住冲刺尾段的接触判定
+          _engFloat(p.x + 5, p.y - 8, '碎镜!', '#f8a0d0', 1);
+          _engShake(4, 0);
+        }
+      }
+      const nSh = _engShardCount();
+      if (nSh === 0 && b.shardPrev > 0) {   // 刚归零：开再生倒计时（跨段清场的镜片也走这条）
+        b.shardT = SH.regen || 16;
+        if (b.hpTotal > 0 && b.state !== 'revive') {
+          b.state = 'stagger'; b.staggerDur = SH.stagger || 1.2;
+          b.breakT = Math.max(b.breakT || 0, SH.breakT || 2.0);
+          b.t = 0; b.comboQ = []; b.comboN = 0; b.vx = 0;
+          _engFloat(b.x + b.w / 2, b.y - 8, '镜碎! 破防', '#f8a0d0', 1);
+          game.sfxQueue.push('bossbreak'); _engShake(8, 0);
+          _engAddParts(b.x + b.w / 2, b.y + b.h / 2, 18, '#f8a0d0', 130, 250);
+        }
+      }
+      b.shardPrev = nSh;
+      if (nSh === 0 && b.shardT > 0 && b.hpTotal > 0) {
+        b.shardT -= dt;
+        if (b.shardT <= 0) { _engSpawnShards(b); b.shardPrev = _engShardCount(); b.shardT = 0; }
+      }
+    }
+    /* ③ 终焉：凝视槽——站定时上涨，移动/跳跃/冲刺时回落；满槽只在 idle/recover 强制起手 */
+    if (b.kind === 14 && T.gaze) {
+      const GZ = T.gaze;
+      const still = !p.dead && p.onGround && Math.abs(p.vx) < 14 && p.dashT <= 0;
+      if (still) b.gaze = Math.min(GZ.cap, (b.gaze || 0) + GZ.rate * (b.phase === 2 ? (GZ.p2Mul || 1.35) : 1) * dt);
+      else b.gaze = Math.max(0, (b.gaze || 0) - GZ.calm * dt);
+      if (b.gaze >= GZ.cap && (b.state === 'idle' || b.state === 'recover')) {
+        b.gaze = 0;
+        b.next = 'stare'; b.lastPattern = 'stare'; b.comboQ = ['stare']; b.comboN = 0;
+        b.state = 'windup'; b.t = 0; b.fireN = 0;
+        _engFloat(b.x + b.w / 2, b.y - 10, '凝视满盈', '#f8d048', 1);
+        game.sfxQueue.push('roar');
+      }
+    }
+  }
+
   switch (b.state) {
   case 'dormant':                                // 沉睡：无物理（出生即按锚点落地，见 _engMkBoss）
     if (Math.abs(pcx - bcx) < T.actDist) {       // v7：激活半径读表（三表同值 176，零行为变化）
@@ -2636,7 +2884,11 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     } break;
 
   case 'intro':
-    if (b.t >= 1.8) { b.state = 'idle'; b.t = 0; } break;   // 演出期无敌（_engBossHurt 已挡）
+    if (b.t >= 1.8) {
+      b.state = 'idle'; b.t = 0;
+      // v28：镜渊登场即带三枚镜片（休眠期不生成——玩家还没进战斗就先被三片免疫挡着很奇怪）
+      if (b.kind === 13 && T.shards) { _engSpawnShards(b); b.shardPrev = _engShardCount(); }
+    } break;   // 演出期无敌（_engBossHurt 已挡）
 
   case 'idle': {
     b.face = pcx < bcx ? -1 : 1;
@@ -2783,6 +3035,25 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.landX = pcx; b.state = 'hammerCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'hchain') { if (b.t >= _engBossDur('hchain', b.phase)) {
         b.state = 'hchainCast'; b.t = 0; b.fireN = 0; } }   // v22：每一记落锤时各自锁定位（hchainCast 内）
+    /* ---- v28 第五章十招（kind 12~14；rain 由 kind 在 rainCast 里分派镜雨/陨石雨） ---- */
+    else if (b.next === 'staccato') { if (b.t >= _engBossDur('staccato', b.phase)) {
+        b.state = 'staccatoCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'tutti') { if (b.t >= _engBossDur('tutti', b.phase)) {
+        b.state = 'tuttiCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'fermata') { if (b.t >= _engBossDur('fermata', b.phase)) {
+        b.state = 'fermataCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'prism') { if (b.t >= _engBossDur('prism', b.phase)) {
+        b.state = 'prismCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'rain') { if (b.t >= _engBossDur('rain', b.phase)) {
+        b.state = 'rainCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'march') { if (b.t >= _engBossDur('march', b.phase)) {
+        b.state = 'marchCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'stare') { if (b.t >= _engBossDur('stare', b.phase)) {
+        b.state = 'stareCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'focus') { if (b.t >= _engBossDur('focus', b.phase)) {
+        b.state = 'focusCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'fracture') { if (b.t >= _engBossDur('fracture', b.phase)) {
+        b.state = 'fractureCast'; b.t = 0; b.fireN = 0; } }
     break;
 
   case 'leapAir': {
@@ -3463,6 +3734,157 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     if (b.t >= (TH2.n - 1) * TH2.gap + TH2.warn + 0.9) { b.state = 'recover'; b.t = 0; }
     break; }
 
+  /* ==================== v28 第五章 · 九种 Cast 态（kind 12~14） ====================
+     与地图二同分工：单发招在前摇结束当帧结算，持续招靠 t/fireN 推进；
+     伤害一律走既有 hazard/子弹通道（护盾/无敌帧语义自动继承）。 */
+  case 'staccatoCast': { // 律动·断奏：4 发快速单音，每发重新瞄准玩家当下位置
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const SA = T.staccato || BAL.boss12.staccato;
+    const wantSA = Math.floor(b.t / SA.gap) + 1;
+    while (b.fireN < wantSA && b.fireN < SA.n) {
+      const ang = Math.atan2((p.y + p.h / 2) - (b.y + 18), pcx - bcx);
+      game.bullets.push({ x: bcx - 4, y: b.y + 14, w: 8, h: 8,
+        vx: Math.cos(ang) * SA.v, vy: Math.sin(ang) * SA.v, note: true, dmg: SA.dmg || 1 });
+      game.sfxQueue.push('shot'); b.fireN++;
+    }
+    if (b.fireN >= SA.n && b.t >= (SA.n - 1) * SA.gap + 0.25) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'tuttiCast': { // 律动·全奏：两轮 12 向环弹，每轮留 4 条缝并旋转 30°
+    b.vx = 0;
+    const TU = T.tutti || BAL.boss12.tutti;
+    const cnt = TU.n || 12, skip = TU.skip || 4, step = 360 / cnt;
+    while (b.fireN < TU.t.length && b.t >= TU.t[b.fireN]) {
+      for (let i = 0; i < cnt; i++) {
+        if (i % skip === 0) continue;                 // 每 4 个方向留一个空位：12 向 → 4 条 90° 安全缝
+        const a = (i * step + b.fireN * (TU.spin || 30)) * Math.PI / 180;
+        game.bullets.push({ x: bcx - 4, y: b.y + 16, w: 8, h: 8,
+          vx: Math.cos(a) * TU.v, vy: Math.sin(a) * TU.v, note: true, dmg: 1 });
+      }
+      b.fireN++; game.sfxQueue.push('storm'); _engShake(3, 0);
+    }
+    if (b.fireN >= TU.t.length && b.t >= TU.endT) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'fermataCast': { // 律动·延长音柱：玩家脚下 + 左右各一根金色光柱，同时预警
+    b.vx = 0;
+    const FE = T.fermata || BAL.boss12.fermata;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const WXf = L.w * _engTile;
+      for (let i = 0; i < (FE.n || 3); i++) {
+        const off = (i - (FE.n - 1) / 2) * (FE.spread || 36);
+        const cx = _engClamp(pcx + off, 12, WXf - 12);
+        game.hazards.push({ kind: 'column', x: cx, y: _engGroundY(cx, p.y),
+          w: FE.w, warn: FE.warn, warnT: FE.warn, warnMax: FE.warn, t: 0, dur: FE.dur,
+          dmg: FE.dmg || 2, tone: FE.tone || 'gold' });
+      }
+      game.sfxQueue.push('cast'); _engShake(4, 0);
+    }
+    if (b.t >= (FE.warn || 0.68) + (FE.dur || 0.55) + 0.15) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'prismCast': { // 镜渊·棱镜散射：两轮 5 发粉色慢弹扇面（第二轮偏 12°）
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const PR = T.prism || BAL.boss13.prism;
+    const wantPR = Math.floor(b.t / PR.gap) + 1;
+    while (b.fireN < wantPR && b.fireN < (PR.vol || 2)) {
+      const base = Math.atan2((p.y + p.h / 2) - (b.y + 18), pcx - bcx)
+                 + b.fireN * 12 * Math.PI / 180;
+      for (let i = 0; i < (PR.n || 5); i++) {
+        const a = base + (i - (PR.n - 1) / 2) * (PR.spread * Math.PI / 180);
+        game.bullets.push({ x: bcx - 4, y: b.y + 14, w: 8, h: 8,
+          vx: Math.cos(a) * PR.v, vy: Math.sin(a) * PR.v, pink: true, dmg: PR.dmg || 1 });
+      }
+      b.fireN++; game.sfxQueue.push('shot'); _engShake(2, 0);
+    }
+    if (b.fireN >= (PR.vol || 2) && b.t >= ((PR.vol || 2) - 1) * PR.gap + 0.3) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'rainCast': { // 镜渊·镜雨（粉色竖落弹，冲刺可撞碎）/ 终焉·陨石雨（带预警圈的落石）
+    b.vx = 0;
+    const R = T.rain || BAL.boss14.rain;
+    const WXr = L.w * _engTile;
+    const wantR = Math.floor(b.t / R.gap) + 1;
+    while (b.fireN < wantR && b.fireN < R.n) {
+      const off = (R.off && R.off[b.fireN] !== undefined) ? R.off[b.fireN] : 0;
+      const rx = _engClamp(pcx + off, 12, WXr - 12);
+      if (b.kind === 13) {
+        game.bullets.push({ x: rx - 4, y: b.y - 150 - (b.fireN % 2) * 26, w: 8, h: 10,
+          vx: 0, vy: R.vy || 250, pink: true, dmg: R.dmg || 1 });
+      } else {
+        game.hazards.push({ kind: 'meteor', x: rx, y: _engGroundY(rx, p.y),
+          vy: R.vy || 240, r: 9, warnT: 0.42, tone: 'abyss' });
+      }
+      b.fireN++;
+    }
+    if (b.fireN >= R.n && b.t >= (R.n - 1) * R.gap + 0.45) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'marchCast': { // 镜渊·镜墙推进：一面 14×64 的镜墙从 Boss 侧压向玩家，冲刺穿墙碎一片镜
+    b.vx = 0;
+    const MA = T.march || BAL.boss13.march;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const dir = pcx < bcx ? -1 : 1;
+      const gy = _engGroundY(bcx + dir * 30, b.y + b.h - 2);
+      game.hazards.push({ kind: 'shardwall', x: bcx + dir * 30 - MA.w / 2, y: gy - MA.h,
+        w: MA.w, h: MA.h, v: MA.v, dir: dir, warnT: MA.warn || 0.9,
+        dmg: MA.dmg || 2, hitCd: 0 });
+      game.sfxQueue.push('roar'); _engShake(4, 0);
+    }
+    if (b.t >= 0.4) { b.state = 'recover'; b.t = 0; }   // 墙独立推进，Boss 不陪着站桩
+    break; }
+
+  case 'stareCast': { // 终焉·石化凝视：P1 一根 / P2 三根，逐根锁玩家当下站位
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const ST = T.stare || BAL.boss14.stare;
+    const cnt = b.phase === 2 ? (ST.n || 3) : (ST.n1 || 1);
+    const wantST = Math.floor(b.t / (ST.gap || 0.28)) + 1;
+    const WXs = L.w * _engTile;
+    while (b.fireN < wantST && b.fireN < cnt) {
+      const off = (cnt > 1) ? (b.fireN - (cnt - 1) / 2) * (ST.spread || 44) : 0;
+      const sx = _engClamp(pcx + off, 12, WXs - 12);
+      game.hazards.push({ kind: 'column', x: sx, y: _engGroundY(sx, p.y),
+        w: ST.w, warn: ST.warn, warnT: ST.warn, warnMax: ST.warn, t: 0, dur: ST.dur,
+        dmg: ST.dmg || 2, tone: 'abyss' });
+      game.sfxQueue.push('shot'); b.fireN++;
+    }
+    if (b.fireN >= cnt && b.t >= (cnt - 1) * (ST.gap || 0.28) + (ST.warn || 0.5) + (ST.dur || 0.75) + 0.12) {
+      b.state = 'recover'; b.t = 0;
+    }
+    break; }
+
+  case 'focusCast': { // 终焉·贯目之光：一条竖光带从眼窝射出，60px/s 追着玩家扫（跑速 120 可甩开）
+    b.vx = 0;
+    const FO = T.focus || BAL.boss14.focus;
+    if (b.fireN === 0) {
+      b.fireN = 1;
+      const bx0 = b.x + b.w / 2;
+      game.hazards.push({ kind: 'sweepbeam', x: bx0, gy: _engGroundY(bx0, p.y + 8),
+        w: FO.w || 12, warnT: FO.warn || 0.45, warn: FO.warn || 0.45, t: 0,
+        dur: FO.dur || 1.6, speed: FO.speed || 60, dir: pcx < bx0 ? -1 : 1,
+        dmg: FO.dmg || 1, cd: FO.hitCd || 0.6, hitCd: 0 });
+      game.sfxQueue.push('shot'); _engShake(2, 0);
+    }
+    if (b.t >= (FO.warn || 0.45) + (FO.dur || 1.6) + 0.15) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'fractureCast': { // 终焉·裂界石牙：四根石刺依次从玩家脚下朝外冒出（每根都能跳过去）
+    b.vx = 0;
+    const FR = T.fracture || BAL.boss14.fracture;
+    const WXf2 = L.w * _engTile;
+    const wantFR = Math.floor(b.t / FR.gap) + 1;
+    while (b.fireN < wantFR && b.fireN < FR.n) {
+      const off = (b.fireN - (FR.n - 1) / 2) * (FR.spread || 34);
+      const fx = _engClamp(pcx + off, 12, WXf2 - 12);
+      game.hazards.push({ kind: 'spike', x: fx, y: _engGroundY(fx, p.y),
+        h: 0, mh: FR.h || 26, t: 0, life: FR.life || 1.1, tone: 'abyss' });
+      _engShake(2, 0); b.fireN++;
+    }
+    if (b.fireN >= FR.n && b.t >= (FR.n - 1) * FR.gap + (FR.life || 1.1) + 0.1) { b.state = 'recover'; b.t = 0; }
+    break; }
+
   case 'rest': { // ⑧ 钟·休止符：站定不动、不出招——这是它唯一吃伤害的窗口（承伤 ×4.0，见 _engBossHurt）
     b.vx = 0;
     // v20.3：P2 渐快（accelerando）——休止窗口缩 20%，曲谱越打越急，背谱的价值在末段兑现
@@ -3661,6 +4083,8 @@ function _engUpdateHazards(dt) {
   let pullOn = false; // 本帧是否有生效中的力场（决定 p.pullV 是继续充能还是衰减）
   let coreDied = false;                               // v12：本帧有核心碎了 → 循环后统一查破盾
   let mirrorDead = null;                              // v13：本帧被击破的幻影 → 循环后统一结算（唯一结算点）
+  let shardBrokeN = 0;                                // v28：本帧碎掉的镜片数 → 循环后逐片扣 5% 总血
+  let wallShatter = false;                            // v28：本帧冲刺穿过镜墙 → 循环后碎一片镜
   for (let i = hz.length - 1; i >= 0; i--) {
     const e = hz[i];
     let dead = false;
@@ -3783,7 +4207,8 @@ function _engUpdateHazards(dt) {
       const t0 = e.t; e.t += dt;
       const cc = (e.tone === 'gold') ? '#f8d048'
                : (e.tone === 'violet' || e.tone === 'ghost') ? '#b060f0'
-               : (e.tone === 'star') ? '#a890f8' : '#48d8f8';
+               : (e.tone === 'star') ? '#a890f8'
+               : (e.tone === 'abyss') ? '#58d8c8' : '#48d8f8';   // v28：终焉石化光柱=青金
       if (t0 < e.warn && e.t >= e.warn) {            // 进入落柱那一帧：音效 + 震屏（只触发一次）
         game.sfxQueue.push('boom'); _engShake(4, 0);
         _engAddParts(e.x, e.y - 4, 14, cc, 120, 260);
@@ -4066,6 +4491,77 @@ function _engUpdateHazards(dt) {
         p.mistT = 0.08; p.mistSlow = Math.min(p.mistT > 0 ? (p.mistSlow || 1) : 1, e.slow || 0.4);
         p.webNoJump = 0.08;
       }
+    /* ==================== v28 第五章 · 三种新场地实体 ====================
+       镜片 / 镜墙 / 贯目之光全部走 hazards：跨段清场、Boss 死亡清场、复活清场三条规则
+       自动继承。受击只扣 hp（近战/弹体/星陨三处），碎镜的 5% 扣血与破防结算统一在循环后做。 */
+    } else if (e.kind === 'shard') { // 镜渊·镜片：绕 Boss 公转的可打目标
+      e.t += dt;
+      if (e.flashT > 0) e.flashT -= dt;
+      const bS = game.boss;
+      if (!bS || bS.kind !== 13 || bS.state === 'dying' || bS.state === 'dead' || bS.hpTotal <= 0) {
+        dead = true;                    // 无主镜片立即收掉：绝不留一片“免伤罩”挂在场上
+      } else {
+        const ocx = bS.x + bS.w / 2, ocy = bS.y + 18;
+        const oa = (e.a0 || 0) * Math.PI / 180 + e.t * 1.5;  // 86°/s 公转：一圈约 4.2s
+        e.x = ocx + Math.cos(oa) * 36 - e.w / 2;
+        e.y = ocy + Math.sin(oa) * 22 - e.h / 2;
+        if (e.hp <= 0) {                // 打碎：只记账，5% 总血在循环后统一结算
+          dead = true; shardBrokeN++;
+          _engAddParts(e.x + 7, e.y + 8, 16, '#f8a0d0', 110, 230);
+          _engFx(e.x + 7, e.y + 8, { ring: 1, r: 3, r1: 24, life: 0.28, color: '#f8a0d0' });
+          _engFloat(e.x + 7, e.y - 6, '碎镜', '#f8a0d0', 0);
+          game.sfxQueue.push('break');
+        } else if (!p.dead && _engAabb(e, p)) {
+          _engHurtPlayer(e.x + 7, 1);   // 镜片本身是危险物：贴着 Boss 打要先接受这点代价
+        }
+      }
+    } else if (e.kind === 'shardwall') { // 镜渊·镜墙：预警 → 匀速推进 → 越过场地另一端自删
+      if (e.warnT > 0) {
+        e.warnT -= dt;
+        if (e.warnT <= 0) { e.warnT = 0; game.sfxQueue.push('roar'); _engShake(4, 0); }
+      } else {
+        if (e.hitCd > 0) e.hitCd -= dt;
+        e.x += e.dir * e.v * dt;
+        const WXw = L.w * _engTile;
+        if ((e.dir > 0 && e.x > WXw) || (e.dir < 0 && e.x + e.w < 0)) dead = true;
+        else if (!p.dead && _engAabb(e, p)) {
+          if (p.dashT > 0) {
+            /* 冲刺穿墙是本招唯一正解：墙不消失（它继续推），但每次冲刺碎一片镜，
+               并把无敌覆盖到冲刺尾段——玩家必须真的穿过去，而不是撞在墙上掉血。 */
+            if (!e.dashHit && game.boss && _engShardCount() > 0) {
+              e.dashHit = true; wallShatter = true;
+              p.invT = Math.max(p.invT, p.dashT + 0.12);
+              _engFloat(p.x + 5, p.y - 8, '碎镜!', '#f8a0d0', 1);
+              _engShake(4, 0);
+            }
+          } else if (e.hitCd <= 0) {
+            e.hitCd = 0.8;              // 一面墙最多每 0.8s 撞一次
+            _engHurtPlayer(e.x + e.w / 2, e.dmg || 2);
+            p.vx = e.dir * 210; p.vy = -170;
+            p.onGround = false; p.standOn = null; p.jbuf = 0; p.coyote = 0;
+            game.sfxQueue.push('bosshit'); _engShake(5, 0);
+            _engFloat(p.x + 5, p.y - 6, '推!', '#f8a0d0', 0);
+          }
+        }
+      }
+    } else if (e.kind === 'sweepbeam') { // 终焉·贯目之光：预警后缓慢追踪玩家的竖光带（120 跑速可甩开）
+      e.t += dt;
+      if (e.warnT > 0) {
+        e.warnT -= dt;
+        if (e.warnT <= 0) { e.warnT = 0; game.sfxQueue.push('boom'); _engShake(3, 0); }
+      } else if (e.t >= (e.warn || 0.45) + (e.dur || 1.6)) {
+        dead = true;
+      } else {
+        const WXb = L.w * _engTile;
+        const tgtb = _engClamp(p.x + p.w / 2, e.w / 2, WXb - e.w / 2);
+        e.dir = tgtb > e.x + 1 ? 1 : (tgtb < e.x - 1 ? -1 : 0);   // 眼随人转：60px/s 慢扫
+        e.x = _engClamp(e.x + e.dir * (e.speed || 60) * dt, e.w / 2, WXb - e.w / 2);
+        if (e.hitCd > 0) e.hitCd -= dt;
+        if (e.hitCd <= 0 && !p.dead
+            && _engAabb({ x: e.x - e.w / 2, y: 0, w: e.w, h: Math.max(16, e.gy || 0) }, p)) {
+          _engHurtPlayer(e.x, e.dmg || 1); e.hitCd = e.cd || 0.6;
+        }
+      }
     }
     if (dead) hz.splice(i, 1);
   }
@@ -4073,6 +4569,9 @@ function _engUpdateHazards(dt) {
   if (coreDied) _engCoreBreakCheck();
   // v13：幻影在本帧被击破 → 统一结算（真身显形/假身爆炸都只在这里发生，攻击路径只扣 hp）
   if (mirrorDead) for (const e of mirrorDead) _engMirrorSettle(e);
+  // v28：镜片同理——碎一枚扣 5% 总血（raw=true 不吃减伤）；三片全碎由 _engUpdateBoss 下一帧转破绽
+  if (shardBrokeN && game.boss) for (let k = 0; k < shardBrokeN; k++) _engShardBroke(game.boss);
+  if (wallShatter && game.boss) _engShatterShard(game.boss);
   // 力场结束：吸附速度 8/s 衰减归零（不会一直把玩家拖着走）；力场生效中则保持充能
   if (!pullOn && p.pullV) {
     p.pullV *= Math.max(0, 1 - 8 * dt);
@@ -4706,7 +5205,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     // 玩家明明砍在圣像身上却打不掉——受击判定必须换成立在地上的那个盒子。
     const hzBox = hz2.kind === 'totem' ? { x: hz2.x, y: hz2.y - hz2.h, w: hz2.w, h: hz2.h } : hz2;
     if ((hz2.kind !== 'clone' && hz2.kind !== 'core' && hz2.kind !== 'mirror'
-         && hz2.kind !== 'totem' && hz2.kind !== 'egg'
+         && hz2.kind !== 'totem' && hz2.kind !== 'egg' && hz2.kind !== 'shard'
          && !(hz2.kind === 'web' && hz2.hp !== undefined))   // v22：无 hp 的茧网不可打掉（用户明确），带 hp 的旧网照旧
         || hz2.hitSeq === p.atkSeq || !_engAabb(box, hzBox)) continue;
     hz2.hitSeq = p.atkSeq;
@@ -4744,6 +5243,14 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
       _engFloat(hz2.x + hz2.w / 2, hz2.y - 4, '1', '#8ad8f8', 0);
       _engCoreHit(hzArr, hz2, 1);
       game.hitStop = _engHitStop;
+      continue;
+    }
+    if (hz2.kind === 'shard') {                      // v28：镜片固定 1（4 下碎一片；碎镜结算在 hazard 收尸处）
+      hz2.hp -= 1; hz2.flashT = 0.15;
+      _engFloat(hz2.x + 7, hz2.y - 4, '1', '#f8a0d0', 0);
+      _engAddStars(hz2.x + 7, hz2.y + 8, 4, '#f8a0d0');
+      _engAddCombo();
+      game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
       continue;
     }
     hz2.hp -= 1; hz2.flashT = 0.15;
@@ -4937,11 +5444,13 @@ function _engMageMeteorHit(L, m) { // 内部（v19，spec §1.2/§2.7）：法�
   const hzArr = game.hazards || (game.hazards = []);
   for (const hz of hzArr) {
     if (!hz || (hz.kind !== 'egg' && hz.kind !== 'totem' && hz.kind !== 'clone'
-       && hz.kind !== 'mirror' && !(hz.kind === 'web' && hz.hp !== undefined))) continue;   // v22：无 hp 茧网不可打掉
+       && hz.kind !== 'mirror' && hz.kind !== 'shard'
+       && !(hz.kind === 'web' && hz.hp !== undefined))) continue;   // v22：无 hp 茧网不可打掉
     if (!_engAabb(m, hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz)) continue;
-    hz.hp = (hz.hp === undefined ? 2 : hz.hp) - (hz.kind === 'web' ? 1 : md);
+    const hdmg = (hz.kind === 'web' || hz.kind === 'shard') ? 1 : md;  // v28：镜片按固定 1（与近战/弹体同口径）
+    hz.hp = (hz.hp === undefined ? 2 : hz.hp) - hdmg;
     hz.flashT = 0.15;
-    _engFloat(hz.x + hz.w / 2, hz.y - 4, '' + (hz.kind === 'web' ? 1 : md), '#8ae8ff', 0);
+    _engFloat(hz.x + hz.w / 2, hz.y - 4, '' + hdmg, hz.kind === 'shard' ? '#f8a0d0' : '#8ae8ff', 0);
     game.sfxQueue.push('hit');
     return true;
   }
@@ -5097,7 +5606,7 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     for (let j = hzArr.length - 1; j >= 0 && !dead; j--) {
       const hz = hzArr[j];
       if (!hz || (hz.kind !== 'clone' && hz.kind !== 'core' && hz.kind !== 'mirror'
-         && hz.kind !== 'totem' && hz.kind !== 'egg'
+         && hz.kind !== 'totem' && hz.kind !== 'egg' && hz.kind !== 'shard'
          && !(hz.kind === 'web' && hz.hp !== undefined))) continue;   // v22：无 hp 茧网不可打掉（弹体穿过）
       // totem 的 y 是地面线、h 向上长（与 mist 同口径）：判定盒必须换成立在地上的那个盒子
       const hzBox = hz.kind === 'totem' ? { x: hz.x, y: hz.y - hz.h, w: hz.w, h: hz.h } : hz;
@@ -5129,6 +5638,10 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         const broke = _engCoreHit(hzArr, hz, 1);       // 归零即碎
         if (broke) _engCoreBreakCheck();               // 全破 → stagger 2.0s（b.coreOn 保证只触发一次）
         game.hitStop = _engHitStop;
+      } else if (hz.kind === 'shard') {                // v28：镜片固定 1（同骑士近战；碎镜结算在收尸处）
+        hz.hp -= 1; hz.flashT = 0.15;
+        _engFloat(hz.x + 7, hz.y - 4, '1', '#f8a0d0', 0);
+        game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
       } else {                                         // 分身：扣 s.dmg（出膛即定；不吃命中时暴击，同骑士 clone 口径）
         const cdmg = s.dmg || s.base;
         hz.hp -= cdmg; hz.flashT = 0.15;
@@ -5840,6 +6353,15 @@ function updateWorld(dt) {
       if (b.life <= 0) { _engAddParts(b.x + 4, b.y + 4, 6, '#f86030', 70, 150); return false; } }
     const tx = Math.floor((b.x + 4) / _engTile), ty = Math.floor((b.y + 3) / _engTile);
     if (L.solid(tx, ty, game.switchState)) { _engAddParts(b.x + 4, b.y + 3, 4, '#f8b020', 50, 150); return false; }
+    /* v28：粉色镜弹（镜渊 prism/rain）——冲刺撞碎，不受伤。冲刺无敌本可挡下伤害，
+       但“撞碎”必须有独立反馈，否则玩家不知道自己做了什么，镜弹会像普通弹幕一样讨厌。 */
+    if (b.pink && p.dashT > 0 && !p.dead && _engAabb(b, p)) {
+      _engAddParts(b.x + 4, b.y + 4, 7, '#f8a0d0', 90, 200);
+      _engFx(b.x + 4, b.y + 4, { ring: 1, r: 2, r1: 14, life: 0.2, color: '#f8a0d0' });
+      game.sfxQueue.push('break');
+      p.invT = Math.max(p.invT, p.dashT + 0.10);   // 盖住冲刺尾段：碎完这一发不会立刻被下一发擦到
+      return false;
+    }
     if (!p.dead && _engAabb(b, p)) { _engHurtPlayer(b.x + 4); return false; } // v3：炮弹/Boss 弹/火球 → HP 伤害（原即死）
     return b.x > -20 && b.x < L.w * _engTile + 20 && b.y > -20 && b.y < L.h * _engTile + 20; // v3：出界追加 y
   });
@@ -6131,9 +6653,9 @@ function updateWorld(dt) {
       const hzM = game.hazards || (game.hazards = []);
       for (let k = 0; k < hzM.length; k++) {
         const mu = hzM[k];
-        if (mu.kind !== 'mirror' || !_engAabb(m, mu)) continue;
+        if ((mu.kind !== 'mirror' && mu.kind !== 'shard') || !_engAabb(m, mu)) continue;
         mu.hp -= 1; mu.flashT = 0.15;
-        _engFloat(mu.x + mu.w / 2, mu.y - 4, '1', '#b060f0', 0);
+        _engFloat(mu.x + mu.w / 2, mu.y - 4, '1', mu.kind === 'shard' ? '#f8a0d0' : '#b060f0', 0);
         boom = true; break;
       }
     }

@@ -806,11 +806,12 @@ function validateLevels(){
   for(let li=0;li<ALL_LEVELS.length;li++){
     const meta=ALL_LEVELS[li];
     const isBoss=!!meta.boss; // v3：BOSS 关豁免终点 P 断言（胜利由 Boss 死亡触发，goal=null 时引擎终点判定自动跳过）
-    if(meta.boss!==undefined && ![true,2,3,4,5,6,7,8,9,10,11].includes(meta.boss))   // v7 §10-8：boss 值域断言（meta 级；true≡kind1，2=蛟龙，3=判官；
+    if(meta.boss!==undefined && ![true,2,3,4,5,6,7,8,9,10,11,12,13,14].includes(meta.boss))   // v7 §10-8：boss 值域断言（meta 级；true≡kind1，2=蛟龙，3=判官；
                                                    // v7.9 追加 4=冥古龙 5=曜光·圣裁者，终章 L18 双 Boss 的首发锚点用 4）
                                                    // v12 追加 6=烈焰·牛魔王（L19）
                                                    // v20 追加 7~11 = 地图二五只（余烬/天秤/茧/喉/钟）
-      errs.push('L'+(li+1)+' boss 值必须为 true|2|3|4|5|6|7|8|9|10|11');
+                                                   // v28 追加 12~14 = 地图三三只（律动/镜渊/终焉）
+      errs.push('L'+(li+1)+' boss 值必须为 true|2|3|4|5|6|7|8|9|10|11|12|13|14');
     if(!meta.build)continue;
     const g=new LG(meta.w,meta.h);
     meta.build(g);
@@ -983,6 +984,24 @@ function validateLevels(){
     if(nZ!==1)errs.push('L14~L16 精英z合计='+nZ+'(应为1)');
     if(nG3<1)errs.push('L14~L16 隐藏砖G合计='+nG3+'(应≥1)');
     if(nChest!==1)errs.push('L14~L16 宝箱g合计='+nChest+'(应为1)');
+  }
+  if(ALL_LEVELS.length>=27){                     // v28 第五章三关合入（chapter5.js）——地图三全 Boss
+    const want=['anthem','mirror','abyss'],bk=[12,13,14];
+    for(let i=0;i<3;i++){
+      const li=24+i;
+      if(ALL_LEVELS[li].theme!==want[i])errs.push('L'+(li+1)+' 第五章 theme 应为 '+want[i]);
+      if(ALL_LEVELS[li].boss!==bk[i])errs.push('L'+(li+1)+' meta.boss 应为 '+bk[i]);
+      const m=ALL_LEVELS[li];if(!m.build)continue;
+      const gg=new LG(m.w,m.h);m.build(gg);
+      let nX=0,nP=0,nQ=0;
+      for(let y=0;y<m.h;y++)for(let x=0;x<m.w;x++){
+        const c=gg.g[y][x];
+        if(c==='X')nX++; if(c==='P')nP++; if(c==='Q')nQ++;
+      }
+      if(nX!==1)errs.push('L'+(li+1)+' Boss 锚点 X 应恰 1 个（实际 '+nX+'）');
+      if(nP!==0)errs.push('L'+(li+1)+' Boss 关不许有终点 P');
+      if(nQ!==0)errs.push('L'+(li+1)+' Boss 关不许有神龛 Q');
+    }
   }
   if(errs.length)return{ok:false,msg:'失败 '+errs.length+' 处: '+errs.slice(0,5).join('; ')};
   return{ok:true,msg:ALL_LEVELS.length+'关断言全部通过'+(warns.length?('; 警告'+warns.length+'处(宽间隙按支线处理)'):'')};   // v5 §C-7：关数动态；v7 §10-1：ALL_LEVELS

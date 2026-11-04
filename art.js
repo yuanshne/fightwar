@@ -3623,7 +3623,7 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     _makeSprite(_LANTERN_1, _P_LANTERN), _makeSprite(_LANTERN_2, _P_LANTERN)];
   // —— v7（工单 §4）：Boss 部件组，键集合=SPR.boss+coreRage；ui 按
   //      [SPR.boss,SPR.boss2,SPR.boss3][kind] 装配（§9.3）；白剪影沿 bossWhite 先例。
-  function _mkV7Boss(bodyFn, P) { // 内部：Boss 部件组装配（蛟龙/判官共用，差异=调色/体建器）
+  function _mkV7Boss(bodyFn, P, solo) { // 内部：Boss 部件组装配（蛟龙/判官共用，差异=调色/体建器）
     const body = bodyFn(P.b), bodyR = bodyFn(P.bR);
     return {
       body: [body, _bossBreath(body)], bodyRage: [bodyR, _bossBreath(bodyR)],             // ×2 帧2 呼吸
@@ -3637,7 +3637,10 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
       core: [_glow(_makeSprite(_BOSS_CORE1, P.c1), P.coreRim),
              _glow(_makeSprite(_BOSS_CORE1, P.c2), P.coreRim)],                           // 12×12 ×2
       coreRage: [_glow(_makeSprite(_BOSS_CORE1, P.c1r), '#ffd8c8'),
-                 _glow(_makeSprite(_BOSS_CORE1, P.c2r), '#ffd8c8')]
+                 _glow(_makeSprite(_BOSS_CORE1, P.c2r), '#ffd8c8')],
+      /* v28：solo=整体式 Boss（地图三三只）——body 已画完五官与双臂，UI 跳过通用
+         arm/jaw/eye/core 部件，只画身体；键集合仍与旧 Boss 完全一致（缺键守卫零改动）。 */
+      solo: !!solo
     };
   }
   SPR.boss2 = _mkV7Boss(_buildDragonBody, { // 蛟龙·敖渊（64×40 长躯，青金配色；kind=2）
@@ -3892,6 +3895,156 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
     return t.c;
   }
 
+  /* ==================== v28 地图三 · 三只整体式 Boss 身体 ====================
+     与地图一/二的根本差异：那十一只都是「部件拼装」（身体 + 通用双臂 + 下颚 + 双眼 + 胸口核心），
+     所以它们的脸永远是同一张脸，只是换了颜色与轮廓。地图三的三只改成**整体式**：
+     五官、双臂、冠冕全部画进 body，装配时带 solo=true，ui 跳过通用部件。
+     这样三只的「眼睛长在哪、手长什么样」第一次可以不同——
+       律动 = 节拍器木柜：竖槽里一根摆杆（UI 每帧按拍点画）、刻度盘、指挥棒；
+       镜渊 = 拱形镜框：一整块碎玻璃 + 一道竖瞳 + 顶部三片碎镜冠；
+       终焉 = 戴冠巨眼：石睑、金瞳竖裂、冠上五尖、下缘四条触须。
+     三张脸在剪影层就能区分：梯形柜 / 拱框 / 横椭圆巨眼。 */
+
+  function _buildMetroBody(pal) { // 律动·俄耳甫斯 52×56：节拍器木柜 + 摆杆槽 + 刻度盘 + 指挥棒
+    const t = _m2Tool(52, 56), R = t.R, E = t.E, L = t.L;
+    // ① 底座：四层递减石台（和天秤同一套"站得住"的写法）
+    R(2, 51, 48, 4, pal.k);
+    R(5, 49, 42, 2, pal.d);
+    R(9, 47, 34, 2, pal.m);
+    R(14, 45, 24, 2, pal.l);
+    // ② 柜体：逐行梯形。k^0.92 让下摆略急，读作"节拍器"而不是"金字塔"
+    for (let y = 13; y < 46; y++) {
+      const k = (y - 13) / 33, half = Math.round(9 + 8 * Math.pow(k, 0.92));
+      R(26 - half, y, half * 2, 1, y > 41 ? pal.d : pal.m);
+      R(26 - half, y, 2, 1, pal.y);                    // 左金边（受光）
+      R(26 + half - 2, y, 2, 1, pal.d);                // 右暗边（背光）
+      if (y > 24 && y < 42 && (y % 5 === 0)) R(26 - half + 2, y, 2, 1, pal.l); // 木纹
+    }
+    // ③ 顶部斜顶 + 金色尖钮
+    for (let y = 5; y < 13; y++) {
+      const k = (y - 5) / 8, half = Math.round(3 + 6 * k);
+      R(26 - half, y, half * 2, 1, pal.d);
+      R(26 - half, y, 1, 1, pal.y);
+      R(26 + half - 1, y, 1, 1, pal.k);
+    }
+    R(25, 0, 2, 5, pal.y); R(25, 0, 1, 5, '#fff0b0');
+    // ④ 摆杆槽：贯穿柜体的黑槽（实际摆杆/摆锤由 ui 按 b.beatPh 每帧绘制）
+    R(21, 18, 10, 26, pal.k);
+    R(22, 19, 8, 24, '#0e0810');
+    R(23, 20, 6, 22, '#050307');
+    // ⑤ 刻度盘：槽顶的金色半圆 + 五枚刻度（节拍器最标志性的一件）
+    R(13, 14, 26, 3, pal.y); R(14, 15, 24, 1, '#fff0b0');
+    for (let i = 0; i < 5; i++) R(16 + i * 5, 13, 1, 2, pal.k);
+    // ⑥ 双眼：槽两侧的横向金缝（怒时变成红缝由 bodyRage 自动换色）
+    R(14, 22, 6, 2, pal.k); R(32, 22, 6, 2, pal.k);
+    R(15, 23, 4, 2, pal.g); R(33, 23, 4, 2, pal.g);
+    R(16, 23, 2, 1, pal.y); R(34, 23, 2, 1, pal.y);
+    // ⑦ 双臂：左手握拳；右手指挥棒斜指右上（棒尖一点白光，3× 下能看出一根棒）
+    L(9, 28, 4, 21, pal.d, 3); R(2, 18, 5, 5, pal.d); R(3, 19, 3, 3, pal.y);
+    L(43, 28, 49, 21, pal.d, 3); R(47, 18, 4, 4, pal.y);
+    L(49, 20, 51, 4, '#f0e0b0', 1); R(50, 2, 2, 3, '#fff8e8');
+    // ⑧ 胸前一道金色小节线（不抢槽的注意力，但让空柜面有内容）
+    R(17, 40, 3, 1, pal.y); R(32, 40, 3, 1, pal.y);
+    return t.c;
+  }
+
+  function _buildMirrorBody(pal) { // 镜渊·无相 48×56：拱形镜框 + 碎玻璃 + 竖瞳 + 碎镜冠
+    const t = _m2Tool(48, 56), R = t.R, E = t.E, L = t.L;
+    // ① 下摆碎镜（底层）：五片高低不一的碎片
+    const hem = [[5, 49, 5, 55], [12, 51, 6, 55], [19, 48, 7, 56], [28, 51, 6, 55], [35, 49, 5, 55]];
+    for (let i = 0; i < hem.length; i++) {
+      const h = hem[i];
+      for (let y = h[1]; y < h[3]; y++) {
+        const w = Math.max(1, Math.round(h[2] * (1 - (y - h[1]) / (h[3] - h[1] + 1))));
+        R(h[0] + ((h[2] - w) >> 1), y, w, 1, i % 2 ? pal.m : pal.d);
+      }
+    }
+    // ② 拱形外框：椭圆拱顶 + 矩形框身
+    E(24, 17, 20, 13, pal.d);
+    R(4, 17, 40, 33, pal.d);
+    E(24, 16, 18, 11, pal.m);
+    R(6, 17, 36, 31, pal.m);
+    // ③ 内斜面 + 镜面（深紫黑）
+    E(24, 18, 15, 9, pal.k);
+    R(9, 20, 30, 27, pal.k);
+    E(24, 19, 13, 7, '#1c1438');
+    R(11, 21, 26, 25, '#1c1438');
+    // ④ 镜面受光：两道斜高光（玻璃的读法全在这两条）
+    L(14, 24, 20, 43, '#3a2a60', 2);
+    L(17, 22, 23, 41, '#4a3a78', 1);
+    L(34, 26, 29, 40, '#2a1e50', 1);
+    // ⑤ 裂纹：从瞳孔向外三道粉裂（亮芯 + 暗缘）
+    L(24, 22, 15, 13, pal.y, 1); L(24, 33, 37, 45, pal.y, 1);
+    L(26, 28, 40, 24, pal.y, 1);
+    L(24, 22, 30, 16, '#ffd0e8', 1);
+    // ⑥ 竖瞳：粉光杏仁 + 黑竖裂 + 两点高光。眼睛是整块镜面唯一"活"的东西
+    E(24, 29, 9, 5, pal.g);
+    E(24, 29, 7, 3, '#2a0a20');
+    R(23, 24, 2, 11, '#08030c');
+    R(23, 26, 2, 2, '#fff0f8'); R(23, 32, 1, 1, '#ffd0e8');
+    // ⑦ 碎镜冠：顶部三片尖晶（中间最高）
+    const cr = [[12, 8, 3], [22, 10, 4], [33, 8, 3]];
+    for (let i = 0; i < cr.length; i++) {
+      const cx0 = cr[i][0], hh = cr[i][1], ww = cr[i][2];
+      for (let y = 0; y < hh; y++) {
+        const w = Math.max(1, Math.round(ww * (y + 1) / hh));
+        R(cx0 + ((ww - w) >> 1), hh - y, w, 1, y < 2 ? '#fff0f8' : pal.l);
+      }
+    }
+    // ⑧ 框角铆钉 + 双臂碎晶刃
+    R(6, 20, 2, 2, pal.y); R(40, 20, 2, 2, pal.y);
+    R(6, 44, 2, 2, pal.y); R(40, 44, 2, 2, pal.y);
+    L(5, 30, 0, 21, pal.m, 3); L(1, 23, 0, 19, pal.l, 1);
+    L(43, 30, 47, 21, pal.m, 3); L(46, 23, 47, 19, pal.l, 1);
+    R(0, 18, 2, 2, '#fff0f8'); R(46, 18, 2, 2, '#fff0f8');
+    return t.c;
+  }
+
+  function _buildEyeBody(pal) { // 终焉·阿刻戎 64×64：石睑巨眼 + 五尖金冠 + 竖裂金瞳 + 下缘触须
+    const t = _m2Tool(64, 64), R = t.R, E = t.E, L = t.L;
+    // ① 触须（底层）：四条从眼下滑出的暗触须，末端一点金
+    L(14, 48, 4, 61, pal.d, 3); L(22, 53, 15, 63, pal.d, 2);
+    L(50, 48, 60, 61, pal.d, 3); L(42, 53, 49, 63, pal.d, 2);
+    R(2, 59, 3, 3, pal.y); R(14, 61, 3, 2, pal.y);
+    R(59, 59, 3, 3, pal.y); R(47, 61, 3, 2, pal.y);
+    // ② 冠带 + 五尖（金）。冠压在眼睛上沿，先画冠带再画眼睑，镶进石里
+    R(13, 10, 38, 4, pal.y); R(13, 10, 38, 1, '#fff0b0'); R(13, 13, 38, 1, pal.d);
+    const sp = [[16, 7], [24, 10], [32, 14], [40, 10], [48, 7]];
+    for (let i = 0; i < sp.length; i++) {
+      const sx = sp[i][0], hh = sp[i][1];
+      for (let y = 0; y < hh; y++) {
+        const w = Math.max(1, 3 - Math.floor(y / 4));
+        R(sx - w, 10 - y, w * 2 + 1, 1, y > hh - 4 ? '#fff8e8' : pal.y);
+      }
+    }
+    R(19, 11, 2, 2, '#ff5a8a'); R(31, 11, 2, 2, '#48e8e0'); R(43, 11, 2, 2, '#ff5a8a');
+    // ③ 眼窝：深色石眶（巨物感来自这道厚度，不是来自眼白大小）
+    E(32, 36, 30, 23, pal.k);
+    E(32, 35, 28, 21, pal.d);
+    // ④ 眼白 + 下缘阴影 + 左上高光
+    E(32, 35, 25, 18, '#dff2ea');
+    E(32, 41, 22, 11, '#b4d4c8');
+    E(25, 28, 10, 6, '#f8fffc');
+    // ⑤ 石睑：上睑压到虹膜上沿、下睑托住眼白（两片都带金缘）
+    E(32, 18, 28, 9, pal.m);
+    E(32, 16, 25, 6, pal.d);
+    R(6, 22, 52, 1, pal.y);
+    E(32, 52, 25, 6, pal.m);
+    E(32, 54, 22, 5, pal.d);
+    R(9, 50, 46, 1, pal.y);
+    // ⑥ 虹膜：金环 + 青环 + 黑竖裂。三层环径差 2px，3× 下能数清
+    E(32, 35, 12, 12, pal.y);
+    E(32, 35, 10, 10, pal.g);
+    E(32, 35, 7, 7, '#0a4a50');
+    R(30, 24, 4, 22, '#030a0c'); R(31, 25, 2, 20, '#06161a');
+    R(30, 27, 1, 4, '#ffffff'); R(33, 38, 1, 3, '#e8ffff');
+    // ⑦ 泪痕：三道金色裂纹从睑缘坠下（终焉之眼在"哭"，也是它的攻击预兆）
+    L(19, 47, 17, 57, pal.y, 1); L(32, 49, 32, 59, pal.y, 1);
+    L(45, 47, 47, 57, pal.y, 1);
+    L(32, 55, 32, 59, '#fff0b0', 1);
+    return t.c;
+  }
+
   /* 装配：键集合与 SPR.boss2~6 逐字一致（body/bodyRage/arm/jaw/eye/core 全套），
      ui 侧 renderBoss 的取键路径不需要为地图二开分支。 */
   SPR.boss7 = _mkV7Boss(_buildEmberBody, _m2Pal('#3a2a30', '#241a20', '#5a4448', '#f86038', '#f8a030'));
@@ -3899,8 +4052,12 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   SPR.boss9 = _mkV7Boss(_buildHuskBody, _m2Pal('#5a6838', '#3a4028', '#8a9058', '#a8d048', '#e8f0a0'));
   SPR.boss10 = _mkV7Boss(_buildMawBody, _m2Pal('#3a1830', '#22101e', '#5a2848', '#8a58d8', '#c8a0f0'));
   SPR.boss11 = _mkV7Boss(_buildBellBody, _m2Pal('#6a5428', '#3a2e18', '#a88838', '#f8d048', '#fff0a0'));
+  // v28 地图三三只：第三参 solo=true —— 整体式身体，ui 跳过通用臂/颚/眼/核心
+  SPR.boss12 = _mkV7Boss(_buildMetroBody, _m2Pal('#c8a860', '#6a5030', '#f0e0b0', '#f8d048', '#f87048'), true);
+  SPR.boss13 = _mkV7Boss(_buildMirrorBody, _m2Pal('#7a6a9a', '#3a2a58', '#c8b8e0', '#f8a0d0', '#ff5a8a'), true);
+  SPR.boss14 = _mkV7Boss(_buildEyeBody, _m2Pal('#1a5a60', '#0a2a30', '#48b8b0', '#f8d048', '#ff8a3a'), true);
   // 白剪影三件（受击闪白）：五只同构，缺了会在受击帧露出原色——地图一的六只都有，这里补齐
-  for (const k of ['boss7', 'boss8', 'boss9', 'boss10', 'boss11']) {
+  for (const k of ['boss7', 'boss8', 'boss9', 'boss10', 'boss11', 'boss12', 'boss13', 'boss14']) {
     const S = SPR[k];
     SPR[k + 'White'] = {
       body: _whiteVariant(S.body[0]),
@@ -3981,7 +4138,16 @@ const THEMES = {
   maw: _th('无声之喉', '#080a12', '#182030', '#22283a', '#3a4a5a', '#2a2a38', '#58e8f0',
     ['chain', 'skull', 'stalagmite', 'glowworm', 'chain'], '#88c8d8', '#58e8f0', { dark: true }),
   bell: _th('终末钟楼', '#10141c', '#2a3038', '#3a3630', '#8a7038', '#5a4a30', '#f8d048',
-    ['lamp', 'chain', 'gear', 'barrel', 'lamp'], '#d8c890', '#f8d048', { dark: true })
+    ['lamp', 'chain', 'gear', 'barrel', 'lamp'], '#d8c890', '#f8d048', { dark: true }),
+  /* ---- v28 地图三·终焉镜海：三关三套性格色 ----
+     anthem 是暖木+金（戏院/节拍器），mirror 是冷紫+粉（玻璃/镜面），
+     abyss 是墨青+金（深海遗迹/巨眼）。三套都 dark，进关第一眼就和前四章分开。 */
+  anthem: _th('律动回廊', '#141022', '#3a2848', '#4a4038', '#c8a048', '#6a5438', '#f8d048',
+    ['lamp', 'candelabra', 'flagbanner', 'chain', 'lamp'], '#f8e8b8', '#f8d048', { dark: true }),
+  mirror: _th('镜渊回廊', '#1a1438', '#6a4a9a', '#5a5478', '#d8c8f0', '#8a78a8', '#f8a0d0',
+    ['crystal', 'candelabra', 'chain', 'lamp', 'crystalS'], '#f0d8ff', '#f8a0d0', { dark: true }),
+  abyss: _th('终焉镜海', '#04121a', '#0c3a42', '#1a3a40', '#2a7a80', '#1a4a50', '#f8d048',
+    ['crystal', 'glowworm', 'chain', 'skull', 'stalagmite'], '#88e8e0', '#f8d048', { dark: true })
 };
 
 /* ==================== 内部：主题材质母题（画进瓦片本体，v5 三阶 cel 硬边） ==================== */
@@ -4055,6 +4221,34 @@ const _TILE_MOTIF = { // v5：图形不变，色值对齐新色板，斑块硬�
     g.fillStyle = '#b8b8a8'; g.fillRect(5, 10, 2, 1);
     g.fillStyle = '#68e8a0';
     g.fillRect(2, 12, 1, 1); g.fillRect(13, 5, 1, 1);
+  },
+  /* v28 地图三三套母题：都是"小图案"而不是纹理，瓦片密度低，不抢 Boss 的注意力 */
+  anthem: function (g, th, rnd) { // 乐谱：三线谱 + 符杆 + 金符头
+    g.fillStyle = th.blockS;
+    g.fillRect(3, 6, 10, 1); g.fillRect(3, 10, 10, 1); g.fillRect(3, 14, 10, 1);
+    g.fillStyle = th.accent;
+    g.fillRect(6, 7, 1, 3); g.fillRect(7, 7, 2, 1);     // 符杆 + 旗
+    g.fillRect(11, 8, 1, 2);
+    g.fillStyle = '#fff6d0';
+    g.fillRect(6, 7, 1, 1); g.fillRect(11, 8, 1, 1);
+  },
+  mirror: function (g, th, rnd) { // 镜砖：银高光 + 一道粉裂 + 亮屑
+    g.fillStyle = th.blockS;
+    g.fillRect(2, 12, 7, 1); g.fillRect(9, 4, 4, 1);
+    g.fillStyle = '#f8d0f0';
+    g.fillRect(4, 7, 2, 1); g.fillRect(11, 10, 1, 2);
+    g.fillStyle = th.accent;
+    g.fillRect(7, 3, 1, 5); g.fillRect(8, 8, 1, 2);
+    g.fillStyle = '#ffffff'; g.fillRect(4, 7, 1, 1);
+  },
+  abyss: function (g, th, rnd) { // 海底遗迹：眼睑弧 + 金瞳 + 两点冷光
+    g.fillStyle = th.blockS;
+    g.fillRect(3, 9, 10, 1); g.fillRect(5, 8, 1, 1); g.fillRect(10, 8, 1, 1);
+    g.fillStyle = th.accent;
+    g.fillRect(7, 8, 2, 2);
+    g.fillStyle = '#0a2a30'; g.fillRect(7, 8, 1, 1);
+    g.fillStyle = '#88e8e0';
+    g.fillRect(4, 5, 1, 1); g.fillRect(12, 12, 1, 1);
   }
 };
 

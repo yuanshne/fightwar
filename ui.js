@@ -1295,7 +1295,7 @@ function computeHover(){
     if(ptIn(mx,my,MENU_WD_RECT[0],MENU_WD_RECT[1],MENU_WD_RECT[2],MENU_WD_RECT[3])){
       hover='menuWardrobe';return;} // v7.7：选关屏衣橱入口（键盘等价=G）
     const Lh=_chLayout();
-    for(let k=0;k<Lh.chs.length;k++){const tk=_chTabXY(k); // v23：章签（鼠标可点，键盘 Tab/Q/E/1~4）
+    for(let k=0;k<Lh.chs.length;k++){const tk=_chTabXY(k); // v23：章签（鼠标可点，键盘 Tab/Q/E/1~5）
       if(ptIn(mx,my,tk[0],tk[1],CH_TAB_W,CH_TAB_H)){hover='ch:'+k;return;}}
     const ch=Lh.chs[_chIndexOf()]; // 只命中当前章（其余章不渲染，避免留下"看不见的热区"）
     for(let j=0;j<ch.len;j++){
@@ -1792,6 +1792,24 @@ function renderEntities(L,tick){
       ctx.fillStyle='#c8f888';ctx.fillRect(px(b.x+3),px(b.y+2),2,2);
       continue;
     }
+    if(b.note){ // v28 律动·音符弹：金符头 + 符干 + 符尾（两帧摆尾；8×8 里塞得下最小可读音符）
+      const nx=px(b.x+4),ny=px(b.y+4),sp=(game.tick>>2)%2;
+      ctx.fillStyle='#8a6010';ctx.fillRect(nx-3,ny+1,5,4);
+      ctx.fillStyle='#f8d048';ctx.fillRect(nx-2,ny+2,4,2);
+      ctx.fillStyle='#f8d048';ctx.fillRect(nx+1,ny-4,1,6);
+      ctx.fillRect(nx+2+(sp?1:0),ny-4,2,1);
+      ctx.fillStyle='#fff6c0';ctx.fillRect(nx+1,ny-4,1,1);
+      continue;
+    }
+    if(b.pink){ // v28 镜渊·镜片弹：菱形碎镜（冲刺可撞碎；与紫色 star 弹一眼区分）
+      const nx=px(b.x+4),ny=px(b.y+4);
+      ctx.fillStyle='#5a1840';
+      ctx.beginPath();ctx.moveTo(nx,ny-5);ctx.lineTo(nx+5,ny);ctx.lineTo(nx,ny+5);ctx.lineTo(nx-5,ny);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#f8a0d0';
+      ctx.beginPath();ctx.moveTo(nx,ny-3);ctx.lineTo(nx+3,ny);ctx.lineTo(nx,ny+3);ctx.lineTo(nx-3,ny);ctx.closePath();ctx.fill();
+      ctx.fillStyle='#ffe0f0';ctx.fillRect(nx-1,ny-2,2,2);
+      continue;
+    }
     ctx.drawImage(b.star&&SPR.bossBullet?SPR.bossBullet[(game.tick*8|0)%2]:SPR.bullet,px(b.x),px(b.y));
   }
   // 敌人（v5 §C：受击白闪 whiteOf 变体 + jitT ±1px 抖动 + 死亡 0.6s 渐隐 + 骑士分支；
@@ -2189,6 +2207,9 @@ function renderHazards(tick,camX,camY){
     else if(h.kind==='egg')_hzEgg(h,tick,ox,oy);             // v20 §二：虫卵（三阶同体）
     else if(h.kind==='web')_hzWeb(h,tick,ox,oy);             // v20 §二：蛛网（减速+禁跳）
     else if(h.kind==='flare')_hzFlare(h,tick,ox,oy);         // v22 §一：引燃预警圈（脚下收圈后爆）
+    else if(h.kind==='shard')_hzShard(h,tick,ox,oy);         // v28：镜渊·绕身镜片（可打）
+    else if(h.kind==='shardwall')_hzShardwall(h,tick,ox,oy); // v28：镜渊·推进镜墙
+    else if(h.kind==='sweepbeam')_hzSweepbeam(h,tick,ox,oy); // v28：终焉·贯目光带
   }
 }
 
@@ -2210,32 +2231,35 @@ function _hzGroundAt(x,y){
 function _hzMeteor(h,tick,ox,oy){
   const x=px(h.x-ox),r=Math.max(3,+h.r||6),w=+h.warnT||0;
   const y=px(h.y-oy),gy=px(_hzGroundAt(h.x,h.y)-oy);
+  /* v28：tone 换色（默认无 tone / 'fire' 逐像素保持原橙红）。
+     终焉的陨石雨是青碧色落石——若还借橙红陨石素材，玩家会误读成"烬"的招式。 */
+  const TC=_hzTone(h.tone),tinted=!!h.tone&&h.tone!=='fire';
   if(w>0){
     const k=clamp(w/0.85,0,1),rr=r+r*2*k;              // 引擎预警 0.85s → 圈从 3r 收到 r（收缩即倒计时）
     ctx.globalAlpha=0.55+0.45*Math.sin(tick*0.5);      // 呼吸：让圈在亮地面上也抓眼
-    ctx.fillStyle='rgba(248,72,72,0.18)';
+    ctx.fillStyle=tinted?(h.tone==='abyss'?'rgba(88,216,200,0.16)':'rgba(200,160,248,0.18)'):'rgba(248,72,72,0.18)';
     ctx.beginPath();ctx.arc(x,gy,rr,0,Math.PI*2);ctx.fill();
-    ctx.strokeStyle='#f84848';ctx.lineWidth=1.5;
+    ctx.strokeStyle=tinted?TC[1]:'#f84848';ctx.lineWidth=1.5;
     ctx.beginPath();ctx.arc(x,gy,rr,0,Math.PI*2);ctx.stroke();
     ctx.globalAlpha=1;
-    ctx.fillStyle='#ffd0d0';                            // 十字准星（中心 3×3 红点）
+    ctx.fillStyle=tinted?TC[2]:'#ffd0d0';               // 十字准星（中心 3×3 红点）
     ctx.fillRect(x-rr,gy,rr*2+1,1);ctx.fillRect(x,gy-rr,1,rr*2+1);
-    ctx.fillStyle='#f84848';ctx.fillRect(x-1,gy-1,3,3);
+    ctx.fillStyle=tinted?TC[1]:'#f84848';ctx.fillRect(x-1,gy-1,3,3);
     return;
   }
   const vy=+h.vy||180,dir=vy>=0?1:-1;
   for(let i=1;i<=4;i++){                                // 尾焰：固定 4 段，越远越淡越小
     const a=0.42-i*0.09;
     ctx.globalAlpha=a>0.1?a:0.1;
-    ctx.fillStyle=i<3?'#f8a030':'#f86030';
+    ctx.fillStyle=tinted?(i<3?TC[1]:TC[0]):(i<3?'#f8a030':'#f86030');
     ctx.beginPath();ctx.arc(x,y-dir*i*4,Math.max(1,r*(1-i*0.16)),0,Math.PI*2);ctx.fill();
   }
   ctx.globalAlpha=1;
-  if(SPR.meteor&&SPR.meteor[0])ctx.drawImage(SPR.meteor[(tick*10|0)%SPR.meteor.length],x-5,y-6);
-  else{                                                 // 兜底：橙红球 + 亮芯（art 未合入时仍是一颗陨石）
-    ctx.fillStyle='#c02818';ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#f87030';ctx.beginPath();ctx.arc(x,y,r*0.7,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#ffe0a0';ctx.beginPath();ctx.arc(x-r*0.25,y-r*0.25,r*0.32,0,Math.PI*2);ctx.fill();
+  if(!tinted&&SPR.meteor&&SPR.meteor[0])ctx.drawImage(SPR.meteor[(tick*10|0)%SPR.meteor.length],x-5,y-6);
+  else{                                                 // 兜底：球 + 亮芯（art 未合入时仍是一颗陨石）
+    ctx.fillStyle=TC[0];ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=TC[1];ctx.beginPath();ctx.arc(x,y,r*0.7,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle=tinted?TC[2]:'#ffe0a0';ctx.beginPath();ctx.arc(x-r*0.25,y-r*0.25,r*0.32,0,Math.PI*2);ctx.fill();
   }
   // 可选字段：引擎给落地计时（landT>0）时补一圈扩散环；未给则交给 game.waves（上方已兜底）
   const lt=+h.landT||0;
@@ -2250,11 +2274,18 @@ function _hzMeteor(h,tick,ox,oy){
 // 裂纹与尖刺同帧叠加＝「刚裂开就冒尖」的真实观感，比二选一更早给出信号）。
 function _hzSpike(h,tick,ox,oy){
   const x=px(h.x-ox),base=px(h.y-oy),hh=clamp(+h.h||0,0,24),t=+h.t||0;
-  if(t<0.2){                                            // 预警：地面裂纹（两段深色碎线 + 中间红缝脉冲）
-    ctx.fillStyle='#2a1a1a';
+  const abyss=h.tone==='abyss';                          // v28：终焉石牙带青金裂光，暗底上才读得出来
+  if(abyss){
+    ctx.globalAlpha=0.30+0.12*Math.sin(tick*0.9+1);ctx.fillStyle='#58d8c8';
+    ctx.fillRect(x-10,base-1,20,1);
+    ctx.globalAlpha=0.14+0.08*Math.sin(tick*0.7);ctx.fillRect(x-6,base-2,12,2);
+    ctx.globalAlpha=1;
+  }
+  if(t<0.2){                                            // 预警：地面裂纹（两段深色碎线 + 中间亮缝脉冲）
+    ctx.fillStyle=abyss?'#1a3a38':'#2a1a1a';
     ctx.fillRect(x-9,base-1,7,1);ctx.fillRect(x+3,base-1,7,1);
     ctx.globalAlpha=0.5+0.5*Math.sin(tick*1.2);
-    ctx.fillStyle='#f86040';ctx.fillRect(x-3,base-1,6,1);
+    ctx.fillStyle=abyss?'#58d8c8':'#f86040';ctx.fillRect(x-3,base-1,6,1);
     ctx.globalAlpha=1;
   }
   if(hh<=0.5)return;
@@ -2387,7 +2418,8 @@ function _hzWard(h,tick,ox,oy){
 // 非火焰色调的顶饰画成碎晶三角而不是火苗。默认（无 tone）逐像素保持原火柱。
 const _HZ_TONE={fire:['#c02818','#f87030','#ffd080'],star:['#3a2260','#a890f8','#e8dcff'],
   ghost:['#321a50','#b060f0','#eed0ff'],aqua:['#124a62','#48d8f8','#d8f8ff'],
-  gold:['#6a4a10','#f8d048','#fff6c0'],violet:['#3a1a5a','#a060e8','#f0d0ff']};
+  gold:['#6a4a10','#f8d048','#fff6c0'],violet:['#3a1a5a','#a060e8','#f0d0ff'],
+  abyss:['#0a2a30','#58d8c8','#d8fff8']};     // v28 终焉：石柱/落石的青碧色调
 function _hzTone(t){return _HZ_TONE[t]||_HZ_TONE.fire;}
 function _hzPillar(h,tick,ox,oy){
   const x=px(h.x-ox),base=px(h.y-oy),w=Math.max(4,+h.w||14),wt=+h.warnT||0,TC=_hzTone(h.tone);
@@ -3037,6 +3069,139 @@ function _hzFlare(h,tick,ox,oy){
   ctx.globalAlpha=1;ctx.restore();
 }
 
+/* ==================== v28 第五章 · 三种新场地实体 ====================
+   图形分工（与地图二 15 种前摇不撞形）：
+     shard     = 菱形镜片 + 下沿耐久点（"这个能打"必须一眼可见）
+     shardwall = 虚线镜框（预警）→ 四段拼接的镜墙 + 运动残影（实体）
+     sweepbeam = 竖直虚线 + 地面收圈（预警）→ 青碧光带（实体，缓慢追人） */
+function _hzShard(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),y=px(h.y-(+oy||0));
+  const w=Math.max(8,+h.w||14),hh=Math.max(8,+h.h||16);
+  const cx=x+Math.floor(w/2),cy=y+Math.floor(hh/2),T=+tick||0;
+  const hp=clamp(+h.hp||0,0,4),maxHp=Math.max(1,+h.maxHp||4);
+  const wob=Math.sin(T*0.09+(+h.a0||0)*0.03);
+  ctx.save();
+  ctx.globalAlpha=0.10+0.05*Math.sin(T*0.2+(+h.a0||0));      // 背光晕（不填满：别在亮底上糊成粉块）
+  ctx.fillStyle='#f8a0d0';
+  ctx.beginPath();ctx.arc(cx,cy,w*0.9,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;
+  const dia=(col,inset)=>{                                   // 内部：菱形路径（inset 向内缩）
+    ctx.fillStyle=col;ctx.beginPath();
+    ctx.moveTo(cx,cy-hh/2+inset);ctx.lineTo(cx+w/2-inset,cy);
+    ctx.lineTo(cx,cy+hh/2-inset);ctx.lineTo(cx-w/2+inset,cy);ctx.closePath();ctx.fill();
+  };
+  dia('#5a1840',0);                                          // 外框
+  dia('#c86098',2);                                          // 镜面
+  ctx.globalAlpha=0.85;dia('#f8b8dc',4);                     // 受光面
+  ctx.globalAlpha=0.9;ctx.fillStyle='#ffffff';               // 反光：两粒随公转轻抖的白点
+  ctx.fillRect(cx-3+Math.round(wob),cy-4,2,3);
+  ctx.globalAlpha=0.45;ctx.fillRect(cx+1,cy+2,1,2);
+  ctx.globalAlpha=1;
+  const p0=cx-Math.round(maxHp*3/2);                         // 耐久点：碎到最后 1 格转红
+  ctx.fillStyle='#2a1020';ctx.fillRect(p0-1,y+hh+1,maxHp*3,3);
+  for(let i=0;i<maxHp;i++){
+    ctx.fillStyle=i<hp?(hp<=1?'#ff5060':'#f8a0d0'):'#4a2038';
+    ctx.fillRect(p0+i*3,y+hh+2,2,1);
+  }
+  const ft=+h.flashT||0;
+  if(ft>0){                                                  // 受击闪白（与核心同口径）
+    ctx.globalAlpha=clamp(ft/0.15,0,1)*0.8;
+    dia('#ffffff',1);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+function _hzShardwall(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),y=px(h.y-(+oy||0));
+  const w=Math.max(8,+h.w||14),hh=Math.max(24,+h.h||64);
+  const T=+tick||0,dir=(+h.dir||1)>=0?1:-1,wt=+h.warnT||0;
+  ctx.save();
+  if(wt>0){
+    /* 预警：它还不是墙，只是「墙要在这里出现」——虚线框 + 三道裂纹 + 推进方向的连续雪佛龙。
+       雪佛龙画在墙脚外侧，玩家读「它朝我这边压过来」不需要看 Boss 面向。 */
+    const k=clamp(wt/Math.max(0.05,+h.warn||0.9),0,1);
+    ctx.globalAlpha=0.14+0.10*(1-k);ctx.fillStyle='#f8a0d0';ctx.fillRect(x,y,w,hh);
+    ctx.globalAlpha=0.55+0.35*(1-k);ctx.strokeStyle='#f8a0d0';ctx.lineWidth=1;
+    if(ctx.setLineDash)ctx.setLineDash([4,3]);
+    ctx.strokeRect(x+0.5,y+0.5,w-1,hh-1);
+    if(ctx.setLineDash)ctx.setLineDash([]);
+    ctx.globalAlpha=0.35+0.30*Math.abs(Math.sin(T*0.4));
+    ctx.beginPath();
+    for(let i=1;i<4;i++){
+      ctx.moveTo(x+2,y+hh*i/4);
+      ctx.lineTo(x+w-2-((i*7)%4),y+hh*i/4+Math.sin(i+T*0.08)*2);
+    }
+    ctx.stroke();
+    ctx.globalAlpha=0.50+0.40*Math.abs(Math.sin(T*0.45));ctx.fillStyle='#f8a0d0';
+    const leadx=dir>0?x+w+2:x-2;
+    for(let i=0;i<3;i++){
+      const ay=y+hh*0.32+i*6,ax=leadx+dir*2;
+      ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(ax+dir*4,ay+3);ctx.lineTo(ax,ay+6);ctx.closePath();ctx.fill();
+    }
+  }else{
+    /* 实体：四段镜片拼成的竖墙。外框暗紫、内面三层粉、横向反光逐帧下移（读作"整面墙在滑"）。 */
+    ctx.globalAlpha=0.22;ctx.fillStyle='#f8a0d0';
+    ctx.fillRect(x-dir*6,y+4,w,hh-8);                        // 运动残影
+    ctx.globalAlpha=1;ctx.fillStyle='#4a1438';ctx.fillRect(x,y,w,hh);
+    ctx.fillStyle='#a84878';ctx.fillRect(x+2,y+1,w-4,hh-2);
+    ctx.fillStyle='#f0a8cc';ctx.fillRect(x+Math.floor(w*0.30),y+2,Math.max(2,Math.floor(w*0.24)),hh-4);
+    ctx.fillStyle='#3a1028';                                 // 段缝：三片碎镜拼合的读法
+    for(let i=1;i<4;i++)ctx.fillRect(x+1,y+Math.round(hh*i/4),w-2,1);
+    ctx.globalAlpha=0.70;                                    // 反光横条（下移）
+    for(let i=0;i<3;i++){
+      const yy=y+((T*2+i*23)%Math.max(4,hh-2));
+      ctx.fillStyle=i%2?'#ffffff':'#ffd8ee';
+      ctx.fillRect(x+2,yy,w-4,1);
+    }
+    ctx.globalAlpha=0.85;ctx.fillStyle='#ffd8ee';            // 上下亮边
+    ctx.fillRect(x,y,w,1);ctx.fillRect(x,y+hh-1,w,1);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
+function _hzSweepbeam(h,tick,ox,oy){
+  if(!h)return;
+  const x=px(h.x-(+ox||0)),base=px((+h.gy||0)-(+oy||0));
+  const w=Math.max(6,+h.w||12),T=+tick||0,wt=+h.warnT||0;
+  const TC=_hzTone('abyss'),sky=0;
+  ctx.save();
+  if(wt>0){
+    /* 预警：一条从画布顶垂到地面的虚线（"光从上面来"）+ 地面收缩环（倒计时）+ 顶端的眼缝。 */
+    const k=1-clamp(wt/Math.max(0.05,+h.warn||0.45),0,1);
+    ctx.globalAlpha=0.30+0.40*k;ctx.strokeStyle=TC[1];ctx.lineWidth=1;
+    if(ctx.setLineDash)ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(x,sky);ctx.lineTo(x,base);ctx.stroke();
+    if(ctx.setLineDash)ctx.setLineDash([]);
+    ctx.globalAlpha=0.30+0.40*k;ctx.fillStyle=TC[1];
+    ctx.beginPath();ctx.ellipse?ctx.ellipse(x,base,w*0.9,4,0,0,Math.PI*2):ctx.arc(x,base,w*0.9,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=0.85;ctx.strokeStyle=TC[2];ctx.lineWidth=1;
+    ctx.beginPath();ctx.arc(x,base,Math.max(2,8*(1-k)),0,Math.PI*2);ctx.stroke();
+    ctx.globalAlpha=0.75;ctx.fillStyle=TC[2];ctx.fillRect(x-3,sky+14,6,2);
+    ctx.globalAlpha=1;return;
+  }
+  /* 实体：外辉 → 柱身 → 亮芯；顶部眼缝、地面灼斑；迎向玩家的一侧加一道导向亮边。 */
+  ctx.globalAlpha=0.22;ctx.fillStyle=TC[0];ctx.fillRect(x-w/2-2,sky,w+4,base);
+  ctx.globalAlpha=0.85;ctx.fillStyle=TC[1];ctx.fillRect(x-w/2,sky,w,base);
+  ctx.globalAlpha=0.90;ctx.fillStyle=TC[2];ctx.fillRect(x-Math.max(1,w*0.22),sky,Math.max(2,w*0.44),base);
+  ctx.globalAlpha=0.70+0.25*Math.sin(T*0.9);ctx.fillStyle=TC[2];
+  ctx.fillRect(x-w/2-1,sky+12,w+2,3);
+  ctx.globalAlpha=0.35;ctx.fillStyle=TC[1];
+  ctx.beginPath();ctx.ellipse?ctx.ellipse(x,base,w*0.7,4,0,0,Math.PI*2):ctx.arc(x,base,w*0.7,0,Math.PI*2);ctx.fill();
+  const dir=(+h.dir||0);
+  if(dir){
+    ctx.globalAlpha=0.45+0.30*Math.sin(T*0.6);ctx.fillStyle=TC[2];
+    ctx.fillRect(dir>0?x+w/2: x-w/2-2,base-10,2,10);         // 扫动方向亮边
+  }
+  ctx.globalAlpha=0.55;                                      // 上下流动的亮尘
+  for(let i=0;i<4;i++){
+    const yy=(T*3+i*17)%Math.max(4,base);
+    ctx.fillStyle=TC[2];ctx.fillRect(x-1+(i%2?1:-1)*Math.max(2,w*0.3),yy,1,2);
+  }
+  ctx.globalAlpha=1;ctx.restore();
+}
+
 
 // v7 §9.4 内部：新敌通用绘制——非精英=精灵原尺寸+调用方偏移(ox,oy)（lancer -1 居中 14 精灵对 12 框，
 // 其余 0）；精英=×BAL.elite.scale 拉伸（drawImage 第 5/6 参），ground 型脚底对齐命中框底（'foot'）、
@@ -3137,9 +3302,11 @@ function tintOf(img,color){
 // BOSS_P2FRAC=P2 阶段刻度占条宽比例（=设计书 §6.4 的 50%/40%/40%）。
 // v12：追加第 6 只「烈焰·牛魔王」（kind 6，L19）；上限随表扩到 5，否则 kind 6 会被夹回 4 顶冥古龙的名字。
 const BOSS_NAME=['星核巨兽','蛟龙·敖渊','幽冥判官','冥古龙','曜光·圣裁者','烈焰·牛魔王',
-  '余烬回响','双生天秤','孵化之间','无声之喉','终末之钟'];
+  '余烬回响','双生天秤','孵化之间','无声之喉','终末之钟',
+  '律动·俄耳甫斯','镜渊·无相','终焉·阿刻戎'];
 const BOSS_P2TIP=['狂暴于 50%','唤潮于 40%','摄魂于 40%','末段·冥焰焚天','末段·圣辉裁决','末段·烈焰焚天',
-  '热量满了会自燃','同侧连打它会偷血','卵长老了才值钱','它张嘴时别喂它','只在钟声间隙受伤'];
+  '热量满了会自燃','同侧连打它会偷血','卵长老了才值钱','它张嘴时别喂它','只在钟声间隙受伤',
+  '踩着节拍打，四拍破防','冲刺撞碎镜片，三片破防','别站桩：凝视满了天降石柱'];
 // v20.6：Boss 招式中文名——顶部预警条读 b.next 用（用户要求「放技能前顶部显示技能名当预警」）。
 // 覆盖全部 Boss 表 windup 键 + 状态机里可能作 b.next 的别名；查不到回退「蓄力」，不空串不出 undefined。
 // v20.9：招名全换四字武学风（用户：原名「跳扑/弹幕」太土）——语义与旧表一一对应，只换皮
@@ -3152,13 +3319,16 @@ const BOSS_MOVE_NAME={leap:'饿虎扑食',barrage:'万弹穿云',charge:'疾雷�
   bite:'噬魂之口',pendulum:'审判摆锋',chime:'丧钟轰鸣',hammer:'天罚重锤',
   cinder:'烬雨焚天',furnace:'焚风扑面',burst:'爆燃之环',
   hatch:'催卵秘术',spew:'腐液喷吐',
-  crush:'衡权压顶',hchain:'双锤坠狱',column:'天穹贯柱'};
+  crush:'衡权压顶',hchain:'双锤坠狱',column:'天穹贯柱',
+  staccato:'断奏连音',tutti:'全奏轰鸣',fermata:'延长音柱',rain:'镜雨连落',
+  prism:'棱镜散射',march:'镜墙推进',stare:'石化凝视',focus:'贯目之光',fracture:'裂界石牙'};
 // v22：同一招键在不同 Boss 手里的专属名（预警条优先查这张，再落 BOSS_MOVE_NAME）。
 //   茧母的 summon 不叫「呼邪唤众」（那是牛魔王的）而叫「破茧亲卫」；
 //   终末之钟的 homing 不叫「幽影索命」（那是判官的）而叫「追魂余音」。
 // v25.5：柱类新招按 Boss 换名换色——同一套实体，玩家的躲法相通、观感各不相同。
 const BOSS_MOVE_BY_KIND={1:{pillar:'星核晶棘'},2:{column:'沧溟水柱'},3:{pillar:'幽冥鬼柱'},
-  5:{column:'圣光天柱'},8:{column:'裁决光柱'},9:{summon:'破茧亲卫'},11:{homing:'追魂余音'}};
+  5:{column:'圣光天柱'},8:{column:'裁决光柱'},9:{summon:'破茧亲卫'},11:{homing:'追魂余音'},
+  13:{rain:'镜雨连落'},14:{rain:'陨石雨'}};
 // v22：终末之钟的五音谱——预警条在招名前挂音名（宫商角徵羽），玩家背谱时按音记招。
 const BOSS_NOTE11={pendulum:'宫',chime:'商',hammer:'角',hchain:'徵',homing:'羽'};
 // v7.8 修复：engine 的 b.kind 是 1-based（1/2/3），而部件表/名字表是 0-based 三元数组。
@@ -3170,8 +3340,8 @@ const BOSS_NOTE11={pendulum:'宫',chime:'商',hammer:'角',hchain:'徵',homing:'
 // v12：上限 4→5（6=烈焰·牛魔王），三张表（名字/阶段提示/刻度比例）同步 6 项，避免暂停提示卡出现 undefined。
 // v20：上限 5→10（kind 7~11 = 地图二五只）。夹取口径不变：越界一律落到最后一档，
 // 宁可让新 Boss 顶个旧名字，也不要 undefined（v7.8 踩过：L16 血条显示 "undefined"）。
-const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(10,n-1):0;};
-const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5,0.5];
+const _bossIdx=k=>{const n=+k|0;return n>=1?Math.min(13,n-1):0;};
+const BOSS_P2FRAC=[0.5,0.4,0.4,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5];
 // v7.9：Boss 三段血进度**唯一口径**。HUD 三段条、条上方剩余段方块、血条悬停提示卡三处全部从这里取数，
 // 禁止各处再自算一遍（旧版 bar 用 hp/maxHp、提示卡另说一套，三段化后必然漂移）。
 // bandMax 缺失（引擎三段血未合入 / 旧存档回放）→ seg=false，调用方回落旧单条血逻辑，保证不崩。
@@ -3778,6 +3948,159 @@ function renderBossWindupFx(b,bimg,bx,by){
       drawCNText('腐',cx,px(top)-14,8,'#78c850','center');
       break;
     }
+    /* ==================== v28：地图三三只的前摇 ====================
+       判据不变：图形自己说清「这一拍该做什么」，且不与上面 40 例撞形。 */
+    case 'staccato':{                                // 律动·断奏：四枚音符沿瞄准线依次亮起（追着你打，别站定）
+      const pp=game.player,dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1,my3=top+b.h-16;
+      for(let i=0;i<4;i++){
+        const lit=clamp(k*4-i,0,1);
+        const xx=px(cx)+dir*(14+i*12),yy=px(my3)-((+b.t||0)*26+i*4)%22;
+        ctx.globalAlpha=0.20+0.65*lit;
+        ctx.fillStyle='#f8d048';
+        ctx.fillRect(xx-2,yy-2,4,3);ctx.fillRect(xx+1,yy-7,1,6);ctx.fillRect(xx+2,yy-7,3,1);
+        ctx.fillStyle='#8ae8ff';ctx.fillRect(xx-1,yy-1,2,1);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('节',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    case 'tutti':{                                   // 律动·全奏：两圈环弹虚影 + 4 条安全缝（穿缝）
+      const cy4=top+b.h*0.45,rr4=8+18*k;
+      for(let i=0;i<2;i++){
+        ctx.globalAlpha=0.16+0.30*k-i*0.06;ctx.strokeStyle='#f8e8a0';ctx.lineWidth=1;
+        ctx.beginPath();ctx.arc(px(cx),px(cy4),rr4+i*6,0,Math.PI*2);ctx.stroke();
+      }
+      ctx.globalAlpha=0.55+0.35*k;ctx.fillStyle='#fff0b0';
+      for(let i=0;i<12;i++){
+        if(i%4===0)continue;                          // 与引擎同口径：每 4 向留一条缝
+        const a=i*Math.PI/6+0.26;
+        ctx.fillRect(px(cx+Math.cos(a)*rr4)-1,px(cy4+Math.sin(a)*rr4)-1,2,2);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('奏',cx,px(top)-14,8,'#f8e8a0','center');
+      break;
+    }
+    case 'fermata':{                                 // 律动·延长音柱：玩家脚下三圈金柱影（站中间必被夹）
+      const pp=game.player;
+      if(pp){
+        const gy4=px(top+b.h),sp2=36;
+        for(let i=0;i<3;i++){
+          const xx=px(pp.x+pp.w/2)+((i-1)*sp2),hh4=Math.round(8+k*26);
+          ctx.globalAlpha=0.14+0.22*k;ctx.fillStyle='#f8d048';
+          ctx.fillRect(xx-7,gy4-hh4,14,hh4);
+          ctx.globalAlpha=0.45+0.45*k;ctx.fillStyle='#fff6c0';
+          ctx.fillRect(xx-1,gy4-hh4,2,hh4);
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('延',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    case 'prism':{                                   // 镜渊·棱镜散射：五条粉色扇形瞄准线（别站正面）
+      const cy5=top+b.h*0.42,pxy=game.player?game.player.y+game.player.h/2:cy5;
+      const base=Math.atan2(pxy-cy5,(game.player?game.player.x+game.player.w/2:cx)-cx);
+      ctx.globalAlpha=0.28+0.42*k;ctx.strokeStyle='#f8a0d0';ctx.lineWidth=1;
+      for(let i=0;i<5;i++){
+        const a=base+(i-2)*0.34,r0=8+k*26;
+        ctx.beginPath();ctx.moveTo(px(cx),px(cy5));
+        ctx.lineTo(px(cx)+Math.cos(a)*r0,px(cy5)+Math.sin(a)*r0);ctx.stroke();
+      }
+      ctx.globalAlpha=0.6+0.4*k;ctx.fillStyle='#ffd0e8';
+      ctx.beginPath();ctx.arc(px(cx),px(cy5),2+k*2,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('棱',cx,px(top)-14,8,'#f8a0d0','center');
+      break;
+    }
+    case 'rain':{                                    // 镜雨=粉色落线 / 陨石雨=玩家横向五圈落点（可走出）
+      const pp=game.player;
+      if(pp){
+        const gy5=px(top+b.h),pcx5=px(pp.x+pp.w/2);
+        if((b.kind|0)===13){
+          for(let i=0;i<4;i++){
+            const xx=pcx5+((i-1.5)*16),yy0=px(top)-12+((+b.t||0)*120+i*18)%40;
+            ctx.globalAlpha=0.35+0.45*k;ctx.fillStyle='#f8a0d0';
+            ctx.fillRect(xx-1,yy0,2,8);
+            ctx.fillRect(xx-1,gy5-2,3,2);
+          }
+        }else{
+          const TC2=_hzTone('abyss');
+          for(let i=0;i<5;i++){
+            const xx=pcx5+((i-2)*28);
+            ctx.globalAlpha=0.10+0.16*k;ctx.fillStyle=TC2[1];
+            ctx.beginPath();ctx.arc(xx,gy5-3,8,0,Math.PI*2);ctx.fill();
+            ctx.globalAlpha=0.45+0.40*k;ctx.strokeStyle=TC2[2];ctx.lineWidth=1;
+            ctx.beginPath();ctx.arc(xx,gy5-3,8,0,Math.PI*2);ctx.stroke();
+          }
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('雨',cx,px(top)-14,8,(b.kind|0)===13?'#f8a0d0':'#58d8c8','center');
+      break;
+    }
+    case 'march':{                                   // 镜渊·镜墙推进：Boss 侧一面竖镜墙虚影（冲刺穿它）
+      const pp=game.player,dir=(pp&&(pp.x+pp.w/2)<cx)?-1:1;
+      const wx0=px(cx)+dir*(18+k*10),gy6=px(top+b.h);
+      ctx.globalAlpha=0.12+0.18*k;ctx.fillStyle='#f8a0d0';
+      ctx.fillRect(wx0-7,gy6-64,14,64);
+      ctx.globalAlpha=0.45+0.45*k;ctx.strokeStyle='#ffd0e8';ctx.lineWidth=1;
+      ctx.strokeRect(wx0-6.5,gy6-63.5,13,63);
+      for(let i=0;i<3;i++)ctx.fillRect(wx0-5,gy6-14-i*18,10,1);
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('墙',cx,px(top)-14,8,'#f8a0d0','center');
+      break;
+    }
+    case 'stare':{                                   // 终焉·石化凝视：玩家头顶垂落青色虚线（离开这一列）
+      const pp=game.player;
+      if(pp){
+        const xx=px(pp.x+pp.w/2),gy7=px(top+b.h);
+        ctx.globalAlpha=0.25+0.35*k;ctx.strokeStyle='#58d8c8';ctx.lineWidth=1;
+        if(ctx.setLineDash)ctx.setLineDash([3,3]);
+        ctx.beginPath();ctx.moveTo(xx,px(top)-10);ctx.lineTo(xx,gy7);ctx.stroke();
+        if(ctx.setLineDash)ctx.setLineDash([]);
+        ctx.globalAlpha=0.6+0.4*k;ctx.fillStyle='#c8fff8';
+        ctx.fillRect(xx-6,gy7-2,13,1);ctx.fillRect(xx,gy7-7,1,11);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('视',cx,px(top)-14,8,'#58d8c8','center');
+      break;
+    }
+    case 'focus':{                                   // 终焉·贯目之光：眼到地面的细光带（横移即可甩开）
+      const T3=_bossCfg(b)||{},FO2=T3.focus||{},ww3=Math.max(6,+FO2.w||12);
+      const ey=top+b.h*0.3,gy8=px(top+b.h);
+      ctx.globalAlpha=0.10+0.14*k;ctx.fillStyle='#58d8c8';
+      ctx.fillRect(px(cx)-ww3/2,px(ey),ww3,gy8-px(ey));
+      ctx.globalAlpha=0.35+0.5*k;ctx.strokeStyle='#c8fff8';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(px(cx),px(ey));ctx.lineTo(px(cx),gy8);ctx.stroke();
+      ctx.globalAlpha=0.7+0.3*k;ctx.fillStyle='#fff6c0';
+      ctx.beginPath();ctx.arc(px(cx),px(ey),2+k*2,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('贯',cx,px(top)-14,8,'#58d8c8','center');
+      break;
+    }
+    case 'fracture':{                                // 终焉·裂界石牙：玩家脚下一排裂纹依次亮起（跳过去）
+      const pp=game.player;
+      if(pp){
+        const gy9=px(top+b.h),pcx9=px(pp.x+pp.w/2);
+        for(let i=0;i<4;i++){
+          const xx=pcx9+((i-1.5)*34),lit=clamp(k*4-i,0,1);
+          ctx.globalAlpha=0.2+0.6*lit;ctx.fillStyle='#c8a060';
+          ctx.fillRect(xx-5,gy9-1,3,1);ctx.fillRect(xx+2,gy9-1,4,1);
+          ctx.fillStyle='#ffe0a0';ctx.fillRect(xx-1,gy9-1,2,1);
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('裂',cx,px(top)-14,8,'#c8a060','center');
+      break;
+    }
   }
 }
 
@@ -3818,6 +4141,37 @@ function renderBossCastFx(b,tick){
         ctx.beginPath();ctx.moveTo(x1-s*4,yy-2);ctx.lineTo(x1,yy);ctx.lineTo(x1-s*4,yy+2);ctx.stroke();
       }
     }
+    ctx.globalAlpha=1;
+  }
+  else if(b.state==='staccatoCast'){                   // 律动·断奏：杖尖三枚音符绕圈（连点追人）
+    const cy0=top+b.h*0.5;
+    for(let i=0;i<3;i++){
+      const a=(+b.t||0)*7+i*Math.PI*2/3,rr=8+Math.sin((+b.t||0)*9+i)*2;
+      ctx.globalAlpha=0.55+0.35*Math.sin((+b.t||0)*10+i);
+      ctx.fillStyle='#f8d048';
+      ctx.fillRect(cx+Math.cos(a)*rr-1,cy0+Math.sin(a)*rr-1,3,2);
+      ctx.fillRect(cx+Math.cos(a)*rr+1,cy0+Math.sin(a)*rr-4,1,4);
+    }
+    ctx.globalAlpha=1;
+  }
+  else if(b.state==='tuttiCast'){                      // 律动·全奏：每轮已发出 → 同速扩张的金色声环
+    const TU=T.tutti||{},cy1=top+b.h*0.45,vv=+TU.v||112,tt=+b.t||0;
+    for(let i=0;i<((TU.t&&TU.t.length)||2);i++){
+      if((b.fireN|0)<=i)continue;
+      const age=tt-(TU.t[i]||0); if(age<0||age>0.9)continue;
+      ctx.globalAlpha=clamp(0.5-age*0.5,0,0.5);
+      ctx.strokeStyle='#f8e8a0';ctx.lineWidth=1;
+      ctx.beginPath();ctx.arc(cx,cy1,age*vv,0,Math.PI*2);ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+  }
+  else if(b.state==='prismCast'){                      // 镜渊·棱镜散射：胸口粉色棱镜在转（两轮扇面）
+    const cy2=top+b.h*0.42,rr2=6+Math.sin((+b.t||0)*10)*1.5;
+    ctx.globalAlpha=0.20;ctx.fillStyle='#f8a0d0';
+    ctx.beginPath();ctx.arc(cx,cy2,rr2+5,0,Math.PI*2);ctx.fill();
+    ctx.globalAlpha=0.85;ctx.fillStyle='#ffd0e8';
+    ctx.beginPath();ctx.moveTo(cx,cy2-rr2);ctx.lineTo(cx+rr2*0.7,cy2);
+    ctx.lineTo(cx,cy2+rr2);ctx.lineTo(cx-rr2*0.7,cy2);ctx.closePath();ctx.fill();
     ctx.globalAlpha=1;
   }
 }
@@ -3896,6 +4250,64 @@ function renderBossTags(b,tick){
       ty-=15;
     }
   }
+  /* ==================== v28 §三：三只新 Boss 的头顶读数 ====================
+     这三套机制的"什么时候该做什么"无法从本体动作读出来，必须常驻：
+       12 律动：节拍条走到头=下一拍（合拍 ×2，连 4 拍断拍破防）
+       13 镜渊：三枚镜片的存活格（碎光才吃满伤害）
+       14 终焉：凝视槽（站桩涨、移动退，满槽强制石化） */
+  if((b.kind|0)===12&&b.state!=='dying'&&b.state!=='dead'){
+    const BT=(_bossCfg(b)||{}).beat||{period:1.15,need:4};
+    const need=Math.max(1,BT.need||4),per=Math.max(0.2,+BT.period||1.15);
+    const ph=clamp((+b.beatT||0)/per,0,1),str=clamp(+b.beatStreak||0,0,need);
+    const w=48,bx0=cx-w/2+4,bw=w-8;
+    _panel(cx-w/2,ty,w,13,{cut:2,alpha:0.84});
+    ctx.fillStyle='#241a20';ctx.fillRect(bx0,ty+3,bw,3);          // 节拍条：满=下一拍
+    ctx.fillStyle=(+b.beatFlash||0)>0?'#ffffff':'#f8a030';
+    ctx.fillRect(bx0,ty+3,Math.round(bw*ph),3);
+    const step=Math.floor(bw/need);                                // 连拍点：满 4=断拍破防
+    for(let i=0;i<need;i++){
+      ctx.fillStyle=i<str?'#f8d048':'#4a3a20';
+      ctx.fillRect(bx0+i*step,ty+7,Math.max(2,step-1),3);
+    }
+    if((+b.beatFlash||0)>0){
+      ctx.globalAlpha=clamp((+b.beatFlash||0)/0.28,0,1);
+      ctx.strokeStyle='#ffffff';ctx.lineWidth=1;
+      ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
+    }
+    ty-=15;
+  }
+  if((b.kind|0)===13&&b.state!=='dying'&&b.state!=='dead'){
+    let nS=0;                                                     // 镜片存活格（本地数，不跨文件依赖）
+    const HS=game.hazards;
+    if(HS)for(let i=0;i<HS.length;i++)if(HS[i]&&HS[i].kind==='shard')nS++;
+    const w=26;
+    _panel(cx-w/2,ty,w,13,{cut:2,alpha:0.84});
+    for(let i=0;i<3;i++){
+      const dx=cx-w/2+5+i*6,dy=ty+7;
+      ctx.fillStyle=i<nS?'#f8a0d0':'#4a2038';
+      ctx.beginPath();ctx.moveTo(dx,dy-3);ctx.lineTo(dx+3,dy);ctx.lineTo(dx,dy+3);ctx.lineTo(dx-3,dy);ctx.closePath();ctx.fill();
+      if(i<nS){ctx.fillStyle='#ffe0f0';ctx.fillRect(dx-1,dy-1,1,1);}
+    }
+    ctx.globalAlpha=0.45+0.35*Math.abs(Math.sin(tick*0.3));
+    ctx.strokeStyle='#f8a0d0';ctx.lineWidth=1;
+    ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
+    ty-=15;
+  }
+  if((b.kind|0)===14&&b.state!=='dying'&&b.state!=='dead'){
+    const GZ=(_bossCfg(b)||{}).gaze||{cap:100};
+    const gp=clamp((+b.gaze||0)/Math.max(1,+GZ.cap||100),0,1),w=46;
+    _panel(cx-w/2,ty,w,13,{cut:2,alpha:gp>0.85?0.92:0.84});
+    drawCNText('视',cx-w/2+5,ty+2,9,gp>=1?'#ffffff':(gp>0.7?'#f8a030':'#58d8c8'));
+    ctx.fillStyle='#102a2c';ctx.fillRect(cx-w/2+14,ty+4,28,5);
+    ctx.fillStyle=gp>=1?'#ffffff':(gp>0.7?'#f8a030':'#58d8c8');
+    ctx.fillRect(cx-w/2+14,ty+4,Math.round(28*gp),5);
+    if(gp>0.7){                                                    // 快满：框也一起闪
+      ctx.globalAlpha=0.4+0.4*Math.abs(Math.sin(tick*0.5));
+      ctx.strokeStyle=gp>=1?'#ffffff':'#f8a030';ctx.lineWidth=1;
+      ctx.strokeRect(cx-w/2+0.5,ty+0.5,w-1,12);ctx.globalAlpha=1;
+    }
+    ty-=15;
+  }
   // v13 §五：破防窗口「破防」+ 剩余条（宽度按 breakT/2.0 收缩；2.0 是契约里的破防总时长）。
   // 这是 v13 唯一的「打得更疼」窗口，必须比破绽更显眼：金字金框 + 条一亮一暗地呼吸。
   {
@@ -3954,8 +4366,12 @@ function renderBoss(tick){
            SPR.boss6||SPR.boss4||SPR.boss3,
            SPR.boss7||SPR.boss6||SPR.boss3, SPR.boss8||SPR.boss6||SPR.boss3,
            SPR.boss9||SPR.boss6||SPR.boss3, SPR.boss10||SPR.boss6||SPR.boss3,
-           SPR.boss11||SPR.boss6||SPR.boss3][_bi];
+           SPR.boss11||SPR.boss6||SPR.boss3,
+           SPR.boss12||SPR.boss11||SPR.boss6||SPR.boss3,
+           SPR.boss13||SPR.boss11||SPR.boss6||SPR.boss3,
+           SPR.boss14||SPR.boss11||SPR.boss6||SPR.boss3][_bi];
   if(!P)return; // 连回落档都没有（art 全缺）→ 整块不画（既有兜底保留）
+  const P2=!!P.solo;                                 // v28：整体式 Boss——五官双臂已画进 body
   if(b.state==='blinkCast'&&b.hidden)return; // v7 §9.3：blink 隐身期整帧跳过渲染（免伤免接触由引擎管）
   const p=game.player,R=b.phase===2;                 // 换装组选择
   const B=R?(P.bodyRage||P.body):P.body,A=R?(P.armRage||P.arm):P.arm,
@@ -4027,34 +4443,63 @@ function renderBoss(tick){
   const bdx=b.x+(b.w-bimg.width)/2;                                      // 尺寸对齐 x（kind1=-6=现行一致）
   const bdy=_bossIdx(b.kind)===0?b.y-2:b.y+b.h-bimg.height;               // kind1 保留现行 -2（零回归）；kind2/3 底对齐
   ctx.drawImage(bimg,px(bdx),px(bdy+dy));
-  ctx.drawImage(A,px(b.x-10),px(b.y+12+ad));                             // armL
-  ctx.drawImage(flipCache(A),px(b.x+b.w-10),px(b.y+12+ad));              // armR=翻转帧
-  if(J)ctx.drawImage(J[jaw?1:0],px(b.x+16),px(b.y+36));                  // jaw 闭/开
-  const eyeImg=eye==='rage'?(P.eyeRage||P.eye):eye==='dizzy'?(P.eyeDizzy||P.eye):P.eye;
-  for(const ex0 of[b.x+8,b.x+b.w-20]){                                   // eyeL / eyeR
-    ctx.globalAlpha=baseA*(eye==='dark'?0.5:1);
-    ctx.drawImage(eyeImg,px(ex0),px(b.y+10));
-    if(eye!=='dizzy'&&p&&P.pupil){                                // 瞳孔 ±2px 追踪（晕眼不画瞳）
-      const cx=ex0+6,cy=b.y+15;
-      const ox=clamp((p.x-cx)/40,-1,1)*2,oy=clamp((p.y-cy)/40,-1,1)*2;
-      ctx.drawImage(P.pupil,px(cx-2+ox),px(cy-2+oy));
+  if(!P2){                                              // v28：solo 整体式 Boss 跳过通用部件
+    ctx.drawImage(A,px(b.x-10),px(b.y+12+ad));                             // armL
+    ctx.drawImage(flipCache(A),px(b.x+b.w-10),px(b.y+12+ad));              // armR=翻转帧
+    if(J)ctx.drawImage(J[jaw?1:0],px(b.x+16),px(b.y+36));                  // jaw 闭/开
+    const eyeImg=eye==='rage'?(P.eyeRage||P.eye):eye==='dizzy'?(P.eyeDizzy||P.eye):P.eye;
+    for(const ex0 of[b.x+8,b.x+b.w-20]){                                   // eyeL / eyeR
+      ctx.globalAlpha=baseA*(eye==='dark'?0.5:1);
+      ctx.drawImage(eyeImg,px(ex0),px(b.y+10));
+      if(eye!=='dizzy'&&p&&P.pupil){                                // 瞳孔 ±2px 追踪（晕眼不画瞳）
+        const cx=ex0+6,cy=b.y+15;
+        const ox=clamp((p.x-cx)/40,-1,1)*2,oy=clamp((p.y-cy)/40,-1,1)*2;
+        ctx.drawImage(P.pupil,px(cx-2+ox),px(cy-2+oy));
+      }
     }
+    ctx.globalAlpha=baseA;
+    if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
   }
-  ctx.globalAlpha=baseA;
-  if(P.core)ctx.drawImage(P.core[(tick*(R?10:6)|0)%P.core.length],px(b.x+20),px(b.y+20)); // core 狂暴加倍
   const PW=[SPR.bossWhite,SPR.boss2White,SPR.boss3White,SPR.boss4White||SPR.boss3White,SPR.boss5White||SPR.boss4White||SPR.boss3White,
             SPR.boss6White||SPR.boss4White||SPR.boss3White,
             SPR.boss7White||SPR.boss6White||SPR.boss3White, SPR.boss8White||SPR.boss6White||SPR.boss3White,
             SPR.boss9White||SPR.boss6White||SPR.boss3White, SPR.boss10White||SPR.boss6White||SPR.boss3White,
-            SPR.boss11White||SPR.boss6White||SPR.boss3White][_bi]; // v12：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
+            SPR.boss11White||SPR.boss6White||SPR.boss3White,
+            SPR.boss12White||SPR.boss11White||SPR.boss3White,
+            SPR.boss13White||SPR.boss11White||SPR.boss3White,
+            SPR.boss14White||SPR.boss11White||SPR.boss3White][_bi]; // v12：白剪影同索引同样逐档回落；缺失则不闪白（守卫在下面）
   if(b.flashT>0&&PW){                                         // 白闪：同偏移再画一遍
     ctx.globalAlpha=baseA*clamp(b.flashT/0.12,0,1);
     ctx.drawImage(PW.body,px(bdx),px(bdy+dy));
-    ctx.drawImage(PW.arm,px(b.x-10),px(b.y+12+ad));
-    ctx.drawImage(flipCache(PW.arm),px(b.x+b.w-10),px(b.y+12+ad));
-    ctx.drawImage(PW.jaw,px(b.x+16),px(b.y+36)); // bossWhite.jaw=开口白剪影单张（art.js §C5，非数组）
+    if(!P2){
+      ctx.drawImage(PW.arm,px(b.x-10),px(b.y+12+ad));
+      ctx.drawImage(flipCache(PW.arm),px(b.x+b.w-10),px(b.y+12+ad));
+      ctx.drawImage(PW.jaw,px(b.x+16),px(b.y+36)); // bossWhite.jaw=开口白剪影单张（art.js §C5，非数组）
+    }
   }
   ctx.globalAlpha=1;
+  /* v28：律动·节拍器摆杆——art 只画了柜体上的黑槽，杆必须每帧按 beat 相位摆；
+     画在白闪之后：被打时整柜变白，杆仍保持金色，读作「机器还在走」。
+     摆角「左右极限」才是拍点：以 cos 驱动，beatT=0 与半周期各到一边，和引擎的拍点判定同相位。 */
+  if(P2&&(b.kind|0)===12){
+    const BT=(_bossCfg(b)||{}).beat||{period:1.15};
+    const ph=clamp((+b.beatT||0)/Math.max(0.2,+BT.period||1.15),0,1);
+    const ang=Math.cos(ph*Math.PI*2)*0.42;
+    const rvx=px(bdx)+26,rvy=px(bdy+dy)+44;
+    ctx.save();ctx.translate(rvx,rvy);ctx.rotate(ang);
+    ctx.fillStyle='#6a4a10';ctx.fillRect(-1,-21,2,22);
+    ctx.fillStyle='#f8d048';ctx.fillRect(-1,-21,1,22);
+    ctx.fillStyle='#ffe070';ctx.fillRect(-3,-22,6,3);             // 摆锤
+    ctx.fillStyle='#fff6c0';ctx.fillRect(-1,-22,2,1);
+    ctx.restore();
+    const fl=clamp((+b.beatFlash||0)/0.28,0,1);
+    if(fl>0){                                                     // 拍点白闪：杆尖亮一下（不看头顶条也知道踩上了）
+      const tipx=rvx+Math.sin(ang)*20,tipy=rvy-Math.cos(ang)*20;
+      ctx.globalAlpha=fl;ctx.fillStyle='#ffffff';
+      ctx.beginPath();ctx.arc(tipx,tipy,2+2*fl,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=1;
+    }
+  }
   // v10 §任务2.1：新招式前摇特效（世界坐标，画在本体之上；bimg/bdx/bdy+dy 供 clone 残影复用本体帧）
   renderBossWindupFx(b,bimg,px(bdx),px(bdy+dy));
   renderBossCastFx(b,tick);   // v20：持续型 Cast 态自身也要有形体（前摇画完就消失=玩家看不到摆锤）
@@ -5513,12 +5958,12 @@ function renderTitleCover(tick){
 // 截断规则（过渡期兼容）：ALL_LEVELS.length≤10（章节文件未合入）→ 单章画全部关卡并按 7 列换行
 // （第二行 y+62，由 _cardXY 消费）；≥11 关按表截断，章显示条件=章首 idx<length，章长=min(声明,余量)——
 // 章节文件只到 L16 时第三章自动只画 3 卡，末章吃掉剩余关（上限 7 卡）。
-const CH_HEAD=[[0,7],[7,6],[13,6],[19,5]];   // 第一章 L1~L7 / 第二章 L8~L13 / 第三章 L14~L19 / 第四章 L20~L24
-const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章','第四章·回响之厅'];
+const CH_HEAD=[[0,7],[7,6],[13,6],[19,5],[24,3]];   // 第一章 L1~L7 / 第二章 L8~L13 / 第三章 L14~L19 / 第四章 L20~L24 / 第五章 L25~L27
+const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章','第四章·回响之厅','第五章·终焉镜海'];
 const CH_ROW_MAX=7;                          // 单行卡位上限（x=6+6*53=324，右缘 370 < 384）
-// 章签几何（渲染与命中同源 _chTabXY）：4 枚 90×17、x=4+ci*95，末签右缘 379；y=18 起，顶栏（y=2~15）之下
-const CH_TAB_X=4,CH_TAB_Y=18,CH_TAB_W=90,CH_TAB_H=17,CH_TAB_PITCH=95;
-const CH_TAB_TXT=['第一章','第二章','第三章','第四章'];
+// 章签几何（渲染与命中同源 _chTabXY）：v28 五枚 70×17、x=4+ci*75，末签右缘 374 < 384；y=18 起，顶栏（y=2~15）之下
+const CH_TAB_X=4,CH_TAB_Y=18,CH_TAB_W=70,CH_TAB_H=17,CH_TAB_PITCH=75;
+const CH_TAB_TXT=['第一章','第二章','第三章','第四章','第五章'];
 const CH_HEAD_Y=40,CH_CARD_Y=58,CH_CARD_H=44;         // 当前章名（12px）/ 卡行 y / 卡高 44
 const CH_FOCUS_Y=112,CH_FOCUS_H=58;                   // 选中关详情面板（x=6,y=112,w=372,h=58）
 const MENU_WD_RECT=[316,2,62,13],MENU_HERO_RECT=[252,2,60,13]; // 顶栏两入口（渲染与悬停同一份常量）
@@ -5670,7 +6115,7 @@ function renderMenu(th,tick){
   // v23 §F：底栏（提示文案 + STARS 合计）压一块深色切角面板——与标题屏底栏同款，
   // 文字落在草地/云海上仍然清楚（几何不动：提示 y=201、STARS y=214，均在面板 197~223 内）
   _panel(20,197,344,26,{alpha:0.5,cut:2});
-  drawCNText('Tab/Q/E/1~4 切章　←→ 选择　回车 进入　C 角色　G 衣橱　Esc 返回',VIEW_W/2,201,10,'#c8d4ec','center');
+  drawCNText('Tab/Q/E/1~5 切章　←→ 选择　回车 进入　C 角色　G 衣橱　Esc 返回',VIEW_W/2,201,10,'#c8d4ec','center');
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
   drawPixelText('STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,214,1,'#f8d048','center'); // v7 §9.1：上限=ALL_LEVELS.length*3
 }
@@ -6184,7 +6629,7 @@ function step(dt){
     }else if(wardrobeOpen){
       stepWardrobeInput(); // v7.7：同上（选关导航/进入/返回全部让位给面板）
     }else{
-      // v23：一章一屏导航——Tab/E 下一章、Q 上一章（循环）、1~4 直达；章内 ←→ ±1（夹在本章，不跨章）；
+      // v23：一章一屏导航——Tab/E 下一章、Q 上一章（循环）、1~5 直达；章内 ←→ ±1（夹在本章，不跨章）；
       // ↑↓ 行间移动（单行章节无行→原地不动，不越界）。Tab 全局已 preventDefault（不逃出画布焦点）。
       menuSel=clamp(menuSel,0,ALL_LEVELS.length-1); // 关表变短（章节文件缺失）时兜底，防光标落在不存在的卡上
       const chs=_chLayout().chs,ci0=_chIndexOf();
@@ -6193,8 +6638,8 @@ function step(dt){
         _selChapter((ci0+d+chs.length)%chs.length,true); // 切章=落到该章最近合法卡（列号夹在本章内）
         SFX.select();
       }
-      for(let d=0;d<4&&d<chs.length;d++)
-        if(pressed['Digit'+(d+1)]){_selChapter(d,true);SFX.select();break;} // 1~4 直达章（章数不足时忽略）
+      for(let d=0;d<5&&d<chs.length;d++)
+        if(pressed['Digit'+(d+1)]){_selChapter(d,true);SFX.select();break;} // 1~5 直达章（章数不足时忽略）
       const chCur=chs[_chIndexOf()]; // 切章后重取，保证 ←→/↑↓ 作用于新章
       if(hit('right')){menuSel=Math.min(menuSel+1,chCur.first+chCur.len-1);SFX.select();}
       if(hit('left')){menuSel=Math.max(menuSel-1,chCur.first);SFX.select();}
@@ -6208,7 +6653,7 @@ function step(dt){
       }
       if(hit('wardrobe')||(mouse.click&&hover==='menuWardrobe'))openWardrobe(); // v7.7：选关屏衣橱入口
       if(hit('hero')||(mouse.click&&hover==='menuHero'))openHeroSelect();       // v19：选关屏角色入口
-      // v23：点章签=切到该章第一张卡（键盘等价 Tab/Q/E 或 1~4）
+      // v23：点章签=切到该章第一张卡（键盘等价 Tab/Q/E 或 1~5）
       if(mouse.click&&hover&&hover.indexOf('ch:')===0){
         _selChapter(+hover.slice(3),false);SFX.select();
       }
