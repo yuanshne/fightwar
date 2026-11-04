@@ -17,7 +17,7 @@
 </head>
 <body>
 <div id="wrap"><canvas id="game" width="384" height="224"></canvas></div>
-<div id="tip">小关=街机小游戏（扫雷/地鼠/点灯/翻牌/推箱/贪吃蛇/编钟/打砖块） · Boss 关=平台动作 · P 暂停 · R 重开 · Esc 菜单</div>
+<div id="tip">小关=街机小游戏（扫雷/地鼠/点灯/翻牌/推箱/贪吃蛇/矿脉寻宝/落块筑墙/弹幕生存/编钟/泡泡消除/迷宫追逃/垂直攀跃/打砖块） · Boss 关=平台动作 · P 暂停 · R 重开 · Esc 菜单</div>
 <script>
 // 全局共享常量（各模块通过经典 script 共享，任何模块不得重复声明）
 const VIEW_W=384,VIEW_H=224,TILE=16;
@@ -33,18 +33,20 @@ const VIEW_W=384,VIEW_H=224,TILE=16;
      v25：15 个小怪关加入攻击交互迷你游戏（扫雷/点灯/编钟/打地鼠）+ 炸药桶 + 终点第四条「试炼」封印路线。
      v25.5：Boss 新增「天穹贯柱」光柱与星核/幽冥晶棘五招（column/pillar tone）+ 封印面板避让盘面。
      v26：14 个非 Boss 关彻底改为独立单屏街机小游戏（8 种类型），Boss 关仍是平台动作；
-          选关屏仍把全部关卡按钮与 Boss 放在一起，详情标「街机 · 类型」。 -->
-<script src="art.js?v=39"></script>
-<script src="levels.js?v=39"></script>
+          选关屏仍把全部关卡按钮与 Boss 放在一起，详情标「街机 · 类型」。
+     v27：小关消除重复玩法——14 关 14 种不同类型；新增矿脉寻宝/落块筑墙/弹幕生存/
+          泡泡消除/迷宫追逃/垂直攀跃，原 6 对重复关卡各换掉一个。 -->
+<script src="art.js?v=40"></script>
+<script src="levels.js?v=40"></script>
 <!-- v7 §1.1：章节文件（顶层 CHAPTERS.push 注册对象）；未交付时浏览器对 404 静默跳过，
      游戏以已合入章节运行（10/13/16/21 关皆合法）；chapter2/3/4.js 互相独立 -->
-<script src="chapter2.js?v=39"></script>
-<script src="chapter3.js?v=39"></script>
-<script src="chapter4.js?v=39"></script>
-<script src="engine.js?v=39"></script>
+<script src="chapter2.js?v=40"></script>
+<script src="chapter3.js?v=40"></script>
+<script src="chapter4.js?v=40"></script>
+<script src="engine.js?v=40"></script>
 <!-- v26：街机模式（固定单屏小游戏运行时）。放在 engine 之后、ui 之前：
      ui 的 startLevel/render/step 通过 window.ARCADE 分流；Boss 关不经过此文件。 -->
-<script src="arcade.js?v=39"></script>
-<script src="ui.js?v=39"></script>
+<script src="arcade.js?v=40"></script>
+<script src="ui.js?v=40"></script>
 </body>
 </html>

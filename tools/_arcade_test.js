@@ -1,8 +1,11 @@
-// node tools/_arcade_test.js —— v26 街机小关验收（node，无依赖）
+// node tools/_arcade_test.js —— v26/v27 街机小关验收（node，无依赖）
 // 用户口径：「小关完全放弃横屏从左向右走，改成其他游戏类型；只有选关时按钮才和 Boss 放一块」
-// 覆盖：14 个非 Boss 关全部有独立街机配置、Boss 关一个都不占；8 种玩法齐全；
+// v27 追加：14 个小关 14 种玩法两两不同（原 6 对重复各换掉一个），新增
+//           矿脉寻宝 / 落块筑墙 / 弹幕生存 / 泡泡消除 / 迷宫追逃 / 垂直攀跃。
+// 覆盖：14 个非 Boss 关全部有独立街机配置、Boss 关一个都不占；14 种玩法齐全；
 //       start 建立伪关卡（tiles=null）→ 结算/星级/解锁所需的 totalCoin/par 齐全；
 //       _forceWin/_forceFail 正确落 clear/fail；每个类型空输入跑 2 秒 + 渲染不崩；
+//       新玩法核心机制（放钩/消行/受击/发射/拾符/弹跳）逐条断言；
 //       ui.js / index.html 的接入点存在且顺序正确。
 'use strict';
 const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '..');
@@ -52,7 +55,8 @@ function ok(cond, msg, extra) {
 
 const BOSS = ALL.map((l, i) => (l.boss ? i : -1)).filter(i => i >= 0);
 const NONBOSS = ALL.map((l, i) => (l.boss ? -1 : i)).filter(i => i >= 0);
-const TYPES = ['mine', 'mole', 'lights', 'memory', 'sokoban', 'snake', 'simon', 'breakout'];
+const TYPES = ['mine', 'mole', 'lights', 'memory', 'sokoban', 'snake', 'gold', 'tetris',
+  'dodge', 'simon', 'bubble', 'maze', 'jumper', 'breakout'];
 
 console.log('[T1] 关卡覆盖：14 小关有街机、10 Boss 没有');
 {
@@ -66,7 +70,7 @@ console.log('[T1] 关卡覆盖：14 小关有街机、10 Boss 没有');
   ok(extra.length === 0, '配置表里没有多余下标', extra.join(','));
 }
 
-console.log('[T2] 配置完整性：8 种玩法齐全，参数合法');
+console.log('[T2] 配置完整性：14 种玩法齐全且两两不同，参数合法');
 {
   const seen = {};
   for (const i of NONBOSS) {
@@ -79,7 +83,10 @@ console.log('[T2] 配置完整性：8 种玩法齐全，参数合法');
     ok(st.par > 0 && st.limit > st.par, 'L' + (i + 1) + ' 限时/三星目标合理', st.par + '/' + st.limit);
     ok(st.totalCoin >= 1 && st.totalCoin <= 3, 'L' + (i + 1) + ' 奖励币上限 1~3', st.totalCoin);
   }
-  ok(Object.keys(seen).length === 8, '8 种街机玩法全部登场', JSON.stringify(seen));
+  ok(Object.keys(seen).length === 14, '14 种街机玩法全部登场且不重复', JSON.stringify(seen));
+  const dups = {};
+  for (const i of NONBOSS) { const t = A.stages[i].type; dups[t] = (dups[t] || 0) + 1; }
+  ok(Object.values(dups).every(n => n === 1), '没有任何玩法被两个小关复用', JSON.stringify(dups));
 }
 
 console.log('[T2b] 记忆翻牌：行数按卡片数算，盘面不越出底栏');
@@ -95,6 +102,111 @@ console.log('[T2b] 记忆翻牌：行数按卡片数算，盘面不越出底栏'
     ok(d.cards.length <= d.rows * d.cols, 'L' + (i + 1) + ' 所有卡片都有格子', d.cards.length + '>' + d.rows * d.cols);
     A.stop();
   }
+}
+
+console.log('[T2c] 新玩法核心机制：放钩 / 消行 / 受击 / 发射 / 拾符 / 弹跳');
+{
+  // 矿脉寻宝：钩到翡翠 → 宝石+1、奖励币+1；集满配额 → 自然胜利
+  A.start(7);
+  let s = A._state(), d = s.data;
+  ok(d.gems.length === 14, 'L8 矿脉生成 14 个物件', d.gems.length);
+  ok(d.gems.filter(g => g.kind === 'emerald').length === 4, 'L8 翡翠 4 颗', d.gems.filter(g => g.kind === 'emerald').length);
+  d.gems = [{ x: d.ax, y: d.ay + 80, kind: 'emerald', r: 8, w: 1.15, taken: false }];
+  d.angle = 0; d.state = 'extend'; d.len = 12;
+  for (let f = 0; f < 240 && d.state !== 'swing'; f++) A.step(1 / 60, {});
+  ok(d.got === 1 && d.em === 1, 'L8 钩中翡翠计入宝石/翡翠', d.got + '/' + d.em);
+  ok(game.coins === 1, 'L8 翡翠给 1 枚奖励币', game.coins);
+  A.stop();
+  A.start(7);
+  s = A._state(); d = s.data;
+  d.got = 5;
+  d.gems = [{ x: d.ax, y: d.ay + 80, kind: 'gem', r: 8, w: 1, taken: false }];
+  d.angle = 0; d.state = 'extend'; d.len = 12;
+  for (let f = 0; f < 240 && !s.done; f++) A.step(1 / 60, {});
+  ok(s.done && s.win === true, 'L8 集满 6 颗触发胜利', s.done + '/' + s.win);
+  A.stop();
+
+  // 落块筑墙：消行 + 直落；消满 4 行自然胜利
+  A.start(8);
+  s = A._state(); d = s.data;
+  ok(d.board.length === 160 && !!d.piece && !!d.next, 'L9 棋盘 10×16 + 当前/下一块');
+  d.board.fill(-1);
+  for (let c = 4; c < 10; c++) d.board[15 * 10 + c] = 0;
+  d.piece = { m: [[1, 1, 1, 1]], ci: 0, x: 0, y: 14 };
+  A.step(1 / 60, { confirmHit: true });
+  ok(d.lines === 1, 'L9 直落补满一行 → 消行 1', d.lines);
+  ok(!s.done, 'L9 消 1 行还不通关（目标 4）', d.lines);
+  const m0 = d.piece.m.map(r => r.join(''));
+  A.step(1 / 60, { upHit: true });
+  ok(!s.done, 'L9 旋转后仍可继续', m0);
+  A.stop();
+  A.start(8);
+  s = A._state(); d = s.data;
+  d.lines = 3; d.board.fill(-1);
+  for (let c = 4; c < 10; c++) d.board[15 * 10 + c] = 0;
+  d.piece = { m: [[1, 1, 1, 1]], ci: 0, x: 0, y: 14 };
+  A.step(1 / 60, { confirmHit: true });
+  ok(s.done && s.win === true, 'L9 消满 4 行触发胜利', d.lines + '/' + s.done);
+  A.stop();
+
+  // 弹幕生存：被陨星命中扣心 + 1.2s 无敌；星屑拾取；撑满 30s + 8 枚 → 胜利
+  A.start(9);
+  s = A._state(); d = s.data;
+  ok(d.p && d.need === 8 && d.survive === 30, 'L10 生存参数就位');
+  d.bullets = [{ x: d.p.x, y: d.p.y, vx: 0, vy: 0, r: 3 }];
+  A.step(1 / 60, {});
+  ok(s.hearts === 2 && d.inv > 0, 'L10 陨星命中扣 1 心并进入无敌', s.hearts + '/' + d.inv.toFixed(2));
+  d.picks = [{ x: d.p.x, y: d.p.y, vy: 0 }];
+  A.step(1 / 60, {});
+  ok(d.got === 1, 'L10 星屑拾取 +1', d.got);
+  d.elapsed = 29.99; d.got = 8;
+  for (let f = 0; f < 10 && !s.done; f++) A.step(1 / 60, {});
+  ok(s.done && s.win === true, 'L10 撑满并集齐星屑 → 胜利', d.elapsed.toFixed(2));
+  A.stop();
+
+  // 泡泡消除：发射 → 吸附成泡；发射计数递增
+  A.start(11);
+  s = A._state(); d = s.data;
+  ok(d.grid.length === 99, 'L12 棋盘 11×9', d.grid.length);
+  d.grid.fill(-1); d.grid[5] = 0; d.angle = 0; d.cur = 0;
+  A.step(1 / 60, { attackHit: true });
+  ok(d.shots === 1 && !!d.shot, 'L12 J 发射一颗泡泡');
+  for (let f = 0; f < 180 && d.shot; f++) A.step(1 / 60, {});
+  ok(!d.shot, 'L12 泡泡飞行后吸附/消失');
+  ok(d.grid.filter(v => v >= 0).length >= 2, 'L12 吸附后盘面泡泡数增加', d.grid.filter(v => v >= 0).length);
+  A.stop();
+
+  // 迷宫追逃：吃灵符 / 鬼差抓捕 / 集齐后进鬼门胜利
+  A.start(13);
+  s = A._state(); d = s.data;
+  ok(d.total === 6 && d.ghosts.length === 2, 'L14 6 张灵符 + 2 只鬼差', d.total + '/' + d.ghosts.length);
+  A.step(1 / 60, { rightHit: true });
+  A.step(1 / 60, { rightHit: true });
+  A.step(1 / 60, { rightHit: true });
+  ok(d.got === 1, 'L14 走到灵符格自动拾取', d.got);
+  d.ghosts[0].x = d.player.x; d.ghosts[0].y = d.player.y; d.freeze = 0; d.hold = 0;
+  A.step(1 / 60, {});
+  ok(s.hearts === 2 && d.freeze > 0, 'L14 被鬼差碰到扣 1 心并冻结', s.hearts + '/' + d.freeze.toFixed(2));
+  d.freeze = 0; d.open = true; d.got = d.total;
+  d.player = { x: d.exit.x, y: d.exit.y + 1 };
+  A.step(1 / 60, { upHit: true });
+  ok(s.done && s.win === true, 'L14 灵符齐 + 进鬼门 → 胜利', s.done + '/' + s.win);
+  A.stop();
+
+  // 垂直攀跃：自动弹跳 / 初始浮石 / 左右穿屏 / 高度达标胜利
+  A.start(14);
+  s = A._state(); d = s.data;
+  ok(d.plats.length > 0 && d.target === 900, 'L15 浮石生成 + 目标 900 尺', d.plats.length);
+  let minY = d.p.y;
+  for (let f = 0; f < 240; f++) { A.step(1 / 60, {}); if (d.p.y < minY) minY = d.p.y; }
+  ok(d.maxH > 0, 'L15 落到浮石自动弹跳（高度 > 0）', d.maxH.toFixed(1));
+  d.p.x = 395; d.p.vy = 0;
+  A.step(1 / 60, {});
+  ok(d.p.x < 0, 'L15 越过右边界从左侧穿出', d.p.x.toFixed(1));
+  d.maxH = 899; d.p.y = d.startY - 901;
+  A.step(1 / 60, {});
+  ok(s.done && s.win === true, 'L15 攀到 900 尺触发胜利', d.maxH.toFixed(1));
+  A.stop();
 }
 
 console.log('[T3] start：伪关卡供结算/星级/解锁复用');
@@ -189,7 +301,7 @@ console.log('[T6] ui.js / index.html 接入点');
   ok(ui.includes("drawPixelText('MINI'"), '选关卡有 MINI 角标');
   const iArc = html.indexOf('arcade.js'), iEng = html.indexOf('engine.js'), iUi = html.indexOf('ui.js');
   ok(iEng >= 0 && iArc > iEng && iUi > iArc, '加载顺序 engine → arcade → ui', [iEng, iArc, iUi].join(','));
-  ok(/arcade\.js\?v=39/.test(html), 'arcade.js 带缓存版本号 v39');
+  ok(/arcade\.js\?v=40/.test(html), 'arcade.js 带缓存版本号 v40');
 }
 
 console.log('[T7] 不含平台横向玩法残留：伪关卡不会进入 updateWorld 路径');
