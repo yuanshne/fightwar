@@ -92,7 +92,6 @@ with sync_playwright() as p:
     pg.wait_for_function("() => game.boss && game.state === 'play'", timeout=15000)
     lv = pg.evaluate("() => ({ idx: game.levelIdx, kind: game.boss.kind })")
     check(lv['idx'] == 24 and lv['kind'] == 12, '选关切章到第五章并进入 L25', str(lv['idx']) + '/' + str(lv['kind']))
-    pg.screenshot(path="tools/_shots/v28_live_select_ch5.png")
     b.close()
 
 print('CONSOLE_ERRORS:', len(errs))
