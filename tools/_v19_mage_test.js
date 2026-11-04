@@ -474,6 +474,74 @@ console.log('[T10] respawn：法力回满 / shots 清空 / shotSeq 复位');
   ok(p.hp === p.maxHp && p.maxHp === 4, '复活后 4 血满血（hp/maxHp=' + p.hp + '/' + p.maxHp + '）', p.maxHp);
 }
 
+/* ==================== T10b v24：法师站射破核心 ==================== */
+// 用户反馈「法师打那个 boss 放技能出现的左右两个灯交互有问题」。根因四条（v24 修）：
+//   ① 站立法师弹道 y+5..y+11，旧核心底边只到 y+38（玩家站地时 230 vs 弹道 231）——差 1px 打不到；
+//   ② 法师弹体路径只扣核心血、不调 _engCoreBreakCheck，打碎最后一颗也拿不到 2s 破盾；
+//   ③ ui `_hzCore` 按「x 是中心」画，引擎 x 实为左边界 → 视觉偏左 9px（截图另验）；
+//   ④ L18 右角木箱 58/60/64 与 Boss 本体：期望 ±150 落点会半埋进木箱、绕过墙时甚至落在 Boss 身体里。
+// 断言分两段：A 落点合法性（真实 coreCast）；B 站射链路（开阔地放核心，真实输入、不跳）。
+console.log('[T10b] mage 站射破核心：落点合法 + 1px 可命中 + 全破转 2s 破绽');
+{
+  const g = fresh('mage', 17);          // L18 冥古龙（kind4）：coreCast 双子核心
+  const b = g.boss, p = g.player;
+  ok(!!b && b.kind === 4, 'L18 载入 kind=4 Boss', b && b.kind);
+  b.hpTotal = b.maxHp; b.hp = b.bandMax; b.parryOn = false; b.breakT = 0;
+  b.coreOn = false; b.next = 'core'; b.state = 'windup'; b.t = 0; b.fireN = 0;
+  for (let f = 0; f < 90; f++) {
+    b.vx = 0;
+    sb.updateWorld(1 / 60);
+    if ((g.hazards || []).filter(h => h.kind === 'core').length >= 2) break;
+  }
+  const cores0 = (g.hazards || []).filter(h => h.kind === 'core');
+  ok(cores0.length === 2 && b.coreOn === true, '开盾生成 2 颗核心（' + cores0.length + ' / coreOn=' + b.coreOn + '）');
+
+  // A：真实落点不得压木箱/Boss（L18 右角 58/60/64 三只木箱 + 贴墙 Boss 的夹具）
+  const L = g.level;
+  const solidUnder = (c) => {
+    let hit = false;
+    for (let ty = Math.floor(c.y / 16); ty <= Math.floor((c.y + c.h - 1) / 16); ty++)
+      for (let tx = Math.floor(c.x / 16); tx <= Math.floor((c.x + c.w - 1) / 16); tx++)
+        if (L.solid(tx, ty, g.switchState)) hit = true;
+    return hit;
+  };
+  const inBoss = (c) => c.x + c.w > b.x + 1 && c.x < b.x + b.w - 1;
+  ok(cores0.every(c => !solidUnder(c)), '核心落点不压实心瓦片（木箱/地形）',
+    cores0.map(c => c.x + '@' + (+c.y)).join(','));
+  ok(cores0.every(c => !inBoss(c)), '核心落点不压 Boss 本体（贴墙时不再落在身体里）',
+    'boss=' + b.x + '..' + (b.x + b.w) + ' cores=' + cores0.map(c => c.x + '..' + (c.x + c.w)).join(','));
+
+  // B：开阔地放两颗核心，站射（p.y 固定成站地面，不跳）——真实输入走完弹体→核心→破盾
+  const gy = sb._engGroundY(p.x, p.y);
+  const CY = gy - 26;                    // 与 coreCast 的 b.y+22 同口径：底边只探进站射弹道 1px
+  g.hazards.length = 0; g.shots.length = 0; b.coreOn = true; b.breakT = 0;
+  const mk = (x) => { const c = { kind: 'core', x, y: CY, w: 18, h: 18, r: 9, hp: 3, maxHp: 3, t: 0, life: 10, flashT: 0 }; g.hazards.push(c); return c; };
+  const right = mk(300), left = mk(400);
+  p.x = 260; p.y = gy - p.h; p.vx = 0; p.vy = 0; p.face = 1; p.invT = 9e9;
+  ok(right.y + right.h > p.y + 5 && right.y < p.y + 11, '核心底边与站射弹道重叠 1px（' + (right.y + right.h) + ' vs 弹道 ' + (p.y + 5) + '..' + (p.y + 11) + '）');
+  const fire = (core, standX) => {
+    p.x = standX; p.face = 1;
+    for (let f = 0; f < 40 && p.atkCd > 0; f++) stepHold(g, 1);   // 等冷却（0.46s）
+    const hp0 = core.hp;
+    atk(g);
+    for (let f = 0; f < 60; f++) {
+      stepHold(g, 1);
+      if (core.hp < hp0) return hp0 - core.hp;
+    }
+    return 0;
+  };
+  ok(fire(right, 260) === 1, '站立法师第一发命中核心（1px 缝隙已消除）', 'hp=' + right.hp);
+  for (let n = 0; n < 2; n++) fire(right, 260);
+  ok((g.hazards || []).indexOf(right) < 0, '三发打碎第一颗核心');
+  ok(b.state !== 'stagger' && b.coreOn === true, '还剩一颗核心时不提前破盾（state=' + b.state + '）');
+  for (let n = 0; n < 3; n++) fire(left, 330);   // 靠近第二颗（弹体射程 120px）
+  ok(!(g.hazards || []).some(h => h.kind === 'core'), '第二颗核心也被站射打碎');
+  ok(b.coreOn === false, '全破 → coreOn 关闭', b.coreOn);
+  ok(b.state === 'stagger', '全破 → 进入 stagger（不再等 coreCast 超时）', b.state);
+  ok(Math.abs((b.staggerDur || 0) - 2.0) < 1e-6, '破盾窗口 2.0s（' + (b.staggerDur || 0).toFixed(2) + '）');
+  ok((b.breakT || 0) >= 2.0 - 1e-6, 'breakT 同步 2.0s 破防（' + (b.breakT || 0).toFixed(2) + '）');
+}
+
 /* ==================== T11 全 19 关 mage 空转 ==================== */
 console.log('[T11] 全 ' + ALL.length + ' 关：hero=mage 空转 120 帧不抛异常 / 法力与坐标有限');
 {

@@ -191,6 +191,8 @@ const KEYMAP={
   unlockAll:['KeyF'], // v7.7：首页「全关开放」开关键（F 未被既有键占用；仅 title 态消费）
   wardrobe:['KeyG'],  // v7.7：衣橱开关键（G 未被既有键占用；仅 title/select 态消费；原「成长」面板键位复用）
   hero:['KeyC'],      // v19：选角开关键（C 未被既有键占用；仅 title/select 态消费；面板内 C/Esc/X 关闭）
+  chapterPrev:['KeyQ'],chapterNext:['Tab','KeyE'], // v23：选关章签切换（Tab/E 下一章、Q 上一章；仅 select 态消费，
+  //                     Tab 全局已 preventDefault；Q/E 未被任何既有动作占用——与 C/G/M/R/Esc/方向/回车零冲突）
   confirm:['Enter','Space','KeyW','ArrowUp'],
   // v8.0：无方向冲突的确认组——confirm 含 ↑/W，凡「↑/W 已是导航」的界面（选关 ↑=跨章、背包/衣橱 ↑=选上一格）
   // 用它就会一键双响（选关按 ↑ 直接进关、背包按 W 边移动边装备）。这三处改用 ok（只认 Enter/Space），
@@ -208,7 +210,8 @@ const DASHKEY_DEFAULT='KeyK';
 const KEY_CN={left:'左移',right:'右移',jump:'跳跃',down:'下蹲',attack:'普攻',skillU:'U 技能',skillI:'I 技能',
   skillO:'O 大招',skillL:'L 技能',puzzleOpen:'开神龛',nonoFill:'数织·填格',nonoCross:'数织·叉格',
   puzzleHint:'谜题提示',pause:'暂停',restart:'重开',back:'菜单',bag:'背包',unlockAll:'全关开放',
-  wardrobe:'衣橱',hero:'选角',confirm:'确认',ok:'确认',up:'选关上移'};
+  wardrobe:'衣橱',hero:'选角',confirm:'确认',ok:'确认',up:'选关上移',
+  chapterPrev:'切上一章',chapterNext:'切下一章'};
 let dashCode=DASHKEY_DEFAULT,keyListen=false,keyErr='',keyErrT=0;
 try{const s=localStorage.getItem('pq_dashkey');
   if(s&&/^[A-Za-z0-9]{2,20}$/.test(s)&&s!=='KeyM'&&s!=='Escape')dashCode=s;}catch(e){}
@@ -1197,6 +1200,13 @@ const L1_HINT3='本关藏有谜题神龛 · 寻找金色光柱';                
 function _cnShadow(str,x,y,px,align){
   drawCNText(str,x+1,y+1,px,'rgba(10,20,40,0.9)',align);
 }
+// v23：四向描边——选关屏「章名 / 本章星数」直接落在天光与白云上（没有底条），单向右下投影在纯白云上
+// 仍会糊；四向各 1px 暗边后白字/金字在任何背景上都有轮廓，且不引入硬边底条。
+function _cnOutline(str,x,y,px,color,align){
+  const D=[[-1,0],[1,0],[0,-1],[0,1]];
+  for(let i=0;i<D.length;i++)drawCNText(str,x+D[i][0],y+D[i][1],px,'rgba(10,20,40,0.85)',align);
+  drawCNText(str,x,y,px,color,align);
+}
 function renderL1SkyHint(){
   if(uiState!=='play')return;                 // 只在 play 态画（结算/选关等界面有自己的面板）
   if(game.levelIdx!==0)return;                // 仅 L1 常驻；其余关卡保持 3 秒底部条（原行为不变）
@@ -1249,14 +1259,18 @@ function computeHover(){
     else if(ptIn(mx,my,140,110,104,18))hover='titleUnlock';  // v7.7：全关开放开关（键盘等价=F）
     else if(ptIn(mx,my,250,110,72,18))hover='titleWardrobe'; // v7.7：衣橱入口（键盘等价=G）
     else if(ptIn(mx,my,328,110,50,18))hover='titleHero';     // v19：角色入口（键盘等价=C）
-  }else if(uiState==='select'){ // §A.4：选关卡（键盘等价=方向+回车）；v7 §9.2：章节布局矩阵（与渲染同源 _chapters）
-    if(ptIn(mx,my,252,20,60,13)){hover='menuHero';return;}     // v19：选关屏角色入口（键盘等价=C）
-    if(ptIn(mx,my,316,20,62,13)){hover='menuWardrobe';return;} // v7.7：选关屏衣橱入口（键盘等价=G）
-    chsLoop:for(const ch of _chapters()){
-      for(let j=0;j<ch.len;j++){
-        const xy=_cardXY(ch,j);
-        if(ptIn(mx,my,xy[0],xy[1],46,_chLayout().h)){hover='select:'+(ch.first+j);break chsLoop;}
-      }
+  }else if(uiState==='select'){ // §A.4：选关卡（键盘等价=方向+回车）；v23：一章一屏（章签+当前章卡行，几何与渲染同源）
+    if(ptIn(mx,my,MENU_HERO_RECT[0],MENU_HERO_RECT[1],MENU_HERO_RECT[2],MENU_HERO_RECT[3])){
+      hover='menuHero';return;}     // v19：选关屏角色入口（键盘等价=C）
+    if(ptIn(mx,my,MENU_WD_RECT[0],MENU_WD_RECT[1],MENU_WD_RECT[2],MENU_WD_RECT[3])){
+      hover='menuWardrobe';return;} // v7.7：选关屏衣橱入口（键盘等价=G）
+    const Lh=_chLayout();
+    for(let k=0;k<Lh.chs.length;k++){const tk=_chTabXY(k); // v23：章签（鼠标可点，键盘 Tab/Q/E/1~4）
+      if(ptIn(mx,my,tk[0],tk[1],CH_TAB_W,CH_TAB_H)){hover='ch:'+k;return;}}
+    const ch=Lh.chs[_chIndexOf()]; // 只命中当前章（其余章不渲染，避免留下"看不见的热区"）
+    for(let j=0;j<ch.len;j++){
+      const xy=_cardXY(ch,j);
+      if(ptIn(mx,my,xy[0],xy[1],46,Lh.h)){hover='select:'+(ch.first+j);break;}
     }
   }else if(uiState==='play'&&game.level){
     if(bagOpen){ // v6 波2 §G：背包内悬停（面板覆盖全屏，屏蔽世界/HUD 目标；格/槽/按钮白描边由渲染画）
@@ -1591,6 +1605,12 @@ function renderEntities(L,tick){
       else{ctx.fillStyle='#f86030';ctx.beginPath();
         ctx.arc(px(b.x+4),px(b.y+4),3,0,Math.PI*2);ctx.fill();
         ctx.fillStyle='#f8d048';ctx.fillRect(px(b.x+3),px(b.y+3),2,2);}
+      continue;
+    }
+    if(b.bile){ // v24 喉·腐液弹：绿色液滴 + 亮芯（不新增素材，纯程序化；与 star 弹一眼区分）
+      ctx.fillStyle='#3a7a28';ctx.beginPath();ctx.arc(px(b.x+4),px(b.y+4),4,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#78c850';ctx.beginPath();ctx.arc(px(b.x+4),px(b.y+4),3,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#c8f888';ctx.fillRect(px(b.x+3),px(b.y+2),2,2);
       continue;
     }
     ctx.drawImage(b.star&&SPR.bossBullet?SPR.bossBullet[(game.tick*8|0)%2]:SPR.bullet,px(b.x),px(b.y));
@@ -2217,10 +2237,11 @@ function _hzPillar(h,tick,ox,oy){
 }
 
 // v12 §任务5③：核心护盾（core）——18×18 金色悬浮核心，上下轻浮；用 hp/maxHp 画剩余量（底部小格），
-// 受击 flashT 按 0.12s 叠一层白（与分身同口径）。x 视作中心（引擎取 20%/80% 列中心），y 视作顶边。
+// 受击 flashT 按 0.12s 叠一层白（与分身同口径）。x/y 与引擎判定盒同口径：左上角（v24 修正——
+// v12 早期注释按「x 是中心」写，但引擎 v12 已改成 ±150px + `bcx - 9` 的左边界，画出来偏左 9px）。
 function _hzCore(h,tick,ox,oy){
   const W=Math.max(8,+h.w||18),H=Math.max(8,+h.h||18);
-  const x=px(h.x-ox),y=px(h.y-oy),bob=Math.round(Math.sin(tick*0.12)*2),cy=y+H/2+bob;
+  const x=px(h.x-ox)+Math.floor(W/2),y=px(h.y-oy),bob=Math.round(Math.sin(tick*0.12)*2),cy=y+H/2+bob;
   ctx.globalAlpha=0.18;ctx.fillStyle='#f8d048';
   ctx.beginPath();ctx.arc(x,cy,W*0.75,0,Math.PI*2);ctx.fill();
   ctx.globalAlpha=1;ctx.fillStyle='#a87810';
@@ -2904,6 +2925,8 @@ const BOSS_MOVE_NAME={leap:'饿虎扑食',barrage:'万弹穿云',charge:'疾雷�
   mirror:'镜花水月',push:'崩山劲推',pull:'深渊引力',flare:'燎原业火',sear:'灼日炎线',lash:'赤炎鞭挞',weight:'千钧坠杀',
   swap:'阴阳倒转',beam:'天梁横压',spawn:'卵潮涌动',web:'地网囚天',swarm:'蝗群蔽日',inhale:'吞天吸息',roar:'裂魂咆哮',
   bite:'噬魂之口',pendulum:'审判摆锋',chime:'丧钟轰鸣',hammer:'天罚重锤',
+  cinder:'烬雨焚天',furnace:'焚风扑面',burst:'爆燃之环',
+  hatch:'催卵秘术',spew:'腐液喷吐',
   crush:'衡权压顶',hchain:'双锤坠狱'};
 // v22：同一招键在不同 Boss 手里的专属名（预警条优先查这张，再落 BOSS_MOVE_NAME）。
 //   茧母的 summon 不叫「呼邪唤众」（那是牛魔王的）而叫「破茧亲卫」；
@@ -3425,6 +3448,93 @@ function renderBossWindupFx(b,bimg,bx,by){
       ctx.globalAlpha=1;
       _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
       drawCNText('锤',cx,px(top)-14,8,'#f8d048','center');
+      break;
+    }
+    /* ==================== v24：三家扩招的前摇 ====================
+       与 v20 同判据：图形先说清「这一拍该做什么」、且不与上面 30 例撞形。
+       烬雨=玩家脚边三圈 / 焚风=脚下双向推线 / 爆燃=本体收缩预警环 /
+       催卵=场上每枚卵的脉环 / 腐液=嘴前绿色小扇。 */
+    case 'cinder':{                                  // 烬雨焚天：玩家脚下三圈落烬（间隔 spread）
+      const T=_bossCfg(b)||{},C2=T.cinder||{},pp=game.player;
+      if(pp){
+        const spread=Math.max(0,+C2.spread||22),R=Math.max(8,+C2.r||20);
+        for(const off of [0,spread,-spread]){
+          const xx=px(pp.x+pp.w/2+off),gy2=px(top+b.h);
+          ctx.globalAlpha=0.10+0.16*k;ctx.fillStyle='#f84848';
+          ctx.beginPath();ctx.arc(xx,gy2-4,R,0,Math.PI*2);ctx.fill();
+          ctx.globalAlpha=0.45+0.45*k;ctx.strokeStyle='#ff7038';ctx.lineWidth=1;
+          if(ctx.setLineDash)ctx.setLineDash([3,2]);
+          ctx.beginPath();ctx.arc(xx,gy2-4,R,0,Math.PI*2);ctx.stroke();
+          if(ctx.setLineDash)ctx.setLineDash([]);
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('烬',cx,px(top)-14,8,'#ff8040','center');
+      break;
+    }
+    case 'furnace':{                                 // 焚风扑面：脚下左右各三道推进箭头（两侧都会来火墙）
+      const gy3=px(top+b.h),hw=Math.max(10,b.w/2+4);   // 从本体轮廓外起画，否则箭头被身体吃掉
+      ctx.globalAlpha=0.45+0.45*k;ctx.strokeStyle='#f8a030';ctx.lineWidth=1.5;
+      for(const s of [-1,1]){
+        for(let i=0;i<3;i++){
+          const xx=px(cx)+s*(hw+i*9);
+          ctx.beginPath();ctx.moveTo(xx,gy3-5);ctx.lineTo(xx+s*5,gy3-1);ctx.lineTo(xx,gy3+3);ctx.stroke();
+        }
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('风',cx,px(top)-14,8,'#f8a030','center');
+      break;
+    }
+    case 'burst':{                                   // 爆燃之环：本体四周预留暴圈（越收越亮＝快爆）
+      const T=_bossCfg(b)||{},R2=Math.max(16,+((T.burst&&T.burst.r)||54));
+      const cy2=top+b.h*0.5,rr2=R2*(0.55+0.45*k);
+      ctx.globalAlpha=0.08+0.12*k;ctx.fillStyle='#ff6020';
+      ctx.beginPath();ctx.arc(px(cx),px(cy2),R2,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.5+0.45*k;ctx.strokeStyle='#ff8040';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(px(cx),px(cy2),rr2,0,Math.PI*2);ctx.stroke();
+      ctx.globalAlpha=1;ctx.fillStyle='#ffe0a0';
+      for(let i=0;i<6;i++){
+        const a=i*Math.PI/3+(+b.t||0)*1.5;
+        ctx.fillRect(px(cx+Math.cos(a)*rr2)-1,px(cy2+Math.sin(a)*rr2)-1,2,2);
+      }
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('爆',cx,px(top)-14,8,'#ff8040','center');
+      break;
+    }
+    case 'hatch':{                                   // 催卵秘术：场上每枚幼虫卵亮起绿色脉环（它在催这些）
+      let anyEgg=false;
+      for(const hz of (game.hazards||[])){
+        if(!hz||hz.kind!=='egg'||hz.stage>=2)continue;
+        anyEgg=true;
+        const ex=px(hz.x+8),ey=px(hz.y+8),rr3=10+Math.sin((+b.t||0)*14)*2;
+        ctx.globalAlpha=0.25+0.35*k;ctx.strokeStyle='#c8e070';ctx.lineWidth=1.5;
+        ctx.beginPath();ctx.arc(ex,ey,rr3,0,Math.PI*2);ctx.stroke();
+        ctx.globalAlpha=0.7;ctx.fillStyle='#f0ffb0';ctx.fillRect(ex-1,ey-1,2,2);
+      }
+      if(!anyEgg){                                   // 场上无卵：不做假预警，只给本体一排绿点（催了个寂寞）
+        ctx.globalAlpha=0.35+0.35*k;ctx.fillStyle='#c8e070';
+        for(let i=0;i<3;i++)ctx.fillRect(px(cx+(i-1)*6),px(top+b.h*0.4),2,2);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('催',cx,px(top)-14,8,'#c8e070','center');
+      break;
+    }
+    case 'spew':{                                    // 腐液喷吐：嘴前四滴绿色小扇（别站正面）
+      const T=_bossCfg(b)||{},n2=Math.max(1,+((T.spew&&T.spew.n)||4));
+      const my2=top+b.h-22,dir=b.face>0?1:-1,len=10+8*k;
+      ctx.globalAlpha=0.12+0.16*k;ctx.fillStyle='#78c850';
+      ctx.beginPath();ctx.arc(px(cx+dir*8),px(my2),12,0,Math.PI*2);ctx.fill();
+      ctx.globalAlpha=0.55+0.4*k;ctx.fillStyle='#a8e070';
+      for(let i=0;i<n2;i++){
+        const a=(i-(n2-1)/2)*0.16;
+        ctx.fillRect(px(cx+dir*(10+Math.cos(a)*len))-1,px(my2+Math.sin(a)*len)-1,2,2);
+      }
+      ctx.globalAlpha=1;
+      _panel(cx-7,px(top)-15,14,12,{cut:2,alpha:0.8});
+      drawCNText('腐',cx,px(top)-14,8,'#78c850','center');
       break;
     }
   }
@@ -5131,25 +5241,27 @@ function renderTitleCover(tick){
   ctx.restore();
 }
 
-// ---------- v7 §9.2：章节化选关屏（384×224；章头 12px + 卡行 46×44 pitch 53） ----------
-// 章首表 [章首 0 基 idx, 章长]；CH_NAME/CH_HEAD_Y/CH_CARD_Y 下标=章号（y=章头 24/86/148、卡行 34/96/158）。
-// 截断规则（工单任务2 过渡期兼容）：ALL_LEVELS.length≤10（章节文件未合入）→ 单章画**全部**关卡
-// （"10 关时只画第一章"：若只画 7 卡则 L8~L10 不可选，违背"选关屏必须照常可用"，交付说明记录），
-// 并按 7 列换行（第二行 y=34+62=96——一章 7 卡后越出 384 画布，wrap 由 _cardXY 消费）；
-// ≥11 关按表截断：章显示条件=章首 idx<length，章长=min(声明,余量)——13 关=两章、16 关=三章、
-// 15 关=第三章 2 卡；13 关时第三章头=13 但空章不显示。
-// v7.9：第三章 3→5 关（新增 L17/L18）。章长仍按 min(声明, 余量) 截断——章节文件只到 L16 时实际画 3 卡，
-// 关卡补齐后自动变 5 卡，无需再改本表；一排放 5 张卡：x=6+j*53，第 5 张左缘 218、右缘 264，画布 384 内不越界。
-// v12：末章改为「吃掉剩余关」——原表第三章声明 5 关（idx 13~17），加 L19 后 idx18 没有卡位，
-// 选关屏画不出第 19 关（光标 clamp 到 18 却停在空白处），玩家只能靠通关 L18 后回车一次进，等于"找不到牛魔王"。
-// 现在末章 len=min(7, n-章首)，一行上限 7 卡：x=6+6*53=324，右缘 370 < 384 不越界。
-const CH_HEAD=[[0,7],[7,6],[13,5],[19,5]];   // v20：第四章=地图二（L20~L24，5 关全 Boss）
+// ---------- v23：一章一屏选关屏（384×224） ----------
+// 版式（自上而下）：顶栏 y=2（标题 + 右缘「角色 C」「衣橱 G」）→ 章签 y=18（4 枚 90×17）→
+// 当前章名 y=40（12px）→ 本章卡行 y=58（卡 46×44、x=6+j*53，7 列右缘 370）→
+// 选中关详情面板 y=112~170 → 底栏面板 y=197~223（提示 y=201 + STARS y=214）。
+// 一章一屏取代「四章竖排一屏」：卡回到 44 高、关名/星 12px，同屏只画一章，不再把 24 张卡压进
+// 四行 30 高的小卡（旧版最上一行压标题、"角色/衣橱"按钮，字缩到 5~7px）。
+// 章首表 [章首 0 基 idx, 章长]，7+6+6+5=24：
+//   v23 修「牛魔王（L19）消失」——旧表第三章 [13,5] 只覆盖 idx13~17，L19(idx18) 不属于任何章，
+//   光标能 clamp 到 18 却落在没有卡的空白处；chapter3.js 实为 L14~L19 六关，改 [13,6] 后 24 关全部有章可依。
+// 截断规则（过渡期兼容）：ALL_LEVELS.length≤10（章节文件未合入）→ 单章画全部关卡并按 7 列换行
+// （第二行 y+62，由 _cardXY 消费）；≥11 关按表截断，章显示条件=章首 idx<length，章长=min(声明,余量)——
+// 章节文件只到 L16 时第三章自动只画 3 卡，末章吃掉剩余关（上限 7 卡）。
+const CH_HEAD=[[0,7],[7,6],[13,6],[19,5]];   // 第一章 L1~L7 / 第二章 L8~L13 / 第三章 L14~L19 / 第四章 L20~L24
 const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章','第四章·回响之厅'];
-const CH_HEAD_Y=[24,86,148],CH_CARD_Y=[34,96,158],CH_ROW_MAX=7; // 单行卡位上限（画布宽 384 内）
-// v20：4 章压缩档。原档（3 章）行距 62：章头 12px + 卡 44，第 3 章卡底已到 202，
-// 加第 4 行必然越出 224 画布。压缩档行距 44：章头 10px + 卡 46×30，
-// 四行卡底 61/105/149/191，距底部操作行（y=204）13px，留白不憋。
-const CH_HEAD_Y4=[20,64,108,152],CH_CARD_Y4=[31,75,119,163];
+const CH_ROW_MAX=7;                          // 单行卡位上限（x=6+6*53=324，右缘 370 < 384）
+// 章签几何（渲染与命中同源 _chTabXY）：4 枚 90×17、x=4+ci*95，末签右缘 379；y=18 起，顶栏（y=2~15）之下
+const CH_TAB_X=4,CH_TAB_Y=18,CH_TAB_W=90,CH_TAB_H=17,CH_TAB_PITCH=95;
+const CH_TAB_TXT=['第一章','第二章','第三章','第四章'];
+const CH_HEAD_Y=40,CH_CARD_Y=58,CH_CARD_H=44;         // 当前章名（12px）/ 卡行 y / 卡高 44
+const CH_FOCUS_Y=112,CH_FOCUS_H=58;                   // 选中关详情面板（x=6,y=112,w=372,h=58）
+const MENU_WD_RECT=[316,2,62,13],MENU_HERO_RECT=[252,2,60,13]; // 顶栏两入口（渲染与悬停同一份常量）
 function _chapters(){
   const n=ALL_LEVELS.length,out=[];
   if(n<=10)return[{i:0,first:0,len:n,wrap:7}];
@@ -5161,22 +5273,35 @@ function _chapters(){
   }
   return out;
 }
-// 版式档：章数>3 走压缩档（卡高/字号/卡内三行偏移/行距全在这张表里，渲染与命中同源，改一处即一致）
+// 版式表（卡高/字号/卡内三行偏移/列距全在这张表里，渲染与命中同源，改一处即一致）。
+// 缓存键=(关数, 章数)：同屏只画一章——几何与"当前是哪一章"无关，切章不会串版式；
+// 关表长度或章数变化（章节文件增删）时自动重算。
 let _layChs=null,_layN=-1,_layObj=null;
 function _chLayout(){
   if(_layObj&&_layN===ALL_LEVELS.length&&_layChs===_chapters().length)return _layObj;
-  const chs=_chapters(),big=chs.length>3;
+  const chs=_chapters();
   _layChs=chs.length;_layN=ALL_LEVELS.length;
-  return(_layObj=big
-    ?{chs,headY:CH_HEAD_Y4,cardY:CH_CARD_Y4,h:30,fs:10,st:9,dyName:2,dyStar:11,dyIdx:21,pitch:44}
-    :{chs,headY:CH_HEAD_Y,cardY:CH_CARD_Y,h:44,fs:12,st:12,dyName:5,dyStar:22,dyIdx:34,pitch:62});
+  return(_layObj={chs,headY:CH_HEAD_Y,cardY:CH_CARD_Y,h:CH_CARD_H,fs:12,st:12,dyName:5,dyStar:22,dyIdx:34,pitch:53});
 }
-function _cardXY(ch,j){ // 卡左上角：多章=单行 x=6+j*53；单章过渡=7 列换行（行距 62）
-  const L=_chLayout();
-  if(ch.wrap){const col=j%ch.wrap,row=(j/ch.wrap)|0;return[6+col*53,L.cardY[ch.i]+row*62];}
-  return[6+j*53,L.cardY[ch.i]];
+function _cardXY(ch,j){ // 卡左上角：单行 x=6+j*53；n≤10 过渡档 wrap=7 时第二行 y+=62
+  const L=_chLayout(),row=ch.wrap?((j/ch.wrap)|0):0,col=ch.wrap?(j%ch.wrap):j;
+  return[6+col*L.pitch,L.cardY+row*62];
 }
-const _cardName=n=>String(n).replace(/^\d+\s*·\s*/,''); // 卡面关名去序号前缀（序号另画 y+34；'7 · BOSS·星核巨兽'→'BOSS·星核巨兽'）
+function _chTabXY(ci){return[CH_TAB_X+ci*CH_TAB_PITCH,CH_TAB_Y];} // 章签左上角（渲染与命中唯一来源）
+function _chIndexOf(){ // menuSel 落在第几章（越界回落末章，始终有解）
+  const chs=_chLayout().chs;
+  for(let i=0;i<chs.length;i++)if(menuSel<chs[i].first+chs[i].len)return i;
+  return Math.max(0,chs.length-1);
+}
+function _selChapter(ci,keepCol){ // 切章：keepCol=沿用当前列号（夹在本章内，即"最近合法卡"），否则落第一张卡
+  const chs=_chLayout().chs;if(!chs.length)return;
+  const ch=chs[clamp(ci,0,chs.length-1)];
+  const col=keepCol?clamp(menuSel-ch.first,0,ch.len-1):0;
+  menuSel=ch.first+col;
+}
+const _cardName=n=>String(n).replace(/^\d+\s*·\s*/,'').replace(/^BOSS·/,''); // 卡面关名去「序号·」「BOSS·」前缀
+// （序号另画卡内左下 y+34；Boss 由红描边 + 右下 BOSS 角标表达——卡宽只有 42px，去掉 5 字前缀后 4 字 Boss 名可从 6px 回到 10px，
+//  完整名（含 BOSS·）在下方详情面板 15px 显示）
 
 function renderMenu(th,tick){
   if(uiState==='title'){renderTitleCover(tick);return;} // v5 §B：封面重做（夜空渐变取代主题渐变；瓦片地面行删除，云海接底）
@@ -5189,65 +5314,99 @@ function renderMenu(th,tick){
   // 地面
   const T=themeArt.tiles;
   for(let x=0;x<VIEW_W;x+=16){ctx.drawImage(T.blockCap,x,VIEW_H-24);ctx.drawImage(T.block,x,VIEW_H-8);}
-  // v7 §9.2：章节化选关屏（标题 y=12；章头 y=24/86/148；卡行 y=34/96/158；卡 46×44、x=6+col*53，
-  // 7 列末卡右缘 370；卡内 关名 7px y+5 / 星 12px y+22 / 序号 y+34；Boss 卡红描边+金字+BOSS 角标；
-  // 新关（L11+）名右上 2×2 金点；章锁定=章头灰 #3a4468+全部卡 ???+章名后挂锁形 6×8）
-  drawCNText('选择关卡',VIEW_W/2,12,15,'#f0f4ff','center');
-  // v7.7：选关屏常驻「衣橱入口」（G 键 / 鼠标点按钮等价）；全关开放时左上角加金标。
-  // 成长/金币条已随局外成长撤销一并删除（不再有持久货币可展示）。
+  // v23 §A：顶栏（标题 + 全关开放标 + 右缘「角色 C」「衣橱 G」）。整体上移到 y=2，给章签腾出 y=18 一整行。
+  drawCNText('选择关卡',6,2,11,'#f0f4ff');
+  if(progress.unlockAll===true)drawCNText('全关开放',58,4,9,'#f8d048'); // 顶栏状态标（不压章签 y=18）
   {
-    _panel(316,20,62,13,{cut:2,alpha:0.75});
-    drawCNText('衣橱',322,22,9,'#f0f4ff');
-    _panel(346,22,11,9,{cut:2,alpha:0.5});
-    drawPixelText('G',349,24,1,'#f8d048');
-    if(hover==='menuWardrobe'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
-      _panelPath(316,20,62,13,2);ctx.stroke();}
-    // v19 §3.1：选关屏角色入口（252,20,60,13；C 徽标）
-    _panel(252,20,60,13,{cut:2,alpha:0.75});
-    drawCNText('角色',258,22,9,'#f0f4ff');
-    _panel(294,22,11,9,{cut:2,alpha:0.5});
-    drawPixelText('C',297,24,1,'#f8d048');
+    const hr=MENU_HERO_RECT; // v19 §3.1：角色入口（C 徽标；渲染/悬停同一份几何）
+    _panel(hr[0],hr[1],hr[2],hr[3],{cut:2,alpha:0.75});
+    drawCNText('角色',hr[0]+6,hr[1]+2,9,'#f0f4ff');
+    _panel(hr[0]+42,hr[1]+2,11,9,{cut:2,alpha:0.5});
+    drawPixelText('C',hr[0]+45,hr[1]+4,1,'#f8d048');
     if(hover==='menuHero'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
-      _panelPath(252,20,60,13,2);ctx.stroke();}
-    if(progress.unlockAll===true)drawCNText('全关开放',6,2,9,'#f8d048'); // 顶栏状态标（y=2，不压章头 y=24）
+      _panelPath(hr[0],hr[1],hr[2],hr[3],2);ctx.stroke();}
+    const wr=MENU_WD_RECT; // v7.7：衣橱入口（G 徽标）
+    _panel(wr[0],wr[1],wr[2],wr[3],{cut:2,alpha:0.75});
+    drawCNText('衣橱',wr[0]+6,wr[1]+2,9,'#f0f4ff');
+    _panel(wr[0]+30,wr[1]+2,11,9,{cut:2,alpha:0.5});
+    drawPixelText('G',wr[0]+33,wr[1]+4,1,'#f8d048');
+    if(hover==='menuWardrobe'){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
+      _panelPath(wr[0],wr[1],wr[2],wr[3],2);ctx.stroke();}
   }
-  const L=_chLayout();
-  for(const ch of L.chs){
-    const hy=L.headY[ch.i];
-    const chLocked=chapterLocked(ch); // v7.7：章锁定（全关开放时恒 false，不改 unlocked 本身）
-    drawCNText(CH_NAME[ch.i],6,hy,L.fs,chLocked?'#3a4468':'#f0f4ff');
-    if(chLocked){ // 章名后挂锁形 6×8 程序化（锁钩+锁体）
-      const lx=6+Math.ceil(_textW(CH_NAME[ch.i],L.fs))+6,ly=hy+1;
-      ctx.strokeStyle='#3a4468';ctx.lineWidth=1;
+  const L=_chLayout(),ci=_chIndexOf(),ch=L.chs[ci];
+  // v23 §B：章签（一~四章）：当前章金框+暖底+下方三角指针；锁定章灰字+锁形；悬停白描边；鼠标点=切章
+  for(let k=0;k<L.chs.length;k++){
+    const ck=L.chs[k],tk=_chTabXY(k),tx=tk[0],ty=tk[1];
+    const lk=chapterLocked(ck),act=k===ci; // v7.7：章锁沿用 chapterLocked（unlockAll 时恒 false）
+    _panel(tx,ty,CH_TAB_W,CH_TAB_H,{cut:3,alpha:lk?0.96:(act?1:0.98)}); // 底够厚：云朵/视差背景不透进字
+    if(act){
+      ctx.fillStyle='rgba(240,200,96,0.16)';ctx.fillRect(tx+2,ty+2,CH_TAB_W-4,CH_TAB_H-4); // 当前章暖底
+      ctx.strokeStyle='#f8d048';ctx.lineWidth=1;_panelPath(tx,ty,CH_TAB_W,CH_TAB_H,3);ctx.stroke();
+      ctx.fillStyle='#f8d048'; // 章签下缘三角指针，指向本章卡行（y=40 章名与卡之间留 4px 呼吸）
+      ctx.beginPath();ctx.moveTo(tx+CH_TAB_W/2-4,ty+CH_TAB_H);ctx.lineTo(tx+CH_TAB_W/2+4,ty+CH_TAB_H);
+      ctx.lineTo(tx+CH_TAB_W/2,ty+CH_TAB_H+4);ctx.closePath();ctx.fill();
+    }
+    drawCNText(CH_TAB_TXT[k]||('第'+(k+1)+'章'),tx+8,ty+3,10,lk?'#8a94b8':(act?'#fff8c8':'#c8d4ec'));
+    if(lk){ // 锁形 6×8 程序化（锁钩+锁体），与旧章名挂锁同一画法
+      const lx=tx+CH_TAB_W-13,ly=ty+5;
+      ctx.strokeStyle='#8a94b8';ctx.lineWidth=1;
       ctx.beginPath();ctx.arc(lx+3,ly+3,2,Math.PI,0);ctx.stroke();
-      ctx.fillStyle='#3a4468';ctx.fillRect(lx,ly+3,6,5);
+      ctx.fillStyle='#8a94b8';ctx.fillRect(lx,ly+3,6,5);
     }
-    for(let j=0;j<ch.len;j++){
-      const i=ch.first+j,xy=_cardXY(ch,j),x=xy[0],y=xy[1],h=L.h;
-      const locked=levelLocked(i)||chLocked,sel=menuSel===i; // v7.7：全关开放时所有卡一律按已解锁渲染
-      const boss=!!ALL_LEVELS[i].boss;
-      _panel(x,y,46,h,{alpha:locked?0.7:0.85,cut:3});
-      if(boss){ctx.strokeStyle='#f86048';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,45,h-1);} // Boss 卡红描边
-      if(sel){ctx.strokeStyle='#fff8c8';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,44,h-2);
-        if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-6,y+(h>>1)-1,4,2);ctx.fillRect(x+48,y+(h>>1)-1,4,2);}}
-      else if(hover==='select:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮
-        ctx.strokeRect(x+0.5,y+0.5,45,h-1);}
-      // v12：卡宽 46（可用 ~42），'BOSS·双生终焉' 7px 要 49px，会压到右邻卡上；
-      // 按实测宽度自动降字号到 7/6/5，保证关名不越卡。
-      const cardNm = locked ? '???' : _cardName(ALL_LEVELS[i].name);
-      let nmSz = 7;
-      while (nmSz > 5 && _textW(cardNm, nmSz) > 42) nmSz--;
-      drawCNText(cardNm,x+23,y+L.dyName,nmSz,
-        locked?'#5a6488':(boss?'#f8d048':'#f0f4ff'),'center');            // 关名 7px（Boss 金色）
-      const st=progress.stars[i]||0;
-      drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+23,y+L.dyStar,L.st,
-        locked?'#3a4468':'#f8d048','center');
-      drawPixelText(''+(i+1),x+23,y+L.dyIdx,1,locked?'#5a6488':'#a8b4d8','center');
-      if(boss)drawPixelText('BOSS',x+43,y+L.dyIdx+1,1,'#f86048','right');  // 卡底 BOSS 角标
-      if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+2,2,2);}        // 新关金点（L11+）
-    }
+    if(hover==='ch:'+k){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1;
+      _panelPath(tx,ty,CH_TAB_W,CH_TAB_H,3);ctx.stroke();}
   }
-  drawCNText('←→↑↓ 选择　回车 进入　C 角色　G 衣橱　Esc 返回',VIEW_W/2,204,10,'#a8b4d8','center'); // v19：加 C 角色入口
+  // v23 §C：当前章名 + 本章星数
+  const chLocked=chapterLocked(ch); // v7.7：章锁（unlockAll 时恒 false，不改 unlocked 本身）
+  let chStars=0;for(let j=0;j<ch.len;j++)chStars+=progress.stars[ch.first+j]||0;
+  const chTitle=CH_NAME[ch.i]||('第'+(ch.i+1)+'章');
+  _cnOutline(chTitle,8,CH_HEAD_Y,12,chLocked?'#a8b4d8':'#f0f4ff','left');
+  _cnOutline('★ '+chStars+'/'+(ch.len*3),VIEW_W-8,CH_HEAD_Y+2,10,'#c8d4ec','right');
+  // v23 §D：本章卡行（46×44；关名 12px→按宽降到 6px 保不越卡 / 星 12px y+22 / 序号 y+34 左 / Boss 红描边+金字+BOSS 角标）
+  for(let j=0;j<ch.len;j++){
+    const i=ch.first+j,xy=_cardXY(ch,j),x=xy[0],y=xy[1],h=L.h;
+    const locked=levelLocked(i)||chLocked,sel=menuSel===i; // v7.7：全关开放时所有卡一律按已解锁渲染
+    const boss=!!ALL_LEVELS[i].boss;
+    _panel(x,y,46,h,{alpha:locked?0.7:0.9,cut:3});
+    if(boss){ctx.strokeStyle='#f86048';ctx.lineWidth=1;ctx.strokeRect(x+0.5,y+0.5,45,h-1);} // Boss 卡红描边
+    if(sel){ctx.strokeStyle='#fff8c8';ctx.lineWidth=2;ctx.strokeRect(x+1,y+1,44,h-2);
+      if(tick%40<24){ctx.fillStyle='#fff';ctx.fillRect(x-6,y+(h>>1)-1,4,2);ctx.fillRect(x+48,y+(h>>1)-1,4,2);}}
+    else if(hover==='select:'+i){ctx.strokeStyle='#fff8c8';ctx.lineWidth=1; // v6 §A.2：悬停高亮
+      ctx.strokeRect(x+0.5,y+0.5,45,h-1);}
+    // 卡宽 46（可用 ~42）：长关名（'BOSS·双生终焉' 等）按实测宽度降字号，下限 6px（完整关名在下方面板 15px）
+    const cardNm = locked ? '???' : _cardName(ALL_LEVELS[i].name);
+    let nmSz = L.fs;
+    while (nmSz > 6 && _textW(cardNm, nmSz) > 42) nmSz--;
+    drawCNText(cardNm,x+23,y+L.dyName,nmSz,
+      locked?'#8a94b8':(boss?'#f8d048':'#f0f4ff'),'center');
+    const st=progress.stars[i]||0;
+    drawCNText(st?'★'.repeat(st)+'☆'.repeat(3-st):'☆☆☆',x+23,y+L.dyStar,L.st,
+      locked?'#3a4468':'#f8d048','center');
+    drawPixelText(''+(i+1),x+6,y+L.dyIdx,1,locked?'#5a6488':'#a8b4d8');            // 序号（左下）
+    if(boss)drawPixelText('BOSS',x+42,y+L.dyIdx,1,'#f86048','right');              // Boss 角标（右下，与序号分开不叠字）
+    if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+2,2,2);}                 // 新关金点（L11+）
+  }
+  // v23 §E：选中关详情（卡内关名缩到 6px，这里用 15px 完整关名 + 星数 + 关卡提示，把中段留白用起来）
+  const focusRows=ch.wrap?Math.ceil(ch.len/ch.wrap):1;
+  if(focusRows===1){
+    const fi=menuSel,fm=ALL_LEVELS[fi],fLocked=levelLocked(fi)||chLocked;
+    _panel(6,CH_FOCUS_Y,372,CH_FOCUS_H,{alpha:0.68,cut:3});
+    drawCNText(fLocked?'???':fm.name,18,CH_FOCUS_Y+6,15,
+      fLocked?'#8a94b8':(fm.boss?'#f8d048':'#f0f4ff'));
+    const fs2=progress.stars[fi]||0;
+    drawCNText(fs2?'★'.repeat(fs2)+'☆'.repeat(3-fs2):'☆☆☆',18,CH_FOCUS_Y+26,14,
+      fLocked?'#3a4468':'#f8d048');
+    drawCNText(fs2+'/3 星',64,CH_FOCUS_Y+29,10,'#a8b4d8');
+    if(fm.boss)drawCNText('BOSS 战',366,CH_FOCUS_Y+9,12,'#f86048','right');
+    drawCNText('第 '+(fi+1)+' / '+ALL_LEVELS.length+' 关',366,CH_FOCUS_Y+29,10,'#a8b4d8','right');
+    const fhint=fLocked?'尚未解锁（通关前一关后开放）':(fm.hint||'');
+    if(fhint){let hs=9;while(hs>6&&_textW(fhint,hs)>344)hs--; // 提示小字按宽降 1px 档，仍放不下则不画（不越面板）
+      if(_textW(fhint,hs)<=344)drawCNText(fhint,18,CH_FOCUS_Y+43,hs,fLocked?'#7a86a8':'#a8b4d8');}
+  }
+  // v23 §F：底栏（提示文案 + STARS 合计）压一块深色切角面板——与标题屏底栏同款，
+  // 文字落在草地/云海上仍然清楚（几何不动：提示 y=201、STARS y=214，均在面板 197~223 内）
+  _panel(20,197,344,26,{alpha:0.5,cut:2});
+  drawCNText('Tab/Q/E/1~4 切章　←→ 选择　回车 进入　C 角色　G 衣橱　Esc 返回',VIEW_W/2,201,10,'#c8d4ec','center');
   const total=Object.values(progress.stars).reduce((a,b)=>a+b,0);
   drawPixelText('STARS '+total+'/'+(ALL_LEVELS.length*3),VIEW_W/2,214,1,'#f8d048','center'); // v7 §9.1：上限=ALL_LEVELS.length*3
 }
@@ -5750,22 +5909,34 @@ function step(dt){
     }else if(wardrobeOpen){
       stepWardrobeInput(); // v7.7：同上（选关导航/进入/返回全部让位给面板）
     }else{
-      // v7 §9.2：章节化导航——←→ ±1（clamp 0..ALL_LEVELS.length-1）；↑↓ 跨章保持列号：
-      // col=menuSel-当前章首 idx，跳至上/下一章 章首+min(col,章长-1)；末章↓/首章↑钳位不动
-      if(hit('right')){menuSel=clamp(menuSel+1,0,ALL_LEVELS.length-1);SFX.select();}
-      if(hit('left')){menuSel=clamp(menuSel-1,0,ALL_LEVELS.length-1);SFX.select();}
-      if(hit('down')||hit('up')){
-        const chs=_chapters();
-        let ci=0;while(ci<chs.length-1&&menuSel>=chs[ci].first+chs[ci].len)ci++;
-        const nt=hit('down')?ci+1:ci-1;
-        if(nt>=0&&nt<chs.length){
-          const col=menuSel-chs[ci].first;
-          menuSel=chs[nt].first+Math.min(col,chs[nt].len-1);
-        }
+      // v23：一章一屏导航——Tab/E 下一章、Q 上一章（循环）、1~4 直达；章内 ←→ ±1（夹在本章，不跨章）；
+      // ↑↓ 行间移动（单行章节无行→原地不动，不越界）。Tab 全局已 preventDefault（不逃出画布焦点）。
+      menuSel=clamp(menuSel,0,ALL_LEVELS.length-1); // 关表变短（章节文件缺失）时兜底，防光标落在不存在的卡上
+      const chs=_chLayout().chs,ci0=_chIndexOf();
+      if(hit('chapterNext')||hit('chapterPrev')){
+        const d=hit('chapterNext')?1:-1;
+        _selChapter((ci0+d+chs.length)%chs.length,true); // 切章=落到该章最近合法卡（列号夹在本章内）
         SFX.select();
+      }
+      for(let d=0;d<4&&d<chs.length;d++)
+        if(pressed['Digit'+(d+1)]){_selChapter(d,true);SFX.select();break;} // 1~4 直达章（章数不足时忽略）
+      const chCur=chs[_chIndexOf()]; // 切章后重取，保证 ←→/↑↓ 作用于新章
+      if(hit('right')){menuSel=Math.min(menuSel+1,chCur.first+chCur.len-1);SFX.select();}
+      if(hit('left')){menuSel=Math.max(menuSel-1,chCur.first);SFX.select();}
+      if(hit('down')||hit('up')){
+        if(chCur.wrap){ // 仅 n≤10 过渡档有两行；单行章按方向键原地不动（不跨章、不越界）
+          const row=((menuSel-chCur.first)/chCur.wrap)|0,col=(menuSel-chCur.first)%chCur.wrap;
+          const nr=clamp(row+(hit('down')?1:-1),0,Math.ceil(chCur.len/chCur.wrap)-1);
+          menuSel=chCur.first+Math.min(nr*chCur.wrap+col,chCur.len-1);
+          SFX.select();
+        }
       }
       if(hit('wardrobe')||(mouse.click&&hover==='menuWardrobe'))openWardrobe(); // v7.7：选关屏衣橱入口
       if(hit('hero')||(mouse.click&&hover==='menuHero'))openHeroSelect();       // v19：选关屏角色入口
+      // v23：点章签=切到该章第一张卡（键盘等价 Tab/Q/E 或 1~4）
+      if(mouse.click&&hover&&hover.indexOf('ch:')===0){
+        _selChapter(+hover.slice(3),false);SFX.select();
+      }
       // v6 §A.4：选关卡鼠标单击=选中（menuSel=i）、双击=进入——确认分支复用 hit('confirm') 同代码路径
       if(mouse.click&&hover&&hover.indexOf('select:')===0){
         const i=+hover.slice(7);

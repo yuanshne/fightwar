@@ -607,7 +607,8 @@ const BAL = {
     //   flare 抬手时若热量 ≥ minHeat 就当场引爆，伤害随热量线性上升；引爆后热量清零。
     //   这是全作第一次要求玩家「停手」——map1 的六只都是「越快越好」。
     hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 44, h: 40,   // v20.3：540=180×3 对标牛魔王（满装 TTK 61→~91s）
-    windup: { flare: 0.72, sear: 0.55, lash: 0.46, barrage: 0.42, nova: 0.55,
+    windup: { flare: 0.72, sear: 0.55, lash: 0.46, cinder: 0.60, furnace: 0.62, burst: 0.64,
+              barrage: 0.42, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.46, 0.34], stalk: true, walk: [46, 58],   // 火活物步伐快，贴身也游走
@@ -632,12 +633,26 @@ const BAL = {
     /* lash 火鞭：贴地短波（h=14，跳即躲），速度 235 快于玩家跑速 120——
        看到再跑来不及，必须提前跳。这是本战唯一的"反应"招，其余都考耐心。 */
     lash: { w: 26, h: 14, v: 235, life: 0.85, dmg: 1 },
+    /* v24 三招（用户：Boss 技能有点少）。设计约束：不新增弹种，全部复用既有实体——
+       cinder 用 flare 火圈、furnace 用贴地波、burst 用大号火圈，UI 只多认一个 heatGain 字段。 */
+    /* cinder 烬雨：三颗火种依次砸向你「当时」的站位（每颗间隔 0.30s，落点不追踪）。
+       与 flare 的分工：flare 是"你热量高才点得着"的机制招，cinder 是永远会来的常规压制；
+       被燎到不只掉 1 血，还记 14 热量——躲火雨和压热量第一次变成同一件事。 */
+    cinder: { n: 3, gap: 0.30, warn: 0.62, r: 20, dmg: 1, heat: 14, spread: 22 },
+    /* furnace 焚风：左右双向各推一道贴地火风，连推三轮且一轮快过一轮（130/155/180）。
+       与 lash 的分工：lash 是单侧一鞭、跳一下就完；焚风是两侧同时压过来、要连跳三次——
+       站桩输出在这招面前会直接被第一轮扫到脚。 */
+    furnace: { rounds: 3, gap: 0.34, v: [130, 155, 180], w: 12, h: 16, life: 1.0 },
+    /* burst 爆燃：以自身为圆心 r=54 的大火圈（0.64s 收圈）。贴脸打的人在看到名字时就得往外走——
+       这是唯一一招专门惩罚"站在它怀里"的技，和 heat 机制互补：想压热量就得近身少打，近身又怕爆燃。 */
+    burst: { r: 54, warn: 0.62, dmg: 2, heat: 20 },
     nova: { v: 118, t: [0.55, 0.95], endT: 1.2, n: 10 },   // P2 环：10 向快弹
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
-    recover: { flare: 0.6, sear: 0.5, lash: 0.45, barrage: 0.45, nova: 0.6 },
-    // 招牌：flare 引燃 / sear 灼视线 / lash 火鞭
-    poolNear: ['flare', 'lash'],
-    poolFar: ['sear', 'flare'],   // v20.3：撤公共弹幕——轮到的每一下都是自己的招牌
+    recover: { flare: 0.6, sear: 0.5, lash: 0.45, cinder: 0.55, furnace: 0.55, burst: 0.6,
+               barrage: 0.45, nova: 0.6 },
+    // 招牌：flare 引燃 / sear 灼视线 / lash 火鞭 / cinder 烬雨 / furnace 焚风 / burst 爆燃
+    poolNear: ['flare', 'lash', 'cinder', 'furnace', 'burst'],
+    poolFar: ['sear', 'flare', 'cinder', 'furnace'],   // v20.3：撤公共弹幕——轮到的每一下都是自己的招牌
     p2Add: ['nova'], contactDmg: 1, drop1: 'ember1', drop2: 'ember2' },
 
   boss8: { // 双生天秤（L21，aether）——「一直打同一侧是打不动的」
@@ -682,7 +697,7 @@ const BAL = {
     //   打卵只爆幼虫；打成虫掉能量核（回蓝）。卵到期未清 → 成虫爬回 Boss 处喂它回血。
     //   玩家的动作从「怎么打」变成「什么时候打」——这是 map1 完全没有的一层。
     hp: 720, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 48,   // v20.3：720=240×3 对标牛魔王（满装 TTK 38→~81s）
-    windup: { spawn: 0.65, web: 0.60, swarm: 0.62, summon: 0.55, barrage: 0.48, nova: 0.55,
+    windup: { spawn: 0.65, web: 0.60, swarm: 0.62, summon: 0.55, hatch: 0.58, barrage: 0.48, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.80, 0.60], stalk: true, walk: [30, 38],   // v20.9：0.55/0.40→0.80/0.60——技能频率太高玩家没有喘息窗口（用户实测「根本赢不了」），拉长两阶段 idle
@@ -702,15 +717,19 @@ const BAL = {
        ——与 spawn（卵潮，整场一轮）不同，这是写了招式表的技能，按用户口径**不做成一次性**。
        不带 leech：甲虫不回血，纯粹是清杂压力 + 掩护成虫爬回 Boss。 */
     summon: { type: 'beetle', n: 2, off: [-52, 52], cd: 14, hp: 4 },
+    /* hatch 催卵秘术（v24 新招）：把场上所有未成虫的卵**当场催熟一级**（stageT 直接推满）。
+       与 spawn 的分工：spawn 是"给你新卵"，hatch 是"你拖着的旧卵现在就得处理"——
+       卵在场时间越长越亏的设计，第一次有了主动催命的手段；没卵时它只亮个「无卵可催」的空招。 */
+    hatch: { dmg: 0 },
     /* swarm 虫群：一排小虫自 Boss 侧向玩家横穿（低矮、可跳），逼玩家跳起——
        跳起时正好看不见脚下的网/网外的卵。 */
     swarm: { n: 5, gap: 0.12, v: 130, w: 10, h: 8, dmg: 1, life: 3.0 },
     nova: { v: 100, t: [0.55, 0.95], endT: 1.2, n: 6 },   // P2 环：6 向疏缝，虫群补密度
     stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
-    recover: { spawn: 0.6, web: 0.55, swarm: 0.55, summon: 0.5, barrage: 0.5, nova: 0.6 },
-    // 招牌：spawn 产卵 / web 蛛网 / swarm 虫群 / summon 破茧亲卫（v22 追加）
-    poolNear: ['spawn', 'web', 'swarm', 'summon'],
-    poolFar: ['spawn', 'swarm', 'summon'],   // v20.3：撤公共弹幕；卵产在玩家两侧，远程也压得住
+    recover: { spawn: 0.6, web: 0.55, swarm: 0.55, summon: 0.5, hatch: 0.5, barrage: 0.5, nova: 0.6 },
+    // 招牌：spawn 产卵 / web 蛛网 / swarm 虫群 / summon 破茧亲卫（v22 追加）/ hatch 催卵秘术（v24 追加）
+    poolNear: ['spawn', 'web', 'swarm', 'summon', 'hatch'],
+    poolFar: ['spawn', 'swarm', 'summon', 'hatch'],   // v20.3：撤公共弹幕；卵产在玩家两侧，远程也压得住
     p2Add: ['nova'], contactDmg: 1, drop1: 'husk1', drop2: 'husk2' },
 
   boss10: { // 无声之喉（L23，maw）——「喂它东西等于给它回血」
@@ -718,7 +737,7 @@ const BAL = {
     //   打嘴（x 在嘴框内且嘴张开）会把积食打爆，一次结算 3 伤 × 积食数——
     //   喂得越多、爆得越疼，但喂太多它会 roar 反刍成弹幕。玩家的动作是「挑窗口输出」。
     hp: 660, p2At: 0, actDist: 200, grav: 1500, fallV: 520, w: 56, h: 44,   // v20.3：660=220×3 对标牛魔王（满装 TTK 43→~83s）
-    windup: { inhale: 0.60, roar: 0.75, bite: 0.50, barrage: 0.55, nova: 0.55,
+    windup: { inhale: 0.60, roar: 0.75, bite: 0.50, spew: 0.58, barrage: 0.55, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
     p2WindMul: 0.85, idleT: [0.46, 0.34], stalk: true, walk: [34, 44],   // 扎根型也缓步挪——一动不动就是活靶；v22：0.58/0.42→0.46/0.34（用户实测太弱，出招提速）
@@ -733,14 +752,19 @@ const BAL = {
     roar: { v: 140, dmg: 1, spread: 22 },
     /* bite 咬：近身 46px（v22：34→46，与 inhale 新半径配套——被拽进圈后距离更近了），2 伤。 */
     bite: { r: 46, dmg: 2 },
+    /* spew 腐液喷吐（v24 新招，用户：技能有点少）：四颗绿色腐液弹呈小扇面喷出，
+       速度 118（比 barrage 的 star 弹慢一档、比 roar 的积食弹更密），1 伤。
+       与 roar 的分工：roar 是"你喂了多少就吐多少"的机制惩罚，spew 是随时会来的常规远压——
+       它嘴闭着的时候你也不能站着不动。 */
+    spew: { n: 4, v: 118, dmg: 1, spread: 11 },
     nova: { v: 95, t: [0.55, 0.95], endT: 1.2, n: 12 },   // P2 环：12 向慢弹密墙
     stagger: 1.5, enrage: 1.2, dying: 2.6, revive: 0.9,
-    recover: { inhale: 0.6, roar: 0.6, bite: 0.5, barrage: 0.5, nova: 0.6 },
-    // 招牌：inhale 吞弹 / roar 反刍 / bite 咬
-    poolNear: ['inhale', 'bite', 'roar'],
+    recover: { inhale: 0.6, roar: 0.6, bite: 0.5, spew: 0.5, barrage: 0.5, nova: 0.6 },
+    // 招牌：inhale 吞弹 / roar 反刍 / bite 咬 / spew 腐液喷吐（v24 追加）
+    poolNear: ['inhale', 'bite', 'roar', 'spew'],
     /* v22：poolFar 找回「万弹穿云」（barrage 参数本表一直有、此前被 v20.3 撤出池）——
        用户实测远程用脚吊打：远程对吼只躲吸气就够了。扇形弹幕逼远程真的在动，而不只是走两步。 */
-    poolFar: ['roar', 'inhale', 'barrage'],
+    poolFar: ['roar', 'inhale', 'barrage', 'spew'],
     p2Add: ['nova'], contactDmg: 1, drop1: 'maw1', drop2: 'maw2' },
 
   boss11: { // 终末之钟（L24，bell）——「只有休止符吃伤害」
@@ -2090,6 +2114,24 @@ function _engB7Lash(b) { // 烬 · 火鞭：贴地短波，235px/s（快于玩�
   game.sfxQueue.push('slash');
 }
 
+function _engB7Cinder(b, i) { // 烬 · 烬雨（v24）：第 i 颗火种锁定玩家「此刻」的位置（不追踪）
+  const T = _engBossTable(7).cinder, p = game.player, L = game.level;
+  // 三颗各自偏一点，形成一小片火雨而不是三圈完全重叠：第 0 颗正中、1 颗右、2 颗左。
+  const off = i === 0 ? 0 : (i === 1 ? T.spread : -T.spread);
+  const cx = _engClamp(p.x + p.w / 2 + off, 12, L.w * _engTile - 12);
+  const gy = _engGroundY(cx, p.y);
+  game.hazards.push({ kind: 'flare', x: cx, y: gy - 6, r: T.r,
+    warn: T.warn, warnT: T.warn, t: 0, dmg: T.dmg, heatGain: T.heat });
+  game.sfxQueue.push('shot');
+}
+
+function _engB7Burst(b) { // 烬 · 爆燃（v24）：以自身为圆心的大火圈，把贴脸的人赶出去
+  const T = _engBossTable(7).burst;
+  game.hazards.push({ kind: 'flare', x: b.x + b.w / 2, y: b.y + b.h / 2, r: T.r,
+    warn: T.warn, warnT: T.warn, t: 0, dmg: T.dmg, heatGain: T.heat });
+  _engShake(2, 0); game.sfxQueue.push('shot');
+}
+
 /* ---- 秤（kind 8）：机制在 _engBossHurt 里判定方位，招式只做"位移与压制" ---- */
 function _engB8Swap(b) { // 秤 · 换位：与玩家交换 x（唯一一只敢主动换位的 Boss）
   const T = _engBossTable(8).swap, p = game.player, L = game.level;
@@ -2145,6 +2187,20 @@ function _engB9Web(b) { // 茧 · 蛛网：Boss 与玩家之间铺一片（挡�
   game.sfxQueue.push('spit');
 }
 
+function _engB9Hatch(b) { // 茧 · 催卵秘术（v24）：场上所有未成虫的卵当场催熟一级
+  const hz = game.hazards || [], cx = b.x + b.w / 2;
+  let n = 0;
+  for (const e of hz) {
+    if (e.kind !== 'egg' || e.stage >= 2) continue;
+    e.t = e.stageT; e.flashT = 0.22; n++;   // 下一帧 _engUpdateEggs 的 t>=stageT 分支负责换阶
+    _engAddParts(e.x + 8, e.y + 8, 8, '#c8e070', 70, 150);
+  }
+  if (!n) { _engFloat(cx, b.y - 4, '无卵可催', '#8a8a9a', 0.9); return; }
+  _engFloat(cx, b.y - 4, '催卵 ×' + n, '#c8e070', 0.9);
+  _engFx(cx, b.y + b.h / 2, { ring: 1, r: 6, r1: 34, life: 0.32, color: '#c8e070' });
+  game.sfxQueue.push('roar'); _engShake(2, 0);
+}
+
 /* ---- 喉（kind 10）：吞与吐 ---- */
 function _engB10Roar(b) { // 喉 · 反刍：把嘴里的积食全吐回去（喂得越狠，这一下越像弹幕）
   const T = _engBossTable(10).roar, p = game.player;
@@ -2170,6 +2226,20 @@ function _engB10Bite(b) { // 喉 · 咬：近身 34px、2 伤（唯一的高伤�
   game.sfxQueue.push('bite'); _engShake(3, 0);
   _engAddParts(cx, cy, 10, '#f85888', 110, 200);
   if (!p.dead && _engCircleRect(cx, cy, T.r, p)) _engHurtPlayer(cx, T.dmg);
+}
+
+function _engB10Spew(b) { // 喉 · 腐液喷吐（v24）：四颗绿色腐液弹呈小扇面，瞄准出手瞬间的玩家
+  const T = _engBossTable(10).spew, p = game.player;
+  const bx = b.x + b.w / 2, by = b.y + b.h - 18;
+  const base = Math.atan2((p.y + p.h / 2) - by, (p.x + p.w / 2) - bx);
+  for (let i = 0; i < T.n; i++) {
+    const off = (i - (T.n - 1) / 2) * (T.spread * Math.PI / 180);
+    const a = base + off;
+    game.bullets.push({ x: bx - 4, y: by - 4, w: 8, h: 8,
+      vx: Math.cos(a) * T.v, vy: Math.sin(a) * T.v, bile: true, dmg: T.dmg });
+  }
+  _engAddParts(bx, by, 8, '#78c850', 90, 180);
+  game.sfxQueue.push('spit'); _engShake(2, 0);
 }
 
 function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计时单位秒=帧÷60）
@@ -2245,6 +2315,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'summonCast'; b.t = 0;
         b.summonCd = (T.summon && T.summon.cd) || 16;   // v13.1：召唤进入冷却；v22：冷却结束即可再召（撤销 v21 一次性误削）
         _engBossSummon(T); } } // v7 §6.2：召唤工厂化（kind1 slime×2 与内联构造等价，见 _engBossSummon 注）
+    else if (b.next === 'hatch') { if (b.t >= _engBossDur('hatch', b.phase)) {
+        _engB9Hatch(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'nova') { if (b.t >= _engBossDur('nova', b.phase)) {
         b.state = 'novaCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'sweep') { if (b.t >= _engBossDur('sweep', b.phase)) { // v7 §6.3：蛟龙·三段扫尾
@@ -2308,6 +2380,12 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         _engB7Sear(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'lash') { if (b.t >= _engBossDur('lash', b.phase)) {
         _engB7Lash(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'cinder') { if (b.t >= _engBossDur('cinder', b.phase)) {
+        b.state = 'cinderCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'furnace') { if (b.t >= _engBossDur('furnace', b.phase)) {
+        b.state = 'furnaceCast'; b.t = 0; b.fireN = 0; } }
+    else if (b.next === 'burst') { if (b.t >= _engBossDur('burst', b.phase)) {
+        _engB7Burst(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'weight') { if (b.t >= _engBossDur('weight', b.phase)) {
         b.state = 'weightCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'crush') { if (b.t >= _engBossDur('crush', b.phase)) {
@@ -2330,6 +2408,8 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         _engB10Roar(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'bite') { if (b.t >= _engBossDur('bite', b.phase)) {
         _engB10Bite(b); b.state = 'recover'; b.t = 0; } }
+    else if (b.next === 'spew') { if (b.t >= _engBossDur('spew', b.phase)) {
+        _engB10Spew(b); b.state = 'recover'; b.t = 0; } }
     else if (b.next === 'pendulum') { if (b.t >= _engBossDur('pendulum', b.phase)) {
         /* v20 修：扇面朝玩家那一侧（原 -70°→+70° 固定右侧，站左=完全免疫）。
            v23 再修：140° 单侧扇 → **360° 整圈**——用户实测「摆锤不是 360 度，所以基本打不到」：
@@ -2688,14 +2768,17 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     const C = T.core || BAL.boss4.core;
     if (b.fireN === 0) {
       b.fireN = 1; b.coreOn = true;
-      const WC = L.w * _engTile;
+      const WC = L.w * _engTile, CY = b.y + 22;
       for (let i = 0; i < C.n; i++) {
         // v12 实机修正：原「场地 20%/80% 列」在 72 格场地里离 Boss 576px，
         // 两个核心都漂在镜头外——玩家看不到「打哪里破盾」，这招变成无条件罚站。
         // 改成 Boss 两侧 ±150px（同屏可见、跳起攻击够得到），超过 2 个时夹在两侧之间均分。
         const off = C.n > 1 ? (i - (C.n - 1) / 2) * 300 / (C.n - 1) : 0;
-        const cxi = _engClamp(bcx + off - 9, 12, WC - 30); // w18 居中
-        game.hazards.push({ kind: 'core', x: cxi, y: b.y + 20, w: 18, h: 18, // 悬空：需跳起/远程够到
+        // v24：落点不再直接 clamp。期望位置若压在实心瓦片上（L18 右角 58/60/64 三个木箱），
+        // 核心会半埋进木箱：法师站射先打碎木箱、看起来像「灯不吃伤害」；贴着 Boss/墙时
+        // 弹道还会先撞 Boss 本体。改成找最近的合法位（避开实心、Boss 身体、已放的核心）。
+        const cxi = _engCoreSpot(L, b, bcx + off - 9, CY, WC, game.hazards);
+        game.hazards.push({ kind: 'core', x: cxi, y: CY, w: 18, h: 18, // 悬空：需跳起/远程够到
           r: C.r, hp: C.hp, maxHp: C.hp, t: 0, life: C.life, flashT: 0 });
       }
       game.sfxQueue.push('shield'); _engShake(4, 0);
@@ -2830,6 +2913,28 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
   /* ==================== v20 地图二 · 七个持续型 Cast 态 ====================
      这里只推进"这一招自己的时间线"，伤害判定全部落回 hazard/实体侧——
      与 v12 的 quell/pillar 同一分工：Boss 状态机不持有"还会不会疼"的知识。 */
+
+  case 'cinderCast': { // v24 烬·烬雨：第 0 / gap / 2gap 各落一颗火种，每颗锁"当下"站位
+    b.vx = 0;
+    const TC = T.cinder || BAL.boss7.cinder;
+    const want = Math.floor(b.t / TC.gap) + 1;   // 进场立刻落第一颗（t=0），不是等一个 gap
+    while (b.fireN < want && b.fireN < TC.n) { _engB7Cinder(b, b.fireN); b.fireN++; }
+    if (b.fireN >= TC.n && b.t >= TC.gap * (TC.n - 1) + 0.22) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'furnaceCast': { // v24 烬·焚风：左右各一道贴地火风，连推 rounds 轮（一轮快过一轮）
+    b.vx = 0;
+    const TF = T.furnace || BAL.boss7.furnace;
+    const cx0 = b.x + b.w / 2, by0 = b.y + b.h - TF.h;
+    const want = Math.floor(b.t / TF.gap) + 1;
+    while (b.fireN < want && b.fireN < TF.rounds) {
+      const sp = TF.v[Math.min(b.fireN, TF.v.length - 1)];
+      for (const d of [-1, 1])
+        game.waves.push({ x: cx0 + d * 24, y: by0, w: TF.w, h: TF.h, vx: d * sp, life: TF.life });
+      _engShake(3, 0); game.sfxQueue.push('sweep'); b.fireN++;
+    }
+    if (b.fireN >= TF.rounds && b.t >= TF.gap * (TF.rounds - 1) + 0.24) { b.state = 'recover'; b.t = 0; }
+    break; }
 
   case 'weightCast': { // ① 秤·砝码：三枚按 spread 依次落下（[-26,0,26] 扇形封住它正前方）；P2 四连宽扇（v22）
     b.vx = 0;
@@ -3074,6 +3179,31 @@ function _engInWard(p) { // 内部（v12）：玩家是否在任一 ward 结界�
     if (Math.abs(pcx2 - e.x) <= e.r && feet <= e.y + 6 && feet > e.y - 96) return true;
   }
   return false;
+}
+
+function _engCoreSpot(L, b, want, cy, WC, hzArr) { // 内部（v24）：核心落点——离期望位置最近的合法位
+  // 合法性：界内 + 18×18 盒不压实心（木箱/隐藏砖/地形）+ 不压 Boss 本体 + 不与已放核心重叠。
+  // 先试期望位，再以 40px 步长左右交替外扩（上限 360px）；都找不到才回退到期望位（保底不卡死）。
+  const valid = (x) => {
+    if (x < 12 || x > WC - 30) return false;
+    if (x + 18 > b.x - 2 && x < b.x + b.w + 2) return false;
+    let ok = true;
+    _engRectTiles(L, x, cy, 18, 18, (tx, ty) => {
+      if (ok && L.solid(tx, ty, game.switchState)) ok = false;
+    });
+    if (!ok) return false;
+    for (const e of (hzArr || [])) if (e.kind === 'core' && Math.abs(e.x - x) < 26) return false;
+    return true;
+  };
+  const x0 = _engClamp(want, 12, WC - 30);
+  if (valid(x0)) return x0;
+  for (let d = 40; d <= 360; d += 40) {
+    for (const s of [-1, 1]) {
+      const x = _engClamp(want + s * d, 12, WC - 30);
+      if (valid(x)) return x;
+    }
+  }
+  return x0;
 }
 
 function _engCoreHit(hzArr, e, n) { // 内部（v12）：核心扣血（归零即碎）；返回 true=本次被打碎
@@ -3450,6 +3580,12 @@ function _engUpdateHazards(dt) {
           _engAddParts(e.x, e.y, 14, '#f86038', 130, 240);
           _engFloat(e.x, e.y - 10, '引燃 ' + (e.heat0 === undefined ? '' : Math.round(e.heat0)), '#f8a030', 1);
           if (!p.dead && _engCircleRect(e.x, e.y, e.r, p)) _engHurtPlayer(e.x, e.dmg);
+          // v24：烬雨/爆燃的火圈额外记热量——被燎到＝下一次引燃更疼，躲火圈和压热量是同一件事
+          if (e.heatGain) {
+            const H = _engBossTable(7).heat;
+            game.heat = Math.min(H.cap, (game.heat || 0) + e.heatGain);
+            game.heatT = 0;
+          }
         }
       }
     } else if (e.kind === 'crawler') { // 虫群：贴地直线爬行，撞墙消失
@@ -4591,7 +4727,10 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         game.sfxQueue.push('hit'); game.hitStop = _engHitStop;
       } else if (hz.kind === 'core') {                 // 核心：固定 1（同骑士；不吃 ATK/暴击）
         _engFloat(hz.x + hz.w / 2, hz.y - 4, '1', '#8ad8f8', 0);
-        _engCoreHit(hzArr, hz, 1);                     // 归零即碎；破盾由 _engUpdateHazards 的 _engCoreBreakCheck 收
+        // v24：法师弹体是第四条受击路径，此前只扣血不结算破盾——打碎最后一颗核心也拿不到 2s 破盾窗口
+        // （只能等 coreCast 的 b.t >= C.life 超时收势）。这里与近战/连斩/星陨同口径：碎核即查破盾。
+        const broke = _engCoreHit(hzArr, hz, 1);       // 归零即碎
+        if (broke) _engCoreBreakCheck();               // 全破 → stagger 2.0s（b.coreOn 保证只触发一次）
         game.hitStop = _engHitStop;
       } else {                                         // 分身：扣 s.dmg（出膛即定；不吃命中时暴击，同骑士 clone 口径）
         const cdmg = s.dmg || s.base;

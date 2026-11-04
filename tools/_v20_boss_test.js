@@ -15,7 +15,7 @@ const fs = require('fs'), path = require('path'), ROOT = path.join(__dirname, '.
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
 const glue = '\n;return {PHY,Level,game,loadLevel,respawn,updateWorld,BAL,aggregateLevels,'
   + '_engHurtPlayer,_engBossHurt,_engMkBoss,_engBossTable,_engBossPick,_engBossScore,'
-  + '_engBossDur,_engGroundY,_engB7Flare,_engB8Swap,_engB9Spawn,_engB9Web,_engB10Roar,_engUpdateHazards};';
+  + '_engBossDur,_engGroundY,_engB7Flare,_engB7Cinder,_engB7Burst,_engB8Swap,_engB9Spawn,_engB9Web,_engB9Hatch,_engB10Roar,_engB10Spew,_engUpdateHazards};';
 const themes = {};
 ['grass', 'cave', 'sky', 'factory', 'lava', 'tower', 'boss', 'wind', 'castle', 'star', 'sea', 'nether',
  'ember', 'aether', 'husk', 'maw', 'bell'].forEach(k => themes[k] = {});
@@ -76,10 +76,10 @@ console.log('[T1] 五只招牌与 map1 六只零交集（nova 之外；地图二
 {
   // 1) 逐字对表：表被人改动/换顺序时这里立刻红（v22：秤加 crush / 茧加 summon / 喉找回 barrage / 钟五音）
   const SPEC = {
-    7: { near: ['flare', 'lash'], far: ['sear', 'flare'] },
+    7: { near: ['flare', 'lash', 'cinder', 'furnace', 'burst'], far: ['sear', 'flare', 'cinder', 'furnace'] },
     8: { near: ['weight', 'swap', 'crush'], far: ['weight', 'beam', 'swap', 'crush'] },
-    9: { near: ['spawn', 'web', 'swarm', 'summon'], far: ['spawn', 'swarm', 'summon'] },
-    10: { near: ['inhale', 'bite', 'roar'], far: ['roar', 'inhale', 'barrage'] },
+    9: { near: ['spawn', 'web', 'swarm', 'summon', 'hatch'], far: ['spawn', 'swarm', 'summon', 'hatch'] },
+    10: { near: ['inhale', 'bite', 'roar', 'spew'], far: ['roar', 'inhale', 'barrage', 'spew'] },
     11: { near: ['pendulum', 'chime', 'hammer', 'hchain', 'homing'], far: ['chime', 'hammer', 'hchain', 'homing'] }
   };
   for (const k of KINDS) {
@@ -179,6 +179,52 @@ console.log('[T2] 烬：打得多→升温；停一拍→快速散热；满值�
   ok(!g3.hazards.some(e => e.kind === 'flare'), '打不着也不落圈');
 }
 
+/* ==================== T2b 烬（kind7）v24 三新招 ==================== */
+console.log('[T2b] 烬：烬雨 / 焚风 / 爆燃三招落实体，烬雨被燎到会记热量');
+{
+  // cinder：连落三颗半径 20 的火圈，heatGain=14
+  const g = world(7), C = tableOf(7).cinder;
+  const p = stand(g, -1);
+  g.boss.state = 'stagger'; g.boss.staggerDur = 99; g.boss.x = 4;
+  for (let i = 0; i < C.n; i++) sb._engB7Cinder(g.boss, i);
+  const fh = g.hazards.filter(e => e.kind === 'flare');
+  ok(fh.length === 3, '烬雨落 3 个火圈', fh.length);
+  ok(fh.every(e => e.r === C.r && e.heatGain === C.heat), '火圈半径/热量与表一致',
+    fh.map(e => e.r + '/' + e.heatGain).join(','));
+  // 站进第一个圈中心，等它爆：掉血 + 热量 +14
+  p.x = fh[0].x - p.w / 2; p.y = fh[0].y - p.h / 2; p.invT = 0; p.vx = 0; p.vy = 0;
+  const hp0 = p.hp; g.heat = 0;
+  for (let f = 0; f < Math.ceil(C.warn * 60) + 6; f++) { g.hitStop = 0; sb.updateWorld(1 / 60); }
+  ok(p.hp < hp0, '烬雨火圈爆燃命中掉血', hp0 + '→' + p.hp);
+  ok(g.heat >= C.heat - 0.01, '被燎到记 14 热量（heatGain 生效）', 'heat=' + g.heat.toFixed(1));
+
+  // furnace：前摇结束进 furnaceCast，连推 3 轮双向贴地波（共 6 道）
+  const g2 = world(7), F = tableOf(7).furnace;
+  stand(g2, -1); g2.player.invT = 99;
+  const b2 = g2.boss;
+  b2.state = 'windup'; b2.next = 'furnace'; b2.t = 0; b2.phase = 1;
+  let seenWaves = 0, waveSpeeds = new Set();
+  for (let f = 0; f < 150; f++) {
+    g2.hitStop = 0; sb.updateWorld(1 / 60);
+    seenWaves = Math.max(seenWaves, g2.waves.length);
+    for (const w of g2.waves) waveSpeeds.add(Math.abs(w.vx));
+  }
+  ok(b2.fireN === F.rounds, '焚风：连推三轮（fireN=rounds）', b2.fireN);
+  ok(seenWaves >= 2, '焚风：每一轮左右各一道波（同屏至少一对）', seenWaves);
+  ok(waveSpeeds.size >= 3, '一轮快过一轮（波速 3 档递增）', Array.from(waveSpeeds).join('/'));
+
+  // burst：以 Boss 为圆心的大火圈，r 读表
+  const g3 = world(7), B = tableOf(7).burst;
+  stand(g3, -1); g3.hazards.length = 0;
+  sb._engB7Burst(g3.boss);
+  const hb = g3.hazards.filter(e => e.kind === 'flare')[0];
+  ok(!!hb && hb.r === B.r && hb.dmg === B.dmg, '爆燃：大号火圈落点=Boss 中心', hb && ('r=' + hb.r));
+
+  // 三招都进了池子（玩家真的会轮到）
+  const pool = poolOf(7);
+  ok(['cinder', 'furnace', 'burst'].every(n => pool.indexOf(n) >= 0), '三新招全部进招式池');
+}
+
 /* ==================== T3 秤（kind8）：方位 ==================== */
 console.log('[T3] 秤：同侧连击被偷血，左右交替承伤更高');
 {
@@ -252,6 +298,22 @@ console.log('[T4] 茧：产卵 / 进化 / 打早了只是提前放出来');
     ok(p3.mistSlow > 0 && p3.mistSlow < 1, '网内减速（复用 mistSlow 通道，不另开乘数）', p3.mistSlow);
     ok(p3.webNoJump > 0, '网内禁跳标记已置');
   }
+
+  // v24 催卵秘术：场上未成虫的卵全部当场推满一级；成虫不动；无卵时空放
+  const g4 = world(9), b4 = g4.boss;
+  g4.hazards.length = 0;
+  g4.hazards.push({ kind: 'egg', x: 100, y: 100, w: 16, h: 16, t: 0, stage: 0,
+    hp: 2, maxHp: 2, stageT: 3.0, flashT: 0, hitCd: 0 });
+  g4.hazards.push({ kind: 'egg', x: 160, y: 100, w: 16, h: 16, t: 1.2, stage: 1,
+    hp: 3, maxHp: 3, stageT: 3.0, flashT: 0, hitCd: 0 });
+  g4.hazards.push({ kind: 'egg', x: 220, y: 100, w: 16, h: 16, t: 2.5, stage: 2,
+    hp: 5, maxHp: 5, stageT: 3.0, flashT: 0, hitCd: 0 });
+  sb._engB9Hatch(b4);
+  ok(g4.hazards[0].t >= 3.0 && g4.hazards[1].t >= 3.0, '催卵把未成虫的卵计时推满');
+  ok(g4.hazards[2].t === 2.5, '成虫不再被催（stage 2 不动）');
+  g4.hazards.length = 0; g4.floats = [];
+  sb._engB9Hatch(b4);
+  ok((g4.floats || []).some(f => f.text === '无卵可催'), '无卵时只亮「无卵可催」空招');
 }
 
 /* ==================== T5 喉（kind10）：吞弹 ==================== */
@@ -282,6 +344,15 @@ console.log('[T5] 喉：吸气吞弹回血，反刍把积食全吐回去');
   g.bullets.length = 0;
   sb._engB10Roar(b);
   ok(g.bullets.length === 0, '空嘴反刍不产生弹');
+
+  // v24 腐液喷吐：四颗 bile 弹呈扇面、全部带伤害标记
+  const g2 = world(10), b2 = g2.boss, SP = tableOf(10).spew;
+  stand(g2, +1); g2.bullets.length = 0;
+  sb._engB10Spew(b2);
+  const bile = g2.bullets.filter(e => e.bile);
+  ok(bile.length === SP.n, '腐液喷吐：四颗腐液弹', bile.length);
+  ok(bile.every(e => e.dmg === SP.dmg), '腐液弹伤害与表一致');
+  ok(new Set(bile.map(e => Math.round(Math.atan2(e.vy, e.vx) * 1e4))).size === SP.n, '四颗弹呈扇面而非叠成一颗');
 }
 
 /* ==================== T6 钟（kind11）：曲谱 ==================== */
