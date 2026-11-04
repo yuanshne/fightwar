@@ -402,6 +402,12 @@ const SFX={
     tone({f:900,f2:200,d:0.32,v:0.18,at:0.06,type:'square'});},                              // 陨星风暴：低频轰鸣+坠星
   nomana(){tone({f:180,f2:110,d:0.16,v:0.2,type:'square'});tone({f:120,d:0.12,v:0.14,at:0.1,type:'triangle'});}, // 法力不足：低沉否定
 };
+// v26：街机模式音桥。arcade.js 先于 ui.js 加载，不能直接拿 SFX/tone；这里注入两个最小入口，
+// 让街机也能复用现有音频上下文与静音开关（M 键对街机同样生效）。
+window.ArcadeBridge={
+  sfx(name){if(SFX[name])SFX[name]();},
+  tone(f,d){tone({f:f,d:d||0.16,v:0.18,type:'triangle'});}
+};
 const MUSIC_LEAD=[440,523,659,0,587,659,784,0,659,523,440,0,494,587,494,0,
  440,523,659,0,587,659,784,0,880,784,659,523,587,494,440,0];
 const MUSIC_BASS=[110,0,165,0,110,0,165,0,131,0,196,0,131,0,196,0,
@@ -1109,6 +1115,28 @@ function startLevel(idx){
   // v19 §3.2：注入当前英雄必须在 loadLevel 之前（engine 由此决定 4/5 血与法力上限）。
   // HERO_DEBUG=调试参数 ?hero=（boot 里校验过）；正式路径只认存档 progress.hero。
   game.hero=HERO_DEBUG||(progress.hero==='mage'?'mage':'knight');
+  // v26：非 Boss 关改走街机模式——完全不构建平台关卡（不 loadLevel、不生成玩家/敌人/瓦片）。
+  // 通关/失败仍复用 ui 现有结算/三振/星级/解锁流程：ARCADE 会给 game.level 一个带
+  // totalCoin/par 的伪关卡对象，结算屏照常读得到数据。
+  if(window.ARCADE&&ARCADE.has(idx)){
+    ARCADE.start(idx);
+    uiState='play';game.state='play';
+    hintT=3.0;lastLevelIdx=idx;menuSel=idx;
+    themeArt=buildThemeArt(ALL_LEVELS[idx].theme);
+    fade=1;fadeDir=-1;
+    game.input.jumpHit=0;game.input.attackHit=0;game.input.dashHit=0;
+    game.input.skillUHit=0;game.input.skillIHit=0;game.input.skillOHit=0;
+    game.input.skillLHit=0;
+    ghosts.length=0;comboPop=0;lastCombo=0;
+    puzzle.open=false;puzzle.idx=0;puzzle.grid=null;puzzle.given=null;puzzle.cur={x:0,y:0};
+    puzzle.err=0;puzzle.done=false;puzzle.view=false;puzzleRep=0;puzzleSkip=0;puzzle.hintN=0;
+    game.puzzleActive=false;
+    oHintDone=false;oHintT=0;fallT=0;fallToastT=0;
+    if(bagOpen)closeBag();
+    sealOpenT=-1;_sealWasOpen=false;_sealLastTick=-1;sealHintT=0;sealHintArmed=false;
+    return;
+  }
+  if(window.ARCADE)ARCADE.stop(); // 从街机跨到 Boss 关时停掉街机渲染分支
   loadLevel(idx,false);
   uiState='play';game.state='play';
   hintT=3.0;lastLevelIdx=idx;menuSel=idx; // v8.0：提示条显示 3 秒（最后 1 秒渐隐）
@@ -1232,6 +1260,8 @@ function renderL1SkyHint(){
 }
 
 let hover=null;        // 当前帧悬停目标 id（step() 消费鼠标点击时读上一渲染帧的值，一帧延迟无碍）
+// v26：当前是否街机局。独立小关不再加载平台关卡，所有平台专属输入/渲染/统计都走这里的旁路。
+function _arcadeOn(){return !!(window.ARCADE&&ARCADE.active);}
 let selClickTick=-999; // §A.4 选关卡双击计时（单击选中、双击=进入；单位=game.tick）
 const SK_SLOT_KEYS=['skillU','skillI','skillO','skillL']; // §A.3 槽位 i → 输入边沿键（与键盘 hit() 同管线）
 // v7.7：衣橱面板几何（渲染与悬停同源，避免两处漂移）——面板 42,24,300,172；6 列 × 3 行、
@@ -1311,12 +1341,21 @@ function render(){
   if(game.shake>0){sx=(Math.random()*2-1)*game.shake;sy=(Math.random()*2-1)*game.shake;}
   const camX=game.cam.x,camY=game.cam.y;
   const L=game.level,th=L?L.theme:THEMES.grass;
-  computeHover(); // v6 §A.2：悬停目标表（render() HUD 段之前，用最新 mouse）
+  if(_arcadeOn())hover=null;else computeHover(); // v26：街机局没有平台 HUD 热区，悬停表整条旁路
 
   if(uiState==='title'||uiState==='select'){
     renderMenu(th,tick);
     if(heroOpen)renderHeroSelect(tick);        // v19：选角面板（与衣橱互斥，绝不重叠）
     else if(wardrobeOpen)renderWardrobe(tick); // v7.7：衣橱面板覆盖在封面/选关之上（仅这两态可开）
+  }
+  else if(_arcadeOn()){
+    // v26：14 个小关＝独立街机局——整屏交给 arcade.js（自带背景/盘面/HUD/键位条），
+    // 平台世界的视差/瓦片/实体/HUD 一律不进。只保留通用的暂停/结算/失败覆盖层。
+    ARCADE.render(tick);
+    if(game.paused)_renderArcadePause();
+    if(uiState==='clear')renderClear(tick);
+    if(uiState==='fail')renderFail(tick);
+    renderBagFloats();
   }
   else if(L){
     // 天空
@@ -5225,7 +5264,11 @@ function renderClear(tick){
   if(clearShown>0.3){
     drawCNText('关卡完成！',VIEW_W/2,42,18,'#f8d048','center');
     const L=game.level;
-    drawCNText('用时 '+Math.floor(game.time)+' 秒　金币 '+game.coins+'/'+L.totalCoin+'　阵亡 '+game.deaths,
+    // v26：街机小关的"金币"实际是奖励币（部分关卡 0/1、敲地鼠 0/3），行文改成"奖励"更准确；
+    // 平台关保持原文案不动。
+    const arc=_arcadeOn()?ARCADE._state():null;
+    drawCNText(arc?('用时 '+Math.floor(game.time)+' 秒　奖励 '+game.coins+'/'+L.totalCoin+'　失误 '+game.deaths)
+      :('用时 '+Math.floor(game.time)+' 秒　金币 '+game.coins+'/'+L.totalCoin+'　阵亡 '+game.deaths),
       VIEW_W/2,72,11,'#f0f4ff','center');
     // 三颗星
     for(let i=0;i<3;i++){
@@ -5264,10 +5307,24 @@ function renderFail(tick){
   _panel(72,64,240,92,{titleBar:1});
   ctx.restore();
   if(failShown>0.3){
-    drawCNText('关卡失败',VIEW_W/2,86,18,'#f87858','center');
-    drawCNText('阵亡 '+game.deaths+'/3　本关未通过',VIEW_W/2,112,11,'#f0f4ff','center');
+    // v26：街机局没有"阵亡三振"概念（扣心/超时/卡死都算失败），用局内 reason + 用时说明原因。
+    const arc=_arcadeOn()?ARCADE._state():null;
+    drawCNText(arc?'挑战失败':'关卡失败',VIEW_W/2,86,18,'#f87858','center');
+    drawCNText(arc?((arc.failReason||'目标未达成')+'　用时 '+Math.floor(game.time)+' 秒')
+      :('阵亡 '+game.deaths+'/3　本关未通过'),VIEW_W/2,112,11,'#f0f4ff','center');
     if(failShown>1&&tick%50<32)drawPixelText('ESC: MENU',VIEW_W/2,134,1,'#a8b4d8','center');
   }
+}
+
+// v26：街机局的暂停层——复用平台暂停的视觉语言，但不显示"冲刺键改键"（街机无冲刺，
+// 也没必要为 8 种小游戏维护键位映射）；只保留 P 继续 / R 重开 / Esc 选关三条真入口。
+function _renderArcadePause(){
+  ctx.fillStyle='rgba(8,8,16,0.7)';ctx.fillRect(0,0,VIEW_W,VIEW_H);
+  _panel(92,72,200,80,{titleBar:1});
+  drawCNText('暂停',VIEW_W/2,86,18,'#f0f4ff','center');
+  drawPixelText('P: CONTINUE',VIEW_W/2,116,1,'#a8b4d8','center');
+  drawPixelText('R: RESTART',VIEW_W/2,128,1,'#a8b4d8','center');
+  drawPixelText('ESC: MENU',VIEW_W/2,140,1,'#a8b4d8','center');
 }
 
 // ---------- v5 封面队 §B：标题封面素材与确定性数据（SPR.cover 缺失时全程序化兜底，H3） ----------
@@ -5587,12 +5644,14 @@ function renderMenu(th,tick){
       locked?'#3a4468':'#f8d048','center');
     drawPixelText(''+(i+1),x+6,y+L.dyIdx,1,locked?'#5a6488':'#a8b4d8');            // 序号（左下）
     if(boss)drawPixelText('BOSS',x+42,y+L.dyIdx,1,'#f86048','right');              // Boss 角标（右下，与序号分开不叠字）
+    else if(window.ARCADE&&ARCADE.has(i))drawPixelText('MINI',x+42,y+L.dyIdx,1,'#48d8e8','right'); // v26：街机小关角标
     if(i>=10){ctx.fillStyle='#f8d048';ctx.fillRect(x+40,y+2,2,2);}                 // 新关金点（L11+）
   }
   // v23 §E：选中关详情（卡内关名缩到 6px，这里用 15px 完整关名 + 星数 + 关卡提示，把中段留白用起来）
   const focusRows=ch.wrap?Math.ceil(ch.len/ch.wrap):1;
   if(focusRows===1){
     const fi=menuSel,fm=ALL_LEVELS[fi],fLocked=levelLocked(fi)||chLocked;
+    const fArc=(window.ARCADE&&ARCADE.has(fi))?ARCADE.stages[fi]:null; // v26：街机关的类型说明
     _panel(6,CH_FOCUS_Y,372,CH_FOCUS_H,{alpha:0.68,cut:3});
     drawCNText(fLocked?'???':fm.name,18,CH_FOCUS_Y+6,15,
       fLocked?'#8a94b8':(fm.boss?'#f8d048':'#f0f4ff'));
@@ -5601,8 +5660,10 @@ function renderMenu(th,tick){
       fLocked?'#3a4468':'#f8d048');
     drawCNText(fs2+'/3 星',64,CH_FOCUS_Y+29,10,'#a8b4d8');
     if(fm.boss)drawCNText('BOSS 战',366,CH_FOCUS_Y+9,12,'#f86048','right');
+    else if(fArc)drawCNText('街机 · '+fArc.genre,366,CH_FOCUS_Y+9,11,'#48d8e8','right');
     drawCNText('第 '+(fi+1)+' / '+ALL_LEVELS.length+' 关',366,CH_FOCUS_Y+29,10,'#a8b4d8','right');
-    const fhint=fLocked?'尚未解锁（通关前一关后开放）':(fm.hint||'');
+    // v26：街机关的 fm.hint 是旧平台关文案（已不适用），这里改用街机自己的玩法提示
+    const fhint=fLocked?'尚未解锁（通关前一关后开放）':(fArc?fArc.hint:(fm.hint||''));
     if(fhint){let hs=9;while(hs>6&&_textW(fhint,hs)>344)hs--; // 提示小字按宽降 1px 档，仍放不下则不画（不越面板）
       if(_textW(fhint,hs)<=344)drawCNText(fhint,18,CH_FOCUS_Y+43,hs,fLocked?'#7a86a8':'#a8b4d8');}
   }
@@ -5627,7 +5688,7 @@ function renderVictory(tick){
 // v5 §D：真结局版文案；v7 §9.10：头三行/正文行换 v7 版，制作名单追加章节/数值两队（其余行保留）
 const CREDITS_LINES=[                                       // v7 真结局版（§9.10 逐行）
   ['像素勇者',20,'#ffffff'],['PIXEL QUEST',11,'#f8d048'],['v7 · 真结局 · 星海归冥',12,'#f8e8a0'],
-  ['十六关全通，蛟龙俯首，判官封卷！',12,'#f0f4ff'],['翡翠风谷的风、星海的浪、',11,'#c8d4ec'],
+  ['二十四关全通，街机十连，Boss 尽伏！',12,'#f0f4ff'],['翡翠风谷的风、星海的浪、',11,'#c8d4ec'],
   ['幽冥的灯，都记得你。',11,'#c8d4ec'],['——',11,'#5a6488'],
   ['企划·数值·美术指导：GLM-5.3 设计师',11,'#c0c8e0'],['引擎·手感：Flash 手感队',11,'#c0c8e0'],
   ['关卡·谜题：Flash 关卡队',11,'#c0c8e0'],['美术·风格：Flash 风格队/特效队',11,'#c0c8e0'],
@@ -6168,7 +6229,20 @@ function step(dt){
       if(hit('back')){uiState='title';fade=1;fadeDir=-1;}
     }
   }else if(uiState==='play'){
-    if(puzzle.open)stepPuzzleInput(dt); // v4：覆盖层消费输入，世界冻结（下方跳过 updateWorld；
+    if(_arcadeOn()){
+      // v26：街机局整段接管——没有谜题/背包/世界更新，只有 P/R/Esc 与盘面输入。
+      // 输入以「持有态 + 本步边沿」打包给 arcade.js（它不自己监听键盘，避免与 ui 的 KEYMAP 抢键）。
+      if(hit('pause')){game.paused=!game.paused;SFX.select();}
+      if(hit('restart')){startLevel(game.levelIdx);return;}
+      if(hit('back')){if(game.paused)game.paused=false;ARCADE.stop();uiState='select';fade=1;fadeDir=-1;return;}
+      if(!game.paused)ARCADE.step(dt,{
+        left:!!kd('left'),right:!!kd('right'),up:!!kd('up'),down:!!kd('down'),
+        leftHit:hit('left'),rightHit:hit('right'),upHit:hit('up'),downHit:hit('down'),
+        attackHit:hit('attack'),dashHit:hit('dash'),confirmHit:hit('ok'),
+        click:mouse.click,mx:mouse.x,my:mouse.y
+      });
+    }
+    else if(puzzle.open)stepPuzzleInput(dt); // v4：覆盖层消费输入，世界冻结（下方跳过 updateWorld；
                                         // engine 侧另有 puzzleActive 早退双保险，同 paused 语义）
     else if(bagOpen)stepBagInput();     // v6 波2 §C：背包层消费输入，世界冻结（game.bagActive 引擎早退
                                         // +此处不调 updateWorld 双保险 H7；死亡/结算不可能到这——见开包守卫）
@@ -6223,12 +6297,12 @@ function step(dt){
     game.clearT+=dt;
     if(hit('confirm')&&game.clearT>0.8){
       if(game.levelIdx<ALL_LEVELS.length-1){startLevel(game.levelIdx+1);} // v7 §2.3：L10 通关进 L11；末关（L16）进 credits
-      else{uiState='credits';creditsT=0;fade=1;fadeDir=-1;} // v3 §E3：L7 结算不再进 victory，进致谢屏
+      else{ARCADE.stop();uiState='credits';creditsT=0;fade=1;fadeDir=-1;} // v3 §E3：L7 结算不再进 victory，进致谢屏
     }
-    if(hit('back')){uiState='select';fade=1;fadeDir=-1;}
+    if(hit('back')){ARCADE.stop();uiState='select';fade=1;fadeDir=-1;}
   }else if(uiState==='fail'){ // v20.5：失败界面——Esc 返回选关（0.5s 输入延迟防死亡连按误触）
     game.failT+=dt;
-    if(hit('back')&&game.failT>0.5){uiState='select';fade=1;fadeDir=-1;}
+    if(hit('back')&&game.failT>0.5){ARCADE.stop();uiState='select';fade=1;fadeDir=-1;}
   }else if(uiState==='credits'){ // v3 §E3：致谢屏计时与退场
     creditsT+=dt;
     if(hit('confirm')&&creditsT>1){SFX.select();uiState='title';fade=1;fadeDir=-1;}

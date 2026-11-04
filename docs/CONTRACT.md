@@ -1037,3 +1037,38 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 - UI：`BOSS_MOVE_NAME.column='天穹贯柱'`，`BOSS_MOVE_BY_KIND` 覆盖各 Boss 专名；
   `renderBossWindupFx` 的 `column` 画三条下落虚线 + 地面十字，`_hzColumn` 画预警线/光柱本体。
 - 封印条件面板（`_sealPanel`）与任何迷你盘 AABB 相交时直接让位：盘面优先于提示文字。
+
+
+## v26 增补（14 个小关改独立街机，2026-11-04）
+
+### 范围与分支点
+- 非 Boss 下标（14 个）：`0,1,2,3,4,5,7,8,9,10,11,13,14,16`；Boss 下标（10 个）仍走 `loadLevel`。
+- 唯一入口分支在 `ui.js startLevel(idx)`：`ARCADE.has(idx)` → `ARCADE.start(idx)` 并 return；
+  否则 `ARCADE.stop()` → `loadLevel(idx,false)`。选关屏、`?level=N`、通关→下一关、R 重开全走这里。
+- `ui.js render()` 在 `else if(L)` **之前**插入 `else if(_arcadeOn())`；街机局只画
+  `ARCADE.render(tick)` + 暂停/结算/失败覆盖层，不画平台视差/瓦片/实体/HUD。
+- `ui.js step()` 的 `uiState==='play'` 首段分流街机：P 暂停、R `startLevel` 重开、Esc `ARCADE.stop()`
+  回选关；其余打包成 inp 传给 `ARCADE.step(dt,inp)`。平台谜题/背包/`updateWorld` 全不执行。
+
+### arcade.js 契约
+- 独立 IIFE，固定 `W=384,H=224`，复用 `#game` 的 2D context；只读 `game/ALL_LEVELS/THEMES/
+  drawCNText/drawPixelText`，只写 `game.state/time/coins/deaths/level/levelIdx` 与 `sfxQueue`（经桥）。
+- `ARCADE.start(idx)` 建伪关卡：`tiles:null, tw:0, th:0, player:null, boss:null`，
+  `totalCoin/par/theme(对象)/meta` 齐全，供 ui 的 clear/fail/三星/解锁/皮肤逻辑原样复用。
+- `step()` 在 `A.done` 后仍要推进 `finish` 倒计时与特效，到点 `commitWin/commitFail` 置
+  `game.state='clear'/'fail'`；**不得**在 done 时直接 return（v26 首测踩过卡结算）。
+- 输入不自己监听：`inp` = `{left,right,up,down,leftHit,rightHit,upHit,downHit,attackHit,dashHit,
+  confirmHit,click,mx,my}`；鼠标坐标为 384×224 虚拟坐标。J/空格统一映射 attackHit/confirmHit。
+- 失败统一 `fail(reason)`：置 `game.deaths=3`、`hearts=0`，`_state().failReason` 供 ui 失败面板显示。
+- 时间只在小关内累加；`limit` 到点判失败；`par` 只用于第三颗星，不判失败。
+- 音效经 `window.ArcadeBridge.sfx/tone`（ui.js 在 SFX 之后注入）；arcade.js 先于 ui.js 加载，
+  因此必须运行时访问 `window.ArcadeBridge`，不能直接引用裸全局。
+
+### 选关 UI
+- 全部关卡按钮仍在同一屏；非 Boss 卡右下角加青色 `MINI` 像素角标，Boss 卡保留红描边 + `BOSS`。
+- 详情面板对街机关显示 `街机 · <genre>`，提示行改用 `ARCADE.stages[idx].hint`（旧平台 hint 不再展示）。
+
+### 测试
+- `node tools/_arcade_test.js`：14/10 覆盖、8 类型参数、伪关卡字段、`_forceWin/_forceFail`、
+  每型空跑 120 帧 + render、记忆盘几何、ui/index 接入点（407 项）。
+- `python tools/_v26_arcade_qa.py`：Playwright 逐关截图 + 真按键 + 通关/失败/街机↔Boss 转场。
