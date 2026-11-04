@@ -22,7 +22,8 @@
 
 class LG{
   constructor(w,h){this.w=w;this.h=h;
-    this.g=Array.from({length:h},()=>Array(w).fill('.'));}
+    this.g=Array.from({length:h},()=>Array(w).fill('.'));
+    this.minis=[];this.barrels=[];}   // v25：攻击交互迷你游戏 + 炸药桶登记（纯数据；引擎实例化为 L.minis）
   set(x,y,ch){if(x>=0&&x<this.w&&y>=0&&y<this.h)this.g[y][x]=ch;return this;}
   fill(x0,y0,x1,y1,ch){for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)this.set(x,y,ch);return this;}
   ground(x0,x1,topY,fillY){return this.fill(x0,topY,x1,fillY===undefined?this.h-1:fillY,'#');}
@@ -37,11 +38,23 @@ class LG{
     for(let i=0;i<steps;i++)for(let j=0;j<=i;j++)
       this.set(x+i*dir,y-j,'#');
     return this;}
+  /* v25：迷你游戏板（攻击交互）。x/y=左上角瓦片；w/h=格数；
+     mine 用 pat 指定雷（'x'=雷），lights 用 scr 指定初始打乱按法，bells 用 seq 指定音序，
+     mole 的 y 写地面顶行（洞嵌在地表）。引擎在 Level 构造时实例化为 L.minis。 */
+  mini(type,x,y,opt){this.minis.push(Object.assign({type:type,x:x,y:y},opt||{}));return this;}
+  /* v25：炸药桶（实心瓦片 'q'，攻击引爆；链爆半径 1 格，可拆木箱/伤敌/伤己）。
+     登记原瓦片：断言关卡通行性时把桶"还原"掉——桶是可破坏/可跳过的可选道具，
+     不应由它来承担或切断主路（否则原本连续的地面会被桶凭空切成"跳不过去的间隙"）。 */
+  barrel(x,y){
+    const prev=(y>=0&&y<this.h&&this.g[y])?this.g[y][x]:'.';
+    this.barrels.push({x:x,y:y,prev:prev});
+    return this.set(x,y,'q');
+  }
 }
 
 const LEVELS=[
 // ---------- L1 草原：移动/跳跃/金币/史莱姆/弹簧（全程安全，沟底有底） ----------
-{ name:'1 · 草原初试', theme:'grass', par:43, hint:'←→ 移动，长按跳跃键跳得更高',
+{ name:'1 · 草原初试', theme:'grass', par:43, hint:'←→ 移动，长按跳跃跳更高；攻击石板玩扫雷，地鼠冒头就打',
   w:100,h:20,   // v8.0：h 14→20（224→320px），给相机纵向滚动留 0~96px 余量（原 h=14 与视口等高，画面纵向恒不动）
   build(g){const H=13;   // v8.0：h 14→20 为相机纵向滚动腾空间，H 保持 13 以冻结全部已有元素坐标（原写法 g.h-1 会变成 19，整关整体上移 6 行）
     // 路线：平地→教学小沟→史莱姆草场→平台采币→弹簧上高台→宽沟弹簧飞跃→双史莱姆→台阶→终点
@@ -84,10 +97,15 @@ const LEVELS=[
     g.set(91,H-4,'Q');              // v4·谜题神龛①(数织5×5)：终点前高台平地（检查点84与旗94之间），
                                     //  支撑(91,10)='#'；平台无必需跳跃、无敌人（下方史莱姆上不了台阶）
     g.set(94,H-4,'P');
+    // v25·试炼：扫雷盘（攻击翻格；只有 1 颗雷，翻出 0 会连锁）与地鼠洞（尾段高台，冒头再打）。
+    //   盘面不实心、不挡路；完成各掉 1 颗宝石，两盘全清 = 终点封印「试炼」路线。
+    g.mini('mine',27,10,{w:3,h:2,pat:['x..','...']});
+    g.mini('mole',95,10,{n:4,need:4});
+    g.barrel(15,H-2); g.barrel(78,H-2);   // 炸药桶：实心、攻击引爆（链爆 1 格，炸得动木箱、伤敌也伤己）
     return g;}},
 
 // ---------- L2 洞窟：尖刺/崩塌桥/蝙蝠/钥匙门/检查点（先下后上） ----------
-{ name:'2 · 幽暗洞窟', theme:'cave', par:75, hint:'崩塌砖踩久会掉，尖刺即死；拿钥匙开终点门',
+{ name:'2 · 幽暗洞窟', theme:'cave', par:75, hint:'崩塌砖踩久会掉，尖刺即死；扫雷盘用攻击翻，地鼠冒头再打',
   w:110,h:20,
   build(g){const H=g.h-1;
     // 路线：高地→三层平台下行→底部尖刺走廊→崩塌桥→双史莱姆→检查点→爬台取钥匙→
@@ -143,10 +161,14 @@ const LEVELS=[
     g.fill(103,H-4,103,H-1,'#');                            // 单宽门墙
     g.set(103,H-3,'D'); g.set(103,H-2,'D');
     g.set(106,H-1,'P');
+    // v25·试炼：扫雷盘放在神龛旁的安全平地（不是必经路），地鼠洞在钥匙高台上
+    g.mini('mine',76,17,{w:3,h:2,pat:['x..','..x']});
+    g.mini('mole',65,12,{n:4,need:4});
+    g.barrel(89,H-1); g.barrel(98,H-1);
     return g;}},
 
 // ---------- L3 天空：云岛/横移平台/弹簧链/崩塌台阶（坠落即死） ----------
-{ name:'3 · 天空栈道', theme:'sky', par:71, hint:'移动平台可以站人，别怕等它；脚下就是云端',
+{ name:'3 · 天空栈道', theme:'sky', par:71, hint:'移动平台可以站人，别怕等它；攻击金色菱格点灯，全亮即通',
   w:120,h:20,   // v8.0：h 14→20（224→320px），给相机纵向滚动留 0~96px 余量（原 h=14 与视口等高，画面纵向恒不动）
   build(g){const H=13;   // v8.0：h 14→20 为相机纵向滚动腾空间，H 保持 13 以冻结全部已有元素坐标（原写法 g.h-1 会变成 19，整关整体上移 6 行）
     // 路线：云岛连跳→双横移平台→弹簧上双层（宝石支线）→崩塌三台阶→检查点岛→
@@ -193,14 +215,19 @@ const LEVELS=[
     g.set(101,H-3,'c');              // +检查点：终点岛前
     g.set(103,H-3,'W');              // +史莱姆：终点长岛巡逻
     g.set(104,H-3,'B'); g.set(109,H-3,'B'); g.set(114,H-3,'B'); // 木箱×3：终点冲刺段
-    g.set(106,H-3,'n'); g.set(112,H-3,'i');   // v8.x·终点冲刺分层：跳跳蛛 106 / 铁甲虫 112 夹着三只木箱，
+    g.set(110,H-3,'n'); g.set(112,H-3,'i');   // v8.x·终点冲刺分层：跳跳蛛 110 / 铁甲虫 112 夹着木箱，
                                               //  主路变成「越怪 / 碎箱 / 绕背」三选一（脚下均有 '#'）
-    g.coins(107,111,H-4);            // 冲刺线金币：终点前直线
+    g.coins(108,111,H-4);            // 冲刺线金币：终点前直线
     g.set(115,H-3,'P');
+    // v25·试炼：点灯盘（3×3，攻击一格翻转自身+上下左右；初始从全亮反按 [0,2,6,8]）
+    // v25.5 挪位：原 (116,8) 正压在封印终点右侧，靠近终点时「终点封印」面板会把 3×3 盘面整个盖住；
+    //   移到冲刺段 (105,8) 后，站盘前距终点 >96px，面板不再生成，终点光罩也不会被盘面挡住。
+    g.mini('lights',105,8,{scr:[0,2,6,8]});
+    g.barrel(102,H-3); g.barrel(113,H-3);   // 原 105 桶让位给点灯盘，左移到金币带下方
     return g;}},
 
 // ---------- L4 工厂：拉杆切换/传送带/大炮/横锯/竖锯（双检查点） ----------
-{ name:'4 · 齿轮工厂', theme:'factory', par:95, hint:'拉杆切换橙色/蓝色砖块；小心炮弹与电锯',
+{ name:'4 · 齿轮工厂', theme:'factory', par:95, hint:'拉杆切砖，小心炮弹电锯；扫雷盘用攻击翻，地鼠看准再打',
   w:120,h:18,
   build(g){const H=g.h-1;
     // 路线：拉杆①开蓝桥过刺谷→史莱姆→检查点①→逆行传送带(顶有吊刺)→高台炮→
@@ -271,10 +298,15 @@ const LEVELS=[
     g.set(114,H-10,'W');             // +史莱姆：终点夹层
     g.set(118,H-10,'B');             // 木箱：终点旗后
     g.coins(105,110,H-11);
+    // v25·试炼：出生区扫雷 / 顶层扫雷 / 终点夹层地鼠（三层各一盘，顺路解）
+    g.mini('mine',7,14,{w:3,h:2,pat:['x..','..x']});
+    g.mini('mine',100,6,{w:3,h:2,pat:['.x.','x..']});
+    g.mini('mole',111,8,{n:3,need:3});
+    g.barrel(57,H-2); g.barrel(67,H-2);
     return g;}},
 
 // ---------- L5 熔岩：熔岩海弹簧岛链/崩塌桥/横锯/竖锯（三检查点） ----------
-{ name:'5 · 烈焰深渊', theme:'lava', par:102, hint:'熔岩即死！弹簧链是你的生命线',
+{ name:'5 · 烈焰深渊', theme:'lava', par:102, hint:'熔岩即死！弹簧链是生命线；盘面用攻击解，炸药桶别贴脸',
   w:130,h:16,
   build(g){const H=g.h-1;
     // 路线：熔岩海①(弹簧双岛+蝙蝠)→检查点①→崩塌桥+中柱横锯→检查点②→
@@ -341,10 +373,14 @@ const LEVELS=[
     g.set(119,H-2,'W');              // v8.x·密度：终点岛三连史莱姆（113/116/119），箱 121 前形成最后一道人墙
     g.set(121,H-2,'B');              // 木箱：终点岛旗前
     g.set(126,H-2,'P');
+    // v25·试炼：中段海岸小扫雷 / 终点岛点灯盘（3×3 全亮即通）
+    g.mini('mine',59,12,{w:2,h:2,pat:['x.','..']});
+    g.mini('lights',122,11,{scr:[1,3,5,7]});
+    g.barrel(8,H-2); g.barrel(56,H-2);
     return g;}},
 
 // ---------- L6 高塔：纵向登顶，全机关综合（双检查点+钥匙门） ----------
-{ name:'6 · 最终之塔', theme:'tower', par:160, hint:'登顶吧！拉杆、电锯、大炮、钥匙门全都会来',
+{ name:'6 · 最终之塔', theme:'tower', par:160, hint:'登顶吧！机关全都会来；塔底扫雷+地鼠试炼，攻击即交互',
   w:44,h:36,
   build(g){const H=g.h-1;   // H=35，行号小=更高
     // 路线：底层拉杆过蓝桥→横锯场→弹簧上平台→蝙蝠平台→检查点①→
@@ -409,6 +445,10 @@ const LEVELS=[
     g.coins(13,19,1);                          // (行1 除门墙外不可放站立方——断言会配对门墙报错)
     g.set(21,1,'W');                  // +史莱姆：守阶梯口的塔顶哨兵
     g.set(15,1,'P');
+    // v25·试炼：塔底左段扫雷 / 塔底右段地鼠洞（都在首层，爬塔前可选）
+    g.mini('mine',30,32,{w:3,h:2,pat:['x..','..x']});
+    g.mini('mole',33,34,{n:4,need:4});
+    g.barrel(9,33); g.barrel(29,33);
     return g;}},
 
 // ---------- L7 BOSS：星核巨兽竞技场（横向 60×16，上下平台躲冲击波） ----------
@@ -439,7 +479,7 @@ const LEVELS=[
     return g;}},
 
 // ---------- L8 翡翠风谷：上升气流 'w'（竖井幽灵 + 空中二段跳缺口 + 柱壁挑战凹格） ----------
-{ name:'8 · 翡翠风谷', theme:'wind', par:133, hint:'绿色风柱能把人托上高空；空中还能再跳一次',
+{ name:'8 · 翡翠风谷', theme:'wind', par:133, hint:'绿风柱托人上高空，空中还能再跳；尾岛地鼠冒头再打',
   w:146, h:18,
   build(g){const H=g.h-1;   // H=17
     // 路线：出发台→风井(柱内幽灵·升到柱顶)→顶端横向缺口(二段跳)→骑士台(落地绕背)→
@@ -493,10 +533,14 @@ const LEVELS=[
     g.coins(102,103,10); g.coins(112,113,10);
     // ⑩ 终点岛
     g.ground(118,145,13); g.coins(120,125,12); g.set(140,12,'P');
+    // v25·试炼：出发台扫雷 / 终点岛地鼠（4 洞，打中 4 只）
+    g.mini('mine',9,14,{w:3,h:2,pat:['x..','...']});
+    g.mini('mole',130,13,{n:4,need:4});
+    g.barrel(135,12); g.barrel(143,12);
     return g;}},
 
 // ---------- L9 落日王城：吊灯 'H' 节奏 + 骑士 'A' 绕背（双摆夹窄台 / 法师高台 / 摆锤登高挑战房） ----------
-{ name:'9 · 落日王城', theme:'castle', par:134, hint:'吊灯摆锤看准节奏过；骑士的盾在前面，绕到背后打',
+{ name:'9 · 落日王城', theme:'castle', par:134, hint:'吊灯看节奏过，骑士绕背打；点灯盘全亮即通，尾台有地鼠',
   w:134, h:18,
   build(g){const H=g.h-1;   // H=17
     // 路线：城门→吊灯大厅(两盏错相位吊灯夹窄台·台心骑士)→法师高台(先斩法师)→
@@ -557,10 +601,15 @@ const LEVELS=[
     g.fill(116,H-4,120,H-3,'#'); g.set(118,H-5,'Y'); // 王座台+幽焰法师（支撑 顶行 H-4 ✓）
     // ⑧ 终点
     g.ground(123,133,H-6); g.set(128,H-7,'P'); g.coins(124,127,H-7);
+    // v25·试炼：城门扫雷 / 大厅点灯 / 终点台地鼠
+    g.mini('mine',10,14,{w:3,h:2,pat:['x..','..x']});
+    g.mini('lights',32,13,{scr:[0,4,8]});
+    g.mini('mole',129,11,{n:4,need:4});
+    g.barrel(67,H-2); g.barrel(90,H-2);
     return g;}},
 
 // ---------- L10 星空回廊：传送门 'e' 成对做成「两路线」+ 反向门挑战房 ----------
-{ name:'10 · 星空回廊', theme:'star', par:165, hint:'传送门成对相连；上层快但敌人扎堆，下层绕远却能穿门直上',
+{ name:'10 · 星空回廊', theme:'star', par:165, hint:'传送门成对相连；上层快、下层绕；扫雷/点灯/地鼠散布两路',
   w:150, h:20,
   build(g){const H=g.h-1;   // H=19
     // 路线（分岔=回廊右端 x32）：
@@ -619,6 +668,12 @@ const LEVELS=[
     g.set(88,H-13,'T');                                  // 幽灵：神龛岛上空
     // ⑧ 终点岛
     g.ground(115,149,H-4); g.set(140,H-5,'P'); g.coins(120,125,H-5);
+    // v25·试炼：回廊扫雷 / 长廊点灯 / 浮桥扫雷 / 终点岛地鼠（两条路线各摊两盘）
+    g.mini('mine',25,11,{w:3,h:2,pat:['x..','..x']});
+    g.mini('lights',41,14,{scr:[2,4,6]});
+    g.mini('mine',63,10,{w:3,h:2,pat:['.x.','x..']});
+    g.mini('mole',130,15,{n:4,need:4});
+    g.barrel(37,H-1); g.barrel(59,H-1); g.barrel(90,8);   // 神龛岛地面顶=行9 → 桶放行8
     return g;}},
 // 'e' 4 个=两对（按 (x,y) 排序：(13)↔(33)、(70)↔(76)）✓；B 计 4（6,14/59,4/89,8/107,12）✓。
 ];
@@ -744,8 +799,9 @@ function validateLevels(){
   // v7.6 缺陷7：补 '(' / ')' 传送带（v7.5 只把 engine 侧 solid() 补齐，本集合漏了 → 静态断言与碰撞表分叉：
   // 断言认为传送带不是实心，于是「木箱/神龛/骑士脚下 2 格内无支撑」之类的检查会误报/漏报）。
   // 口径必须与 engine.js 的 solid() 完全一致：'#' 'I' 'B' 'G' '(' ')' 恒实 + a/b/C/D 条件实。
-  const SOLIDISH=new Set(['#','I','a','b','C','D','B','G','(',')']);   // B=可碎木箱(v2)：实心；v7 §10-2：追加 G 隐藏砖（实心）
-  const STAND=new Set(['#','I','a','b','C','D','B','G','=','(',')']);   // v7 §10-2：追加 'G'
+  const SOLIDISH=new Set(['#','I','a','b','C','D','B','G','(',')','q']);   // B=可碎木箱(v2)：实心；v7 §10-2：追加 G 隐藏砖（实心）
+                                                   // v25：q 炸药桶（实心，攻击引爆）
+  const STAND=new Set(['#','I','a','b','C','D','B','G','=','(',')','q']);   // v7 §10-2：追加 'G'
   const errs=[],warns=[];
   for(let li=0;li<ALL_LEVELS.length;li++){
     const meta=ALL_LEVELS[li];
@@ -760,7 +816,18 @@ function validateLevels(){
     meta.build(g);
     const gr=g.g,w=g.w,h=g.h;
     const at=(x,y)=>(x<0||x>=w)?'#':(y<0||y>=h)?'.':gr[y][x];
-    const isStand=(x,y)=>STAND.has(at(x,y))&&!STAND.has(at(x,y-1));
+    // 可站立面判定（间隙/中继扫描口径）。v25：炸药桶 'q' 是可破坏/可跳过的可选道具，
+    // 不承担通行；若让它参与扫描，桶会把原本连续的地面凭空切成"跳不过去的间隙"。
+    // 因此这里按桶放置前的原瓦片还原出一张"通行性网格"（桶实体/支撑断言仍用真实网格）。
+    const barrelPrev=new Map();
+    for(const b of (g.barrels||[]))barrelPrev.set(b.x+','+b.y,b.prev);
+    const atClean=(x,y)=>{
+      if(x<0||x>=w)return '#';
+      if(y<0||y>=h)return '.';
+      const c=gr[y][x];
+      return c==='q'?(barrelPrev.get(x+','+y)||'.'):c;
+    };
+    const isStand=(x,y)=>STAND.has(atClean(x,y))&&!STAND.has(atClean(x,y-1));
     // 1) 出生点/终点唯一且有支撑
     let nAt=0,nP=0,nB=0,nQ=0,nE=0;   // v4：nQ=谜题神龛计数；v5：nE=传送门计数（'Q'/'e' 为实体字符，不入 SOLIDISH/STAND）
     const farEnemies=[],flows=[],atSpawns=[];   // v7 §10-4/5：'T'/'E'/'z' 与 '{'/'}' 坐标、'@' 坐标（'@' 不保证先出现，单遍收集后统一判）
@@ -782,6 +849,10 @@ function validateLevels(){
         let sup=false;
         for(let d=1;d<=2;d++)if(STAND.has(at(x,y+d)))sup=true;
         if(!sup)errs.push('L'+(li+1)+' 神龛('+x+','+y+')下方2格内无支撑');}
+      if(gr[y][x]==='q'){          // v25：炸药桶（实心）脚下 2 格内应有支撑（同木箱口径）
+        let sup=false;
+        for(let d=1;d<=2;d++)if(STAND.has(at(x,y+d)))sup=true;
+        if(!sup)errs.push('L'+(li+1)+' 炸药桶('+x+','+y+')下方无支撑(悬空)');}
       if(gr[y][x]==='e'){          // v5 §C-3：传送门计数（配对要求偶数，奇数无法两两配对）
         nE++;}
       if(gr[y][x]==='H'){          // v5 §C-4：吊灯锚点必须贴实心顶棚（摆锤锚定语义）
@@ -821,7 +892,7 @@ function validateLevels(){
     for(let y=0;y<h;y++){
       let segs=[];let run=-1;
       for(let x=0;x<w;x++){
-        const stand=STAND.has(at(x,y))&&!STAND.has(at(x,y-1));
+        const stand=isStand(x,y);   // v25：统一口径（炸药桶不参与间隙判定）
         if(stand){if(run<0)run=x;}
         else if(run>=0){segs.push([run,x-1]);run=-1;}
       }

@@ -1001,3 +1001,39 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 
 ### 测试
 - `tools/_v20_boss_test.js` 更新 SPEC 并追加 T2b（烬三新招）、T4 催卵、T5 腐液喷吐，64 条全过。
+
+
+## v25 增补（小怪关迷你游戏 + 炸药桶 + 试炼封印，2026-11-04）
+
+### levels.js 新 DSL（第 2 节追加）
+- `LG.prototype.mini(type,x,y,opt)`：登记一块攻击交互盘。`type` = `'mine'`（扫雷，3×N，
+  `opt.w/h/pat`，`pat` 里 `x` 为雷）、`'lights'`（点灯 3×3，`opt.scr` 为从全亮反按的格序号）、
+  `'bells'`（编钟 n×1，`opt.n/seq`）、`'mole'`（地鼠 n×1，`opt.n/need`）。数据进 `this.minis`。
+- `LG.prototype.barrel(x,y)`：放炸药桶 `'q'`（实心、可站立、可被攻击/法术引爆）。
+- **几何硬约束**：`mine/lights/bells` 的底行必须正贴可站立面（底边 y = 站立面顶行×16）；
+  `mole` 的洞行必须就是站立面顶行。盘面不实心、不挡路，但离地一格就够不着。
+- `Level` 构造期把 `lg.minis` 烘干成 `L.minis`（盘面在死亡重生后保留，不随 `respawn()` 重置）。
+
+### engine.js 内部口径
+- 攻击→盘面唯一入口 `_engMiniHit(box)`：先按盘面包围盒判「这一击是否被吃掉」，再逐格/逐钟/逐洞判定。
+  调用方传的是 `{x,y,w,h}` 实体盒；内部 `cells/bells` 是 `{cx,cy,w,h}`，两处必须在入口归一化。
+- `lights/bells/mole` 的格数由玩法固定，`_engMkMini` 按类型强制回真实包围盒（不依赖布置时写 w/h）。
+- 盘面达成 → `_engMiniDone`：`game.sfxQueue` push `'puzzle'/'gem'`，在盘面中央生成一颗宝石实体；
+  `game.seal.trialOk/trialDone/trialTotal` 由封印结算统一判定，完成全部盘面 = 第四条开封印路线
+  （`via='trial'`，与前三条战斗/金币/神龛并列，不是替代）。
+- `q` 桶：`solid()`、`levels.STAND`、`_railSolid` 三处同步为实心；`_engBarrelBlast` 以 1 格半径
+  连锁引爆，炸掉 `B/G`，对 34px 内敌人 3 伤、玩家 1 伤。近战与法师弹体都能点爆。
+- `q` 只进物理/渲染，不进 `SOLIDISH` 静态地面断言；`tools/gate.js` 的可达性扫描用
+  「把桶还原成空格」的 `atClean` 网格，避免桶把宽间隙误判成断路。
+
+### v25.5 Boss 新技（追加在 v24 之后）
+- 新 hazard `column`（天穹贯柱）：竖直光柱，落点在前摇结束帧锁定 `x`；`warn` 预警、`warn+ dur` 后自删；
+  预警期画地面落点/倒计时，生效期按 `dmg` 判玩家 AABB。横向走位即可躲，逼玩家离开站桩点。
+- `pillar` 复用并加 `tone` 字段（fire/star/ghost/aqua/gold/violet）；`pillarCast` 必须把 `tone`
+  带进 hazard，否则 UI 与测试都看不到配色。
+- 配招：kind1 `pillar`（星核晶棘）/ kind3 `pillar`（幽冥鬼柱）/ kind2 `column`（沧溟水柱）/
+  kind5 `column`（圣光天柱）/ kind8 `column`（裁决光柱）。全部同时进 `poolNear/poolFar` 与 `windup`，
+  缺 `windup/recover` 键会在 `_engBossDur` 抛错。
+- UI：`BOSS_MOVE_NAME.column='天穹贯柱'`，`BOSS_MOVE_BY_KIND` 覆盖各 Boss 专名；
+  `renderBossWindupFx` 的 `column` 画三条下落虚线 + 地面十字，`_hzColumn` 画预警线/光柱本体。
+- 封印条件面板（`_sealPanel`）与任何迷你盘 AABB 相交时直接让位：盘面优先于提示文字。

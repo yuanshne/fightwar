@@ -348,7 +348,9 @@ const BAL = {
                      // v10 五新招前摇（≥0.5s，保证可读；UI 按 b.state 画预警）
                      meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
                      // v12 五种新交互类型前摇（spec §一；本表只实配 grab，其余为键完整性）
-                     grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 }, p2WindMul: 0.85,
+                     grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
+                     column: 0.62 }, // v25.5：天穹光柱前摇（本表无池子入口，仅作缺键兜底）
+           p2WindMul: 0.85,
            idleT: [0.48, 0.36], walk: [20, 25],
            leap: { T: 0.9, vy: 675, clamp: 300 },
            charge: { v: [230, 290], maxT: 1.5, maxX: 320, hits: 2 }, // v12：两段连撞（撞墙反弹再冲一次）
@@ -359,10 +361,15 @@ const BAL = {
            // v10 新招参数（星核巨兽：近身陨石雨 / 远程地刺）
            meteor: { n: 3, gap: 0.28, warn: 0.85, vy: 260, r: 9 },
            spike:  { n: 4, gap: 0.16, h: 24, life: 1.1 },
+           /* v25.5 星核晶棘（新招）：地面炸起三根紫色晶柱（复用牛魔王火柱实体，tone 换色 + 石棘顶饰）。
+              与 spike 的分工：地刺只有 24px（跳一下或站台面即可），晶棘 40px 且持续 2.5s——
+              它封的是一整段落脚区，逼玩家横向换位而不是原地跳。 */
+           pillar: { n: 3, warn: 0.9, w: 14, h: 40, life: 2.5, gap: 0.25, dmg: 1, tone: 'star' },
            stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
            recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, dive: 0.65,
                       meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-                      grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6 }, // v12：新招后摇（缺则取兜底 0.5）
+                      grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6,
+                      column: 0.55 }, // v25.5：新招后摇兜底
            contactDmg: 1,
            // v7 §8 追加键：kind1 现行硬编码逐字收编（零行为变化——H5，_v6_loot_test ② L7 采样双证）
            w: 52, h: 48, drop1: 'boss1', drop2: 'boss2',
@@ -375,16 +382,16 @@ const BAL = {
               招牌六只互不重合——重复的招式会被玩家记成「所有 Boss 都这样」，Boss 战就退化成同一场；
               charge（三连撞）因此只归牛魔王，dive 也从所有 p2Add 撤下（与 leap 同一套抛物线，
               摆在池里等于变相重合；参数与实现保留，将来有别的用法再接）。 */
-           // 星核巨兽招牌：meteor 陨石雨 / spike 地刺 / summon 召唤 / leap 跳劈
-           poolNear: ['meteor', 'spike', 'summon', 'leap', 'barrage'],
-           poolFar: ['barrage', 'meteor', 'spike'],
+           // 星核巨兽招牌：meteor 陨石雨 / spike 地刺 / pillar 星核晶棘（v25.5）/ summon 召唤 / leap 跳劈
+           poolNear: ['meteor', 'spike', 'pillar', 'summon', 'leap', 'barrage'],
+           poolFar: ['barrage', 'meteor', 'spike', 'pillar'],
            p2Add: ['nova'] },
   boss2: { // 蛟龙·敖渊（L13，sea）——v7 §8 逐字
     hp: 288, p2At: 36, actDist: 176, grav: 1500, fallV: 520, w: 64, h: 40, // v10：96→288（×3，每段 96）
     windup: { leap: 0.55, barrage: 0.50, charge: 0.65, summon: 0.50, sweep: 0.55, nova: 0.55, breath: 0.70,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
-              mist: 0.60 }, // v10 五新招前摇 + v12 补键 + v13 mist
+              mist: 0.60, column: 0.62 }, // v10 五新招前摇 + v12 补键 + v13 mist + v25.5 column
     p2WindMul: 0.85, idleT: [0.56, 0.40], walk: [26, 32],
     leap: { T: 1.0, vy: 700, clamp: 320 },
     charge: { v: [250, 310], maxT: 1.5, maxX: 320 },
@@ -401,6 +408,10 @@ const BAL = {
     pull:   { dur: 1.2, force: 320, r: 140 },
     homing: { n: 3, gap: 0.22, v: 78, turn: 1.4, life: 2.6 },
     quake: { w: 14, h: 26, v: 200, life: 0.9, n: 2, gap: 0.35 }, // v12：劈地窄高波（跳 26px 即躲）
+    /* v25.5 沧溟水柱（新招）：三道自天而降的垂直水柱，落点按玩家当时位置 ±1 格交错。
+       与 sweep/breath 的分工：那两招都是贴地横推（跳/站高台），水柱考的是**横向离开一条竖线**——
+       跳跃没有用（柱高 224 覆盖全屏），唯一解是往旁边走；warn 0.7s 给足一步的余量。 */
+    column: { n: 3, gap: 0.30, warn: 0.70, dur: 0.55, w: 18, dmg: 1, spread: 34, tone: 'aqua' },
     // v13 §二：水雾区（原地不动就持续挨打；跑出去即脱身，雾不挡移动不挡攻击）
     // v18 §一：v13 原版实测过弱——tick 0.5s 被玩家受击无敌 1.0s 吞半 + 受击击退 160px/s
     // 当场把人弹出 56px 雾带，实战期望伤害≈1（站桩才挨打=玩家自选）。
@@ -412,10 +423,10 @@ const BAL = {
     stagger: 1.5, enrage: 1.2, dying: 2.2, revive: 0.9,
     recover: { leap: 0.7, barrage: 0.5, charge: 0.4, summon: 0.5, nova: 0.6, sweep: 0.6, breath: 0.55,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mist: 0.6 }, // v12 补键 + v13 mist
-    // 蛟龙招牌：sweep 扫尾 / mist 水雾 / pull 吸附 / breath 吐息
-    poolNear: ['sweep', 'mist', 'pull', 'breath', 'barrage'],
-    poolFar: ['barrage', 'breath', 'pull', 'mist'],
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mist: 0.6, column: 0.55 }, // v12 补键 + v13 mist + v25.5 column
+    // 蛟龙招牌：sweep 扫尾 / mist 水雾 / pull 吸附 / breath 吐息 / column 沧溟水柱（v25.5）
+    poolNear: ['sweep', 'mist', 'pull', 'breath', 'column', 'barrage'],
+    poolFar: ['barrage', 'breath', 'pull', 'mist', 'column'],
     p2Add: ['nova'], contactDmg: 1, drop1: 'jiao1', drop2: 'jiao2' },
   boss3: { // 幽冥判官（L16，nether）——v7 §8 逐字
     // v7.9：hp 140→138。三段血要求每段 HP 是整数（140/3=46.67 会让血条与段内残余对不上），
@@ -446,13 +457,17 @@ const BAL = {
     quell: { dur: 2.2, warn: 0.9, r: 22, n: 2, breakDmg: 12, dmg: 2 }, // v12：蓄力全屏（可打断 / 站结界圈）
     // v13 §二：真假身（本体混进幻影列 + 隐身免伤；打错爆炸、打真身转大破绽）
     mirror: { n: 3, life: 5.0, hp: 1, popDmg: 1, swapOff: 96 },
+    /* v25.5 幽冥鬼柱（新招）：三根紫焰柱从地面窜起（复用车/牛火柱实体，tone='ghost'）。
+       判官原本全是「横向压迫」（镰刀/三环/地刺），鬼柱补的是**纵向封位**：
+       柱高 40px、持续 2.5s，站在台面边缘也会被烧到，必须横移换落脚点。 */
+    pillar: { n: 3, warn: 0.9, w: 14, h: 40, life: 2.5, gap: 0.25, dmg: 1, tone: 'ghost' },
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
     recover: { blink: 0.4, halo: 0.6, scythe: 0.6, barrage: 0.5, summon: 0.5, nova: 0.6, leap: 0.7, charge: 0.4,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
                grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, mirror: 0.6 }, // v12 补键 + v13 mirror
-    // 判官招牌：scythe 镰刀波 / blink 传送 / mirror 真假身 / quell 蓄力结界
-    poolNear: ['scythe', 'blink', 'mirror', 'quell', 'barrage'],
-    poolFar: ['barrage', 'scythe', 'blink', 'quell'],
+    // 判官招牌：scythe 镰刀波 / blink 传送 / mirror 真假身 / quell 蓄力结界 / pillar 幽冥鬼柱（v25.5）
+    poolNear: ['scythe', 'blink', 'mirror', 'quell', 'pillar', 'barrage'],
+    poolFar: ['barrage', 'scythe', 'blink', 'quell', 'pillar'],
     p2Add: ['nova'], contactDmg: 1, drop1: 'gui1', drop2: 'gui2', revive: 0.9 },
   // ==================== v7.9 终章双 Boss ====================
   // 分两棒，不是同时出场：冥古龙被打空三段 → 原地「倒下」，曜光·圣裁者接力进场（nextKind 链）。
@@ -512,7 +527,7 @@ const BAL = {
               scythe: 0.60, leap: 0.55, charge: 0.65, dive: 0.60,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
               grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70,
-              parry: 0.55, totem: 0.70 }, // v10 五新招前摇 + v12 补键 + v13 parry + v16 totem
+              parry: 0.55, totem: 0.70, column: 0.64 }, // v10 五新招前摇 + v12 补键 + v13 parry + v16 totem + v25.5 column
     p2WindMul: 0.82, idleT: [0.47, 0.33], walk: [20, 26],
     leap: { T: 0.9, vy: 675, clamp: 300 },
     charge: { v: [240, 300], maxT: 1.5, maxX: 300 },
@@ -543,14 +558,19 @@ const BAL = {
        可被普攻打掉（hp 3）——「只盯 Boss 不拆场」才是这招罚的东西；打掉的那座安静消失。
        fuse 给足 4s：拆两座约 1.2s，玩家永远有得选，不会变成必吃的定时炸弹。 */
     totem: { n: 2, hp: 3, fuse: 4.0, w: 16, h: 32, r: 110, dmg: 2, off: [-72, 72] },
+    /* v25.5 圣光天柱（新招）：三道金色光柱从天而降，落点按玩家当时位置交错。
+       与 halo（环弹）的分工：环弹考「找缝穿过去」，光柱考「立刻离开这条竖线」；
+       和 boss2 的水柱共用同一实体，只换色调——同一种躲法在两只 Boss 身上复用，
+       玩家学会的第二次就能用（新实体只会制造交互未知数）。 */
+    column: { n: 3, gap: 0.30, warn: 0.72, dur: 0.55, w: 18, dmg: 1, spread: 34, tone: 'gold' },
     stagger: 1.4, enrage: 1.2, dying: 2.6, revive: 0.9,
     recover: { blink: 0.4, barrage: 0.5, halo: 0.6, summon: 0.5, nova: 0.6,
                scythe: 0.6, leap: 0.7, charge: 0.4, dive: 0.65,
                meteor: 0.6, spike: 0.5, homing: 0.5, clone: 0.6, pull: 0.5,
-               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, parry: 0.6, totem: 0.6 }, // v12 补键 + v13 parry + v16 totem
-    // 圣裁者招牌：halo 圣辉轮 / parry 反伤架势 / homing 追踪弹 / totem 圣像审判
-    poolNear: ['halo', 'parry', 'homing', 'totem', 'barrage'],
-    poolFar: ['barrage', 'halo', 'homing', 'totem'],
+               grab: 0.55, quake: 0.5, pillar: 0.5, quell: 0.6, core: 0.6, parry: 0.6, totem: 0.6, column: 0.55 }, // v12 补键 + v13 parry + v16 totem + v25.5 column
+    // 圣裁者招牌：halo 圣辉轮 / parry 反伤架势 / homing 追踪弹 / totem 圣像审判 / column 圣光天柱（v25.5）
+    poolNear: ['halo', 'parry', 'homing', 'totem', 'column', 'barrage'],
+    poolFar: ['barrage', 'halo', 'homing', 'totem', 'column'],
     p2Add: ['nova'],
     contactDmg: 1, drop1: 'yao1', drop2: 'yao2' },
   /* ==================== v12：L19 烈焰·牛魔王（kind 6，lava） ====================
@@ -662,7 +682,7 @@ const BAL = {
     hp: 540, p2At: 0, actDist: 176, grav: 1500, fallV: 520, w: 48, h: 44,   // v20.3：540=180×3 对标牛魔王（偷血按新血量重定 0.5%）
     windup: { weight: 0.62, swap: 0.58, beam: 0.70, crush: 0.60, barrage: 0.45, nova: 0.55,
               meteor: 0.70, spike: 0.55, homing: 0.60, clone: 0.55, pull: 0.50,
-              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70 },
+              grab: 0.75, quake: 0.60, pillar: 0.60, quell: 0.90, core: 0.70, column: 0.62 },
     p2WindMul: 0.85, idleT: [0.44, 0.32], stalk: true, walk: [40, 50],   // v22：0.50/0.36→0.44/0.32（用户实测「基本没啥伤害」——出招频率提一档）
     barrage: { v: 120, rounds: 3, pairGap: 0.16, endT: 0.45, deg: [-12, 12] },
     skew: { max: 3, stallMul: 0.2, healPct: 0.5, goodMul: 1.25 },   // 失衡（同侧第3击）：承伤×0.2+偷回0.5%总血（450血基准≈2.3/次，威慑不拖时）；真穿身击承伤 ×1.25；P2 减伤加深 0.2→0.1
@@ -684,12 +704,16 @@ const BAL = {
        但更快更窄——warn 0.55s、下落更快，逼玩家「横向走一步」而不是等宽扇。2 伤。
        与 weight 的分工：weight 是"离开它正前方"（固定扇），crush 是"离开你脚下"（追踪点）。 */
     crush: { warn: 0.55, vy: 340, r: 14, dmg: 2 },
+    /* v25.5 裁决光柱（新招）：两道紫色垂直光柱（比水柱/圣柱少一道、dmg 2）——
+       天秤的机制是"换边打"，光柱把"边"本身变成危险区：换边途中被柱封路，就得等/绕。
+       与 weight/crush 的分工：那两招从上方点名（离开落点），光柱封的是整条竖线（横向离开）。 */
+    column: { n: 2, gap: 0.34, warn: 0.70, dur: 0.50, w: 16, dmg: 2, spread: 40, tone: 'violet' },
     nova: { v: 108, t: [0.55, 0.95], endT: 1.2 },
     stagger: 1.5, enrage: 1.2, dying: 2.4, revive: 0.9,
-    recover: { weight: 0.55, swap: 0.5, beam: 0.6, crush: 0.55, barrage: 0.45, nova: 0.6 },
-    // 招牌：weight 砝码 / swap 换位 / beam 横梁 / crush 衡权压顶（v22 追加）
-    poolNear: ['weight', 'swap', 'crush'],
-    poolFar: ['weight', 'beam', 'swap', 'crush'],   // v20.3：撤公共弹幕；swap 把远程玩家直接拽回贴身圈
+    recover: { weight: 0.55, swap: 0.5, beam: 0.6, crush: 0.55, column: 0.55, barrage: 0.45, nova: 0.6 },
+    // 招牌：weight 砝码 / swap 换位 / beam 横梁 / crush 衡权压顶（v22 追加）/ column 裁决光柱（v25.5）
+    poolNear: ['weight', 'swap', 'crush', 'column'],
+    poolFar: ['weight', 'beam', 'swap', 'crush', 'column'],   // v20.3：撤公共弹幕；swap 把远程玩家直接拽回贴身圈
     p2Add: ['nova'], contactDmg: 1, drop1: 'scale1', drop2: 'scale2' },
 
   boss9: { // 孵化之间（L22，husk）——「打早了是亏的」
@@ -1177,6 +1201,13 @@ class Level {
     this.decorFx = this.decor.filter(function (d) { return !!_ENG_DECOR_HIT[d.type]; }); // v17：每帧交互扫描子集（数量远小于 decor 全集）
 
     this.totalCoin = this.coins.reduce((a, c) => a + (c.key ? 0 : (c.gem ? 5 : 1)), 0) + brickN; // 木箱内含金币一并计入
+    /* ---------- v25：迷你游戏（攻击交互的 4399 式小游戏） ----------
+       数据来源 LG.mini()（levels/chapter2/chapter3 里的纯数据）。**不放进 game.hazards**：
+       死亡重生只重置玩家/危险物，不重建 Level —— 棋盘进度天然跨死亡保留；换关才重来。
+       四种盘面共用「攻击命中格」这一条入口（骑士近战框 / 法师弹体），见 _engMiniHit。 */
+    this.minis = [];
+    if (lg.minis && lg.minis.length)
+      for (const d of lg.minis) this.minis.push(_engMkMini(d));
     // v11：终点封印的分母——实体提取结束后的敌人数快照（Boss 召唤体是运行时 push 进 L.enemies 的，
     // 构造期不在数组里，天然不计入；_engSealTick 里再按 e.summoned 兜一层，逻辑干净）。
     this.enemyTotal = this.enemies.length;
@@ -1197,7 +1228,7 @@ class Level {
     // **必须与 solid() 保持同步，否则电锯会穿过或卡在墙上**（两边任一侧漏字符都是隐形墙/假穿墙）。
     const ch = this.tileAt(tx, ty);
     return ch === '#' || ch === 'I' || ch === 'a' || ch === 'b' || ch === 'D' || ch === 'C' || ch === 'B'
-        || ch === 'G' || ch === '(' || ch === ')';
+        || ch === 'G' || ch === '(' || ch === ')' || ch === 'q'; // v25：q 炸药桶（solid() 同步）
   }
 
   tileAt(tx, ty) { // 越界规则：x 方向返回'#'（左右墙），y<0 与 y≥h 返回'.'
@@ -1208,7 +1239,7 @@ class Level {
 
   solid(tx, ty, switchState) { // '#'/'I'/'B'/'G'/'('/')' 恒实；a/b 随全局开关；D 未开门时实；C 崩塌态<2 时实
     const ch = this.tileAt(tx, ty);
-    if (ch === '#' || ch === 'I' || ch === 'B' || ch === 'G') return true; // 'B' 木箱：实心，碎后网格改'.'自然失效；'G' 隐藏砖（v7 §4.2）：恒实，仅攻击可碎且永久消失
+    if (ch === '#' || ch === 'I' || ch === 'B' || ch === 'G' || ch === 'q') return true; // 'B' 木箱：实心，碎后网格改'.'自然失效；'G' 隐藏砖（v7 §4.2）：恒实，仅攻击可碎且永久消失；v25 'q' 炸药桶：实心，攻击引爆后改'.'
     // v7.5：传送带 '(' / ')' 补进实心集合。此前 solid() 不认它们，而 levels.js 的 STAND 集合认——
     // 两处口径不一致，L4 把传送带铺在地面行（levels.js:190 `g.row(31,36,H-1,'(')`）于是成了
     // 8 格无底洞：画面上是地板、踩上去直接掉出地图。补齐后传送带既能站立，脚下一行扫描
@@ -1534,6 +1565,7 @@ function failLevel() {
 function _engSealInit(L) { // 内部：封印状态初值（loadLevel 调用）
   const et = L.enemyTotal || 0, ct = L.coins.length;
   const boss = !!(L.meta && L.meta.boss); // v11：Boss 关豁免
+  const mt = (L.minis || []).length;      // v25：本关迷你游戏盘数（试炼线）
   return {
     enemyTotal: et,
     enemyKilled: 0,
@@ -1543,8 +1575,12 @@ function _engSealInit(L) { // 内部：封印状态初值（loadLevel 调用）
     coinNeed: Math.max(1, Math.ceil(ct * 0.40)),   // v11：探索线 40%（口径=金币实体个数）
     hasShrine: L.shrines.length > 0,
     shrineOk: false,
+    hasTrial: mt > 0,                 // v25：试炼线——完成本关全部迷你游戏盘
+    trialTotal: mt,
+    trialDone: 0,
+    trialOk: false,
     open: boss,
-    via: boss ? 'boss' : null,   // 'battle' | 'coin' | 'puzzle' | 'boss' | null
+    via: boss ? 'boss' : null,   // 'battle' | 'coin' | 'puzzle' | 'trial' | 'boss' | null
     blockT: 0,                   // 被封印弹回的提示计时（ui 读它做终点闪烁）
     relaxed: false               // v11 防卡关兜底：只降一次
   };
@@ -1574,9 +1610,17 @@ function _engSealTick(dt) { // 内部：每帧刷新封印计数/开放位 + 防
   s.coinGot = cg;
   // 谜题线：ui 在 loadLevel 之后才把存档注入 solvedPuzzles，所以必须每帧读、不能在 init 里定死
   s.shrineOk = !!(s.hasShrine && game.solvedPuzzles && game.solvedPuzzles[L.shrines[0].idx]);
+  // v25：试炼线——盘面进度存在 L.minis（跨死亡保留），这里每帧重算「完成几盘」
+  if (s.hasTrial) {
+    let md = 0;
+    for (const m of (L.minis || [])) if (m.done) md++;
+    s.trialDone = md;
+    s.trialOk = md >= s.trialTotal;
+  }
   if (s.enemyKilled >= s.enemyNeed) { s.open = true; s.via = 'battle'; }
   else if (s.coinGot >= s.coinNeed) { s.open = true; s.via = 'coin'; }
   else if (s.shrineOk) { s.open = true; s.via = 'puzzle'; }
+  else if (s.trialOk) { s.open = true; s.via = 'trial'; }
   if (s.open) { // 解除特效：金色粒子一圈 + 轻震屏 + 浮字（终点可能在屏幕外，所以落在玩家身上）
     if (p) {
       _engAddParts(p.x + 5, p.y + 7, 18, '#f8d048', 120, 90);
@@ -1584,6 +1628,313 @@ function _engSealTick(dt) { // 内部：每帧刷新封印计数/开放位 + 防
     }
     _engShake(3, 0);
     game.sfxQueue.push('door'); // 用「开门」音：封印=一道门；'clear' 是通关号角，会误导玩家
+  }
+}
+
+/* ==================== v25：攻击交互迷你游戏（内部） ====================
+   用户要求把「小怪关」做成 4399 式的混合小游戏，并点名「扫雷：拿武器攻击当翻开」。
+   这里落四种盘面，全部共用一条交互入口 —— 攻击：
+     mine   扫雷：格内数字=周围雷数；打到雷挨 1 伤并把雷标出（不重置，容错）；
+     lights 点灯：打一格翻转自身+上下左右，全亮即通（初始盘=从全亮反按几步，必可解）；
+     bells  编钟：演示阶段依次亮钟（带音），结束后按同样顺序敲；敲错重播；
+     mole   打地鼠：洞口随机冒头，打中 N 只即通（只在玩家靠近时跑，避免远景自嗨）。
+   奖励：盘面完成 → 掉 1 颗宝石（L.coins 实体，接触拾取）+ 终点封印第四条路 via='trial'。
+   进度存在 L.minis（Level 实例）上：死亡重生不重建关卡 → 已完成的盘不会重置。 */
+function _engMkMini(d) {
+  const m = {
+    type: d.type, x: d.x * _engTile, y: d.y * _engTile,
+    cols: Math.max(1, d.w || 3), rows: Math.max(1, d.h || 1),
+    w: Math.max(1, d.w || 3) * _engTile, h: Math.max(1, d.h || 1) * _engTile,
+    done: false, flash: 0, t: 0, doneT: 0
+  };
+  /* v25.5 修：lights/bells/mole 的格数是玩法固定的（点灯 3×3、编钟 n×1、地鼠 n 洞），
+     但布置 DSL 里常常不写 w/h——此前 m.w/h 落到 1×1，攻击判定先查「这一击是否落在盘面矩形内」，
+     于是 3×3 点灯只有左上格能吃刀、编钟只有第一口钟能敲。这里按类型强制回真实包围盒。 */
+  if (m.type === 'lights') { m.cols = 3; m.rows = 3; m.w = 3 * _engTile; m.h = 3 * _engTile; }
+  else if (m.type === 'bells') {
+    const nb = d.n || 4; m.cols = nb; m.rows = 1; m.w = nb * _engTile; m.h = _engTile;
+  } else if (m.type === 'mole') {
+    const nm = d.n || 5; m.cols = nm; m.rows = 1; m.w = nm * _engTile; m.h = _engTile;
+  }
+  if (m.type === 'mine') {
+    m.pat = d.pat || [];
+    m.cells = [];
+    for (let ry = 0; ry < m.rows; ry++)
+      for (let rx = 0; rx < m.cols; rx++)
+        m.cells.push({
+          cx: m.x + rx * _engTile + 1, cy: m.y + ry * _engTile + 1, w: 14, h: 14,
+          mine: ((m.pat[ry] || '')[rx] === 'x'), open: false, boom: false, adj: 0, flash: 0
+        });
+    for (let i = 0; i < m.cells.length; i++) {           // 预计算每格八邻雷数（构造期一次，运行期只读）
+      const c = m.cells[i];
+      if (c.mine) continue;
+      const rx = i % m.cols, ry = (i / m.cols) | 0;
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = rx + dx, ny = ry + dy;
+        if (nx < 0 || nx >= m.cols || ny < 0 || ny >= m.rows) continue;
+        if (m.cells[ny * m.cols + nx].mine) n++;
+      }
+      c.adj = n;
+    }
+  } else if (m.type === 'lights') {
+    m.cells = [];
+    for (let i = 0; i < 9; i++)
+      m.cells.push({
+        cx: m.x + (i % 3) * _engTile + 1, cy: m.y + ((i / 3) | 0) * _engTile + 1,
+        w: 14, h: 14, on: true, flash: 0
+      });
+    for (const i of (d.scr || [4, 0, 8])) _engLightToggle(m, i, true); // 从「全亮」反按几步 → 有解
+    if (m.cells.every(function (c) { return c.on; })) _engLightToggle(m, 4, true); // 防呆：别开局就是通关状态
+  } else if (m.type === 'bells') {
+    const n = d.n || 4;
+    m.seq = d.seq || [1, 3, 0, 2, 1];
+    m.bells = [];
+    for (let i = 0; i < n; i++)
+      m.bells.push({ cx: m.x + i * _engTile + 1, cy: m.y + 1, w: 14, h: 14, ring: 0, hit: 0 });
+    m.phase = 'show'; m.showT = 0; m.showI = 0; m.inputIdx = 0; m.wrongT = 0;
+  } else if (m.type === 'mole') {
+    const n = d.n || 5;
+    m.holes = [];
+    for (let i = 0; i < n; i++)
+      m.holes.push({ x: m.x + i * _engTile, y: m.y, up: false, upT: 0, cool: 0, hit: 0 });
+    m.hits = 0; m.need = d.need || 6; m.popT = 0.9; m.popI = 0;
+  }
+  return m;
+}
+
+function _engLightToggle(m, i, silent) { // 点灯：翻转 i 与上下左右（越界/换行由曼哈顿距离挡住）
+  if (i < 0 || i > 8) return;
+  const rx = i % 3, ry = (i / 3) | 0;
+  for (let j = 0; j < 9; j++) {
+    if (Math.abs((j % 3) - rx) + Math.abs(((j / 3) | 0) - ry) > 1) continue;
+    m.cells[j].on = !m.cells[j].on;
+    if (!silent) m.cells[j].flash = 0.22;
+  }
+}
+
+function _engMiniDone(L, m) { // 盘面达成：宝石奖励 + 音效（via='trial' 由 _engSealTick 统一判定）
+  if (m.done) return;
+  m.done = true; m.doneT = 0;
+  game.sfxQueue.push('puzzle'); game.sfxQueue.push('gem');
+  _engShake(2, 0);
+  const cx = m.x + m.w / 2, cy = m.y + m.h / 2;
+  _engAddParts(cx, cy, 24, '#f8d048', 130, 120);
+  _engFx(cx, cy, { ring: 1, r: 6, r1: 30, life: 0.45, color: '#f8d048' });
+  // 宝石实体落在盘面中央（接触拾取；y 稍微上抬，避免嵌进格子里看不见）
+  L.coins.push({ x: cx - 4, y: cy - 8, w: 8, h: 10, got: false, gem: true, t: 0 });
+  const p = game.player;
+  if (p && !p.dead) _engFloat(cx, cy - 14, '试炼达成', '#f8d048', 1.2);
+}
+
+function _engMineReveal(L, m, c) {
+  if (c.mine) {                                        // 踩雷：扣 1 心 + 就地标记，不重置盘面（新手友好）
+    c.open = true; c.boom = true; c.flash = 0.45;
+    _engShake(5, 0); game.sfxQueue.push('boom');
+    _engAddParts(c.cx + 7, c.cy + 7, 16, '#f87038', 130, 260);
+    _engAddParts(c.cx + 7, c.cy + 7, 6, '#f8d048', 90, 200);
+    _engFx(c.cx + 7, c.cy + 7, { ring: 1, r: 3, r1: 24, life: 0.32, color: '#f8b048' });
+    _engFloat(c.cx + 7, c.cy - 2, '雷!', '#f85858', 1);
+    const p = game.player;
+    if (p && !p.dead) _engHurtPlayer(c.cx + 7, 1);
+  } else {                                             // 安全格：0 邻雷自动连锁翻开（扫雷手感）
+    const stack = [c];
+    while (stack.length) {
+      const q = stack.pop();
+      if (q.open || q.mine) continue;
+      q.open = true; q.flash = 0.25;
+      if (q.adj !== 0) continue;
+      const i = m.cells.indexOf(q), rx = i % m.cols, ry = (i / m.cols) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = rx + dx, ny = ry + dy;
+        if (nx < 0 || nx >= m.cols || ny < 0 || ny >= m.rows) continue;
+        const n = m.cells[ny * m.cols + nx];
+        if (!n.open && !n.mine) stack.push(n);
+      }
+    }
+    game.sfxQueue.push('select');
+  }
+  let safeLeft = 0;
+  for (const q of m.cells) if (!q.mine && !q.open) safeLeft++;
+  if (safeLeft === 0) _engMiniDone(L, m);
+}
+
+function _engLightHit(L, m, c) {
+  _engLightToggle(m, m.cells.indexOf(c), false);
+  game.sfxQueue.push('switch'); _engShake(1, 0.03);
+  let all = true;
+  for (const q of m.cells) if (!q.on) { all = false; break; }
+  if (all) _engMiniDone(L, m);
+}
+
+function _engBellHit(L, m, i) {
+  const b = m.bells[i];
+  if (!b) return;
+  b.ring = 0.3; b.hit = 0.2;
+  game.sfxQueue.push('select');
+  if (i === m.seq[m.inputIdx]) {
+    m.inputIdx++;
+    if (m.inputIdx >= m.seq.length) _engMiniDone(L, m);
+    else _engFloat(b.cx + 7, b.cy - 8, m.inputIdx + '/' + m.seq.length, '#f8d048', 0);
+  } else {                                             // 敲错：从头再听一遍（不扣血、不惩罚）
+    m.inputIdx = 0; m.phase = 'show'; m.showI = 0; m.showT = 0; m.wrongT = 0.5;
+    game.sfxQueue.push('clank'); _engShake(2, 0.05);
+    _engFloat(b.cx + 7, b.cy - 8, '重来', '#f85858', 0.9);
+  }
+}
+
+function _engMiniHit(box) { // 内部：攻击 → 迷你游戏交互（唯一入口；返回 true=这一击被盘面吃掉）
+  const L = game.level;
+  if (!L || !L.minis || !L.minis.length || !box) return false;
+  const bx = box.x + box.w / 2, by = box.y + box.h / 2;
+  for (const m of L.minis) {
+    if (m.done) continue;
+    if (m.type === 'mole') {                           // 地鼠：只认冒头的洞（打空不吃攻击，避免误判）
+      let best = null, bd = 1e9;
+      for (const h of m.holes) {
+        if (!h.up) continue;
+        const hb = { x: h.x + 1, y: h.y - 14, w: 14, h: 14 };
+        if (!_engAabb(box, hb)) continue;
+        const d = (hb.x + 7 - bx) * (hb.x + 7 - bx) + (hb.y + 7 - by) * (hb.y + 7 - by);
+        if (d < bd) { bd = d; best = h; }
+      }
+      if (!best) continue;
+      best.up = false; best.upT = 0; best.cool = 0.25; best.hit = 0.3;
+      m.hits++;
+      game.sfxQueue.push('hit'); _engShake(1, 0.04);
+      _engFloat(best.x + 8, best.y - 18, m.hits + '/' + m.need, '#f8d048', 0);
+      _engAddParts(best.x + 8, best.y - 8, 8, '#c88848', 90, 220);
+      if (m.hits >= m.need) _engMiniDone(L, m);
+      return true;
+    }
+    if (!_engAabb(box, m)) continue;
+    if (m.type === 'mine' || m.type === 'lights') {
+      let best = null, bd = 1e9;
+      for (const c of m.cells) {
+        if (m.type === 'mine' && c.open) continue;     // 已翻开的格子不再吃攻击
+        if (!_engAabb(box, { x: c.cx, y: c.cy, w: c.w, h: c.h })) continue;
+        const d = (c.cx + 7 - bx) * (c.cx + 7 - bx) + (c.cy + 7 - by) * (c.cy + 7 - by);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (!best) continue;
+      if (m.type === 'mine') _engMineReveal(L, m, best);
+      else _engLightHit(L, m, best);
+      return true;
+    }
+    if (m.type === 'bells') {
+      if (m.phase !== 'input') return false;           // 演示阶段：攻击不打断、不消耗
+      let best = null, bd = 1e9;
+      for (const b of m.bells) {
+        if (!_engAabb(box, { x: b.cx, y: b.cy, w: b.w, h: b.h })) continue;
+        const d = Math.abs(b.cx + 7 - bx);
+        if (d < bd) { bd = d; best = b; }
+      }
+      if (!best) continue;
+      _engBellHit(L, m, m.bells.indexOf(best));
+      return true;
+    }
+  }
+  return false;
+}
+
+function _engUpdateMinis(dt) { // 内部：盘面动画/限近刷新（updateWorld ④′ 封印判定前调用）
+  const L = game.level, p = game.player;
+  if (!L || !L.minis || !L.minis.length) return;
+  for (const m of L.minis) {
+    if (m.done) { m.doneT += dt; continue; }
+    m.t += dt;
+    if (m.flash > 0) m.flash -= dt;
+    if (m.type === 'mine' || m.type === 'lights') {
+      for (const c of m.cells) if (c.flash > 0) c.flash -= dt;
+      continue;
+    }
+    // 编钟/地鼠只在该玩家附近时跑：远景盘面不该自顾自响/冒头
+    const near = p && !p.dead && Math.abs((p.x + p.w / 2) - (m.x + m.w / 2)) < 220
+      && Math.abs((p.y + p.h / 2) - (m.y + m.h / 2)) < 180;
+    if (!near) {
+      if (m.type === 'bells' && m.phase !== 'show') { m.phase = 'show'; m.showI = 0; m.showT = 0; m.inputIdx = 0; }
+      continue;
+    }
+    if (m.type === 'bells') {
+      for (const b of m.bells) { if (b.ring > 0) b.ring -= dt; if (b.hit > 0) b.hit -= dt; }
+      if (m.wrongT > 0) m.wrongT -= dt;
+      if (m.phase === 'show') {
+        m.showT += dt;
+        while (m.showI < m.seq.length && m.showT >= 0.5 + m.showI * 0.62) {
+          const b = m.bells[m.seq[m.showI]];
+          if (b) b.ring = 0.3;
+          game.sfxQueue.push('select');
+          m.showI++;
+        }
+        if (m.showI >= m.seq.length && m.showT >= 0.5 + m.seq.length * 0.62 + 0.4) {
+          m.phase = 'input'; m.inputIdx = 0; m.showT = 0;
+        }
+      }
+    } else if (m.type === 'mole') {
+      for (const h of m.holes) {
+        if (h.hit > 0) h.hit -= dt;
+        if (h.up) { h.upT -= dt; if (h.upT <= 0) { h.up = false; h.cool = 0.55; } }
+        else if (h.cool > 0) h.cool -= dt;
+      }
+      m.popT -= dt;
+      if (m.popT <= 0) {
+        m.popT = 0.78;
+        const cand = m.holes.filter(function (h) { return !h.up && h.cool <= 0; });
+        if (cand.length) {
+          const h = cand[m.popI % cand.length];
+          m.popI++;
+          h.up = true; h.upT = 1.35;
+        }
+      }
+    }
+  }
+}
+
+/* v25：炸药桶（瓦片 'q'）——攻击/连锁爆炸。半径 1 格链爆；拆 B/G 砖、伤敌、伤己。
+   'q' 在 solid()/_railSolid/levels STAND 三处同步为实心，所以桶是「能挡路、要打掉」的机关。 */
+function _engBarrelBlast(L, tx, ty) {
+  const q = [[tx, ty]];
+  let guard = 0;
+  while (q.length && guard++ < 24) {                   // guard：极端连环摆桶时的递归/队列上限
+    const cur = q.shift(), bx = cur[0], by = cur[1];
+    if (L.tileAt(bx, by) !== 'q') continue;
+    L.tiles[by][bx] = '.';
+    const cx = bx * _engTile + 8, cy = by * _engTile + 8;
+    game.sfxQueue.push('boom'); _engShake(5, 0.05);
+    _engAddParts(cx, cy, 16, '#f89438', 130, 300);
+    _engAddParts(cx, cy, 6, '#5a4430', 80, 220);
+    _engFx(cx, cy, { ring: 1, r: 4, r1: 26, life: 0.3, color: '#f8b048' });
+    if (game.scars) {
+      game.scars.push({ x: cx, y: cy + 6, t: 0 });
+      if (game.scars.length > BAL.guard.scars) game.scars.shift();
+    }
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const ch = L.tileAt(bx + dx, by + dy);
+      if (ch === 'q') { q.push([bx + dx, by + dy]); continue; }
+      if (ch === 'B' || ch === 'G') {
+        L.tiles[by + dy][bx + dx] = '.';
+        const px2 = (bx + dx) * _engTile + 8, py2 = (by + dy) * _engTile + 8;
+        if (ch === 'B') {
+          game.coins += BAL.econ.brick;
+          _engFloat(px2, py2 - 8, '+' + BAL.econ.brick, '#f8d048', 0);
+          _engAddParts(px2, py2, 8, '#c89858', 90, 300);
+        } else _engAddParts(px2, py2, 10, '#9a8ad0', 90, 300);
+      }
+    }
+    for (const e of L.enemies) {
+      if (e.dead > 0) continue;
+      const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+      if ((ex - cx) * (ex - cx) + (ey - cy) * (ey - cy) > 34 * 34) continue;
+      e.hp = (e.hp === undefined ? 1 : e.hp) - 3; e.flashT = 0.2;
+      if (e.hp <= 0) { _engKillEnemy(e); e.dvx = (ex < cx ? -1 : 1) * 130; e.dvy = -140; }
+      else e.kb = (ex < cx ? -1 : 1) * 120;
+    }
+    const p = game.player;
+    if (p && !p.dead) {
+      const pxc = p.x + p.w / 2, pyc = p.y + p.h / 2;
+      if ((pxc - cx) * (pxc - cx) + (pyc - cy) * (pyc - cy) < 34 * 34) _engHurtPlayer(cx, 1);
+    }
   }
 }
 
@@ -2368,6 +2719,9 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
         b.state = 'mistCast'; b.t = 0; b.fireN = 0; } }
     else if (b.next === 'totem') { if (b.t >= _engBossDur('totem', b.phase)) {
         b.state = 'totemCast'; b.t = 0; b.fireN = 0; } }
+    /* v25.5：天穹光柱——前摇结束进 columnCast（多段招，按 gap 逐根落）。 */
+    else if (b.next === 'column') { if (b.t >= _engBossDur('column', b.phase)) {
+        b.state = 'columnCast'; b.t = 0; b.fireN = 0; } }
     /* ---- v20 地图二 15 招（kind 7~11）----
        分两类，界线是「有没有持续期」：
        单发招（flare/sear/lash/swap/spawn/web/roar/bite）在前摇结束的那一帧直接结算后进 recover。
@@ -2757,10 +3111,26 @@ function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计�
     while (b.fireN < wantPL && b.fireN < PL.n) {
       const pxi = _engClamp(pcx + ((b.fireN % 3) - 1) * _engTile, 16, L.w * _engTile - 16);
       game.hazards.push({ kind: 'pillar', x: pxi, y: _engGroundY(pxi, p.y),
-        w: PL.w, h: 0, mh: PL.h, warnT: PL.warn, t: 0, life: PL.life, dmg: PL.dmg || 1 });
+        w: PL.w, h: 0, mh: PL.h, warnT: PL.warn, t: 0, life: PL.life, dmg: PL.dmg || 1,
+        tone: PL.tone || 'fire' });
       game.sfxQueue.push('sweep'); _engShake(2, 0); b.fireN++;
     }
     if (b.fireN >= PL.n && b.t >= PL.n * PL.gap + 0.35) { b.state = 'recover'; b.t = 0; }
+    break; }
+
+  case 'columnCast': { // v25.5 天穹光柱：每 gap 秒落一根，落点=出手瞬间玩家位置 ±spread 交错
+    b.vx = 0; b.face = pcx < bcx ? -1 : 1;
+    const CL = T.column || BAL.boss2.column, wantCL = Math.floor(b.t / CL.gap);
+    while (b.fireN < wantCL && b.fireN < CL.n) {
+      const pxi = _engClamp(pcx + ((b.fireN % 3) - 1) * (CL.spread || 34), 12, L.w * _engTile - 12);
+      game.hazards.push({ kind: 'column', x: pxi, y: _engGroundY(pxi, p.y),
+        w: CL.w, warn: CL.warn, warnT: CL.warn, warnMax: CL.warn, t: 0, dur: CL.dur,
+        dmg: CL.dmg || 1, tone: CL.tone || 'aqua' });
+      game.sfxQueue.push('cast'); _engShake(2, 0); b.fireN++;
+    }
+    if (b.fireN >= CL.n && b.t >= (CL.n - 1) * CL.gap + CL.warn + CL.dur + 0.15) {
+      b.state = 'recover'; b.t = 0;
+    }
     break; }
 
   case 'coreCast': { // ⑦ 核心护盾：本体免伤，打掉全部核心才破盾（转 2s stagger）
@@ -3408,6 +3778,26 @@ function _engUpdateHazards(dt) {
         if (e.life <= 0) dead = true;
         else if (!p.dead && _engAabb({ x: e.x - e.w / 2, y: e.y - e.h, w: e.w, h: e.h }, p))
           _engHurtPlayer(e.x);                        // 升起的柱子是持续危险区：绕开它，别站里面
+      }
+    } else if (e.kind === 'column') { // v25.5 天穹光柱：预警竖线 → 落柱 dur 秒 → 消失
+      const t0 = e.t; e.t += dt;
+      const cc = (e.tone === 'gold') ? '#f8d048'
+               : (e.tone === 'violet' || e.tone === 'ghost') ? '#b060f0'
+               : (e.tone === 'star') ? '#a890f8' : '#48d8f8';
+      if (t0 < e.warn && e.t >= e.warn) {            // 进入落柱那一帧：音效 + 震屏（只触发一次）
+        game.sfxQueue.push('boom'); _engShake(4, 0);
+        _engAddParts(e.x, e.y - 4, 14, cc, 120, 260);
+        _engFx(e.x, e.y, { ring: 1, r: 4, r1: 30, life: 0.35, color: cc });
+      }
+      if (e.t >= e.warn + e.dur) dead = true;
+      else if (e.t >= e.warn) {                      // 落柱期：整条竖线都是危险区（跳跃躲不掉，只能横移）
+        if (!p.dead && _engAabb({ x: e.x - e.w / 2, y: 0, w: e.w, h: Math.max(16, e.y) }, p))
+          _engHurtPlayer(e.x, e.dmg || 1);
+      } else {                                       // 预警期：天顶落下的光尘（UI 画竖线，这里只补演出）
+        e.fxT = (e.fxT || 0) - dt;
+        if (e.fxT <= 0) { e.fxT = 0.09;
+          _engFx(e.x + (Math.random() * 2 - 1) * e.w * 0.5, e.y - 30 - Math.random() * 90,
+            { vy: 460, life: 0.20, color: cc, size: 1 }); }
       }
     } else if (e.kind === 'core') {   // 核心：悬空可打目标（受击判定在 _engResolveAttack / O / U 三处）
       e.t += dt;
@@ -4364,6 +4754,9 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     if (hz2.hp <= 0) { hzArr.splice(i, 1); game.sfxQueue.push('kill'); }
   }
   _engCoreBreakCheck();   // v12：核心破光即破盾（放在循环后：同一摆打碎最后一颗也能当帧生效）
+  /* v25：迷你游戏盘面（扫雷/点灯/编钟/地鼠）——攻击即交互。放在敌人之前：
+     盘面通常悬在敌人头顶，先结算盘面不会抢怪物的受击；_engMiniHit 内部只吃最近的格。 */
+  _engMiniHit(box);
   // v5 §C：敌人分支重写——骑士正面格挡 / 存活击退白闪抖动 / 击杀击飞弹道；连击按「命中」计；
   // hitSeq：hit-stop 冻结后判定框仍存活，同一摆对同一敌人只结算一次（一摆一伤）
   for (const e of L.enemies) {
@@ -4410,6 +4803,10 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   // v5 §2#12：碎砖金币 +1 走 floats、震屏 2、combo+1 保留。
   // v7 §4.2：'G' 隐藏砖——攻击打碎露出通道（无金币；respawn 不重建网格=保持已碎；永久消失）。
   _engRectTiles(L, box.x, box.y, box.w, box.h, function (tx, ty, ch) {
+    if (ch === 'q') {                                  // v25：炸药桶——近战直接引爆（含链爆）
+      _engBarrelBlast(L, tx, ty);
+      return;
+    }
     if (ch === 'B') {
       L.tiles[ty][tx] = '.'; // 碎后从网格移除（respawn 不重建网格 → 保持已碎，与已收金币同理）
       game.coins += BAL.econ.brick;
@@ -4759,10 +5156,15 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
       dead = true; break;
     }
     if (dead) { arr.splice(i, 1); continue; }
+    /* ⑤′ v25：迷你游戏盘面（法师可以隔着半个屏幕解扫雷）——一发只翻一格，命中即收 */
+    if (_engMiniHit(s)) { arr.splice(i, 1); continue; }
     /* ⑥ 瓦片：'B' 碎+金币+连击 / 'G' 碎+连击 / 其余实心（# I ( ) 开关砖 门 崩塌砖）→ 停 */
     _engRectTiles(L, s.x, s.y, s.w, s.h, function (tx, ty, ch) {
       if (dead) return;
-      if (ch === 'B') {
+      if (ch === 'q') {                                // v25：炸药桶——弹体引爆（含链爆）
+        _engBarrelBlast(L, tx, ty);
+        dead = true;
+      } else if (ch === 'B') {
         L.tiles[ty][tx] = '.';
         game.coins += BAL.econ.brick;
         _engFloat(tx * _engTile + 8, ty * _engTile, '+' + BAL.econ.brick, '#f8d048', 0);
@@ -5314,7 +5716,9 @@ function updateWorld(dt) {
   }
 
   /* ④′ v11：终点封印刷新（三条路任选其一；Boss 关 loadLevel 时已 open）。
-        放在终点判定之前，保证「本帧刚好达成条件 → 本帧就能过关」。 */
+        放在终点判定之前，保证「本帧刚好达成条件 → 本帧就能过关」。
+        v25：迷你游戏盘面先推进（编钟音序/地鼠冒头），完成信息当帧进入封印试炼线。 */
+  _engUpdateMinis(dt);
   _engSealTick(dt);
 
   /* ⑤ 终点判定（v7.9：谜题不再是通关前置——玩家明确要求「数独/数织别强制做」。
