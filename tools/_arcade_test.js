@@ -1,10 +1,12 @@
-// node tools/_arcade_test.js —— v26/v27/v29 街机小关验收（node，无依赖）
+// node tools/_arcade_test.js —— v26/v27/v29/v30 街机小关验收（node，无依赖）
 // 用户口径：「小关完全放弃横屏从左向右走，改成其他游戏类型；只有选关时按钮才和 Boss 放一块」
 // v27 追加：14 个小关 14 种玩法两两不同（原 6 对重复各换掉一个），新增
 //           矿脉寻宝 / 落块筑墙 / 弹幕生存 / 泡泡消除 / 迷宫追逃 / 垂直攀跃。
-// v29 追加：用户要求普通关有难度；本文件断言 14 关的难度旋钮不低于 v29 基线，
+// v29 追加：用户要求普通关有难度；本文件断言各关的难度旋钮不低于 v29 基线，
 //           真实输入可达性由 tools/_v29_arcade_reach.js 单独证明。
-// 覆盖：14 个非 Boss 关全部有独立街机配置、Boss 关一个都不占；14 种玩法齐全；
+// v30 追加：后三章插入 4 个街机间奏（L19 幽冥炮台 / L22 回响节拍 / L25 喉中拾遗 /
+//           L29 镜海流星）→ 18 个小关、16 种玩法（矿脉与弹幕各出进阶变体）。
+// 覆盖：18 个非 Boss 关全部有独立街机配置、Boss 关一个都不占；16 种玩法齐全；
 //       start 建立伪关卡（tiles=null）→ 结算/星级/解锁所需的 totalCoin/par 齐全；
 //       _forceWin/_forceFail 正确落 clear/fail；每个类型空输入跑 2 秒 + 渲染不崩；
 //       新玩法核心机制（放钩/消行/受击/发射/拾符/弹跳）逐条断言；
@@ -58,12 +60,13 @@ function ok(cond, msg, extra) {
 const BOSS = ALL.map((l, i) => (l.boss ? i : -1)).filter(i => i >= 0);
 const NONBOSS = ALL.map((l, i) => (l.boss ? -1 : i)).filter(i => i >= 0);
 const TYPES = ['mine', 'mole', 'lights', 'memory', 'sokoban', 'snake', 'gold', 'tetris',
-  'dodge', 'simon', 'bubble', 'maze', 'jumper', 'breakout'];
+  'dodge', 'simon', 'bubble', 'maze', 'jumper', 'breakout', 'cannon', 'rhythm'];
 
-console.log('[T1] 关卡覆盖：14 小关有街机、13 Boss 没有');
+console.log('[T1] 关卡覆盖：18 小关有街机、13 Boss 没有');
 {
-  ok(ALL.length === 27, '总关卡 27', ALL.length);
-  ok(NONBOSS.length === 14, '非 Boss 关 14 个', NONBOSS.length);
+  ok(ALL.length === 31, '总关卡 31', ALL.length);
+  ok(NONBOSS.length === 18, '非 Boss 关 18 个', NONBOSS.length);
+  ok(BOSS.length === 13, 'Boss 关 13 个', BOSS.length);
   const missing = NONBOSS.filter(i => !A.has(i));
   ok(missing.length === 0, '每个非 Boss 关都有街机配置' + (missing.length ? '（缺 L' + missing.map(i => i + 1).join('/L') + '）' : ''), missing);
   const bossStolen = BOSS.filter(i => A.has(i));
@@ -72,7 +75,7 @@ console.log('[T1] 关卡覆盖：14 小关有街机、13 Boss 没有');
   ok(extra.length === 0, '配置表里没有多余下标', extra.join(','));
 }
 
-console.log('[T2] 配置完整性：14 种玩法齐全且两两不同，参数合法');
+console.log('[T2] 配置完整性：16 种玩法齐全（矿脉/弹幕各一个进阶变体），参数合法');
 {
   const seen = {};
   for (const i of NONBOSS) {
@@ -85,10 +88,11 @@ console.log('[T2] 配置完整性：14 种玩法齐全且两两不同，参数�
     ok(st.par > 0 && st.limit > st.par, 'L' + (i + 1) + ' 限时/三星目标合理', st.par + '/' + st.limit);
     ok(st.totalCoin >= 1 && st.totalCoin <= 3, 'L' + (i + 1) + ' 奖励币上限 1~3', st.totalCoin);
   }
-  ok(Object.keys(seen).length === 14, '14 种街机玩法全部登场且不重复', JSON.stringify(seen));
+  ok(Object.keys(seen).length === 16, '16 种街机玩法全部登场', JSON.stringify(seen));
   const dups = {};
   for (const i of NONBOSS) { const t = A.stages[i].type; dups[t] = (dups[t] || 0) + 1; }
-  ok(Object.values(dups).every(n => n === 1), '没有任何玩法被两个小关复用', JSON.stringify(dups));
+  ok(dups.gold === 2 && dups.dodge === 2 && Object.keys(dups).every(t => t === 'gold' || t === 'dodge' || dups[t] === 1),
+    '只有矿脉/弹幕各复用一次（进阶变体），其余玩法唯一', JSON.stringify(dups));
 }
 
 console.log('[T2b] 记忆翻牌：行数按卡片数算，盘面不越出底栏');
@@ -212,9 +216,58 @@ console.log('[T2c] 新玩法核心机制：放钩 / 消行 / 受击 / 发射 / �
   A.step(1 / 60, {});
   ok(s.done && s.win === true, 'L15 攀到 1200 尺触发胜利', d.maxH.toFixed(1));
   A.stop();
+
+  // 幽冥炮台（v30 · L19）：瞄准鬼火开炮 / 魂雷扣心 / 金火给币 / 配额满胜利
+  A.start(18);
+  s = A._state(); d = s.data;
+  d.spawnT = 999; d.targets = [{ x: 192, y: 80, vx: 0, vy: 0, r: 7, kind: 'wisp', t: 0 }];
+  d.ang = -Math.PI / 2; d.cd = 0;
+  A.step(1 / 60, { attackHit: true });
+  ok(d.hits === 1 && s.hearts === 3, 'L19 开炮击落鬼火 +1', d.hits + '/' + s.hearts);
+  d.targets = [{ x: 150, y: 90, vx: 0, vy: 0, r: 8, kind: 'bomb', t: 0 }];
+  d.ang = Math.atan2(90 - d.cy, 150 - d.cx); d.cd = 0;
+  A.step(1 / 60, { attackHit: true });
+  ok(s.hearts === 2, 'L19 误击魂雷扣 1 心', s.hearts);
+  d.targets = [{ x: 240, y: 90, vx: 0, vy: 0, r: 7, kind: 'gold', t: 0 }];
+  d.ang = Math.atan2(90 - d.cy, 240 - d.cx); d.cd = 0;
+  A.step(1 / 60, { attackHit: true });
+  ok(game.coins === 1, 'L19 金火 +1 奖励币', game.coins);
+  d.targets = [{ x: 192, y: 80, vx: 0, vy: 0, r: 7, kind: 'wisp', t: 0 }];
+  d.ang = -Math.PI / 2; d.cd = 0; d.hits = A.stages[18].quota - 1;
+  A.step(1 / 60, { attackHit: true });
+  ok(s.done && s.win === true, 'L19 击落配额触发胜利', d.hits + '/' + A.stages[18].quota);
+  A.stop();
+
+  // 回响节拍（v30 · L22）：缩环进窗敲响 / 漏拍扣心 / 完成 10 拍胜利
+  A.start(21);
+  s = A._state(); d = s.data;
+  ok(d.beats === 10, 'L22 共 10 拍', d.beats);
+  d.bt = d.interval * 0.75; // 缩环半径 16 → 落在金环窗口
+  A.step(1 / 60, { attackHit: true });
+  ok(d.hits === 1 && d.combo === 1, 'L22 金环内敲响计入命中/连击', d.hits + '/' + d.combo);
+  d.beatHit = false; d.beatMiss = false; d.bt = d.interval;
+  A.step(1 / 60, {});
+  ok(s.hearts === 2 && d.beatMiss === true, 'L22 漏拍扣 1 心', s.hearts + '/' + d.beatMiss);
+  d.beat = d.beats - 1; d.beatHit = true; d.beatMiss = false; d.bt = d.interval + 0.23;
+  A.step(1 / 60, {});
+  ok(s.done && s.win === true, 'L22 完成第 10 拍触发胜利', s.done + '/' + s.win);
+  A.stop();
+
+  // v30 进阶变体：喉中拾遗 / 镜海流星 的盘面与压力确实加码
+  A.start(24);
+  s = A._state(); d = s.data;
+  ok(A.stages[24].quota === 8 && A.stages[24].emeralds === 6 && A.stages[24].rocks === 5,
+    'L25 喉中拾遗 8 宝石 / 6 翡翠 / 5 石', JSON.stringify(A.stages[24].quota));
+  ok(d.gems.length >= 18 && d.gems.filter(g => g.kind === 'emerald').length >= 5,
+    'L25 宝石盘面生成（19 物件）', d.gems.length);
+  A.stop();
+  A.start(28);
+  s = A._state(); d = s.data;
+  ok(d.need === 12 && d.survive === 45, 'L29 镜海流星 12 星屑 / 45 秒', d.need + '/' + d.survive);
+  A.stop();
 }
 
-console.log('[T2d] v29 难度配置：14 关都已加码（防止回退成无聊小游戏）');
+console.log('[T2d] v29/v30 难度配置：18 关都已加码（防止回退成无聊小游戏）');
 {
   const expect = {
     0: st => st.cols * st.rows >= 54 && st.mines >= 12,
@@ -230,7 +283,11 @@ console.log('[T2d] v29 难度配置：14 关都已加码（防止回退成无聊
     11: st => st.quota >= 150,
     13: st => st.rate <= 0.42 && st.holdReset <= 1.1,
     14: st => st.target >= 1200,
-    16: st => st.rows >= 6 && st.paddle <= 48 && st.speed >= 165
+    16: st => st.rows >= 6 && st.paddle <= 48 && st.speed >= 165,
+    18: st => st.quota >= 8 && st.maxTargets >= 5 && st.limit <= 90,
+    21: st => st.beats >= 10 && st.interval <= 1.2 && st.minInt <= 0.85,
+    24: st => st.quota >= 8 && st.emeralds >= 6 && st.rocks >= 5 && st.limit <= 150,
+    28: st => st.survive >= 45 && st.shards >= 12 && st.limit <= 120
   };
   for (const i of NONBOSS) {
     const st = A.stages[i], fn = expect[i];
@@ -331,7 +388,7 @@ console.log('[T6] ui.js / index.html 接入点');
   ok(ui.includes("drawPixelText('MINI'"), '选关卡有 MINI 角标');
   const iArc = html.indexOf('arcade.js'), iEng = html.indexOf('engine.js'), iUi = html.indexOf('ui.js');
   ok(iEng >= 0 && iArc > iEng && iUi > iArc, '加载顺序 engine → arcade → ui', [iEng, iArc, iUi].join(','));
-  ok(/arcade\.js\?v=42/.test(html), 'arcade.js 带缓存版本号 v42');
+  ok(/arcade\.js\?v=43/.test(html), 'arcade.js 带缓存版本号 v43');
 }
 
 console.log('[T7] 不含平台横向玩法残留：伪关卡不会进入 updateWorld 路径');

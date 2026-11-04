@@ -2,9 +2,10 @@
 // chapter3.js —— 第三章·幽冥终章三关 + 谜题数据（v7 契约附记：纯数据文件）
 // 设计基准：docs/specs/2026-10-24-v7-design.md；施工工单：docs/workorders/v7-chapter3.md
 // 顶层仅 'use strict' + 注释 + 一个 IIFE + IIFE 内 CHAPTERS.push（CONTRACT 附记 v7 §1.4 白名单）
-// 全局关号：L14~L19（聚合后 ALL_LEVELS 下标 13~18）；L14~L18 主题 nether，L19 lava；
-//   Boss kind=3/4/6（L16 meta.boss:3、L18 meta.boss:4、L19 meta.boss:6 牛魔王）；
-//   精英 'z' 全章恰 1（L15 桥心悬空锚）；谜题键恰 14/15（L16/L19 均无神龛）。
+// 全局关号：L14~L20（聚合后 ALL_LEVELS 下标 13~19）；L14~L19 主题 nether，L20 lava；
+//   Boss kind=3/4/6（L16 meta.boss:3、L18 meta.boss:4、L20 meta.boss:6 牛魔王）；
+//   L19「幽冥炮台」为 v30 街机间奏（无 build，不走平台关）；
+//   精英 'z' 全章恰 1（L15 桥心悬空锚）；谜题键恰 14/15（L16/L20 均无神龛）。
 // 字符消费（框架队实装，本文件只摆字符）：'R' 灯笼光源 / 'T' 幽灵穿墙 / 'E' 魂火自爆 /
 //   'z' 精英幽灵王 / 'G' 隐藏砖 / 'g' 宝箱 / 'X' Boss 锚点；既有 '~' '^' 'S' '=' 等全量可用。
 // 硬约束对照（工单 H1~H6）：'T' 合计 5 / 'E' 合计 6（H3 硬契约 4~6，走线 10 处按硬契约裁剪，
@@ -473,7 +474,12 @@
   //   - 无 'Q' 神龛（Boss 关不设谜题，避免 puzzle 门禁要求神龛配对）、无 'P'/'F' 终点
   //     （levels.js 断言：Boss 关 nP 必须为 0；胜利由 Boss 死亡触发，reach 对本站目标数=0）。
   // 字符只用 L5「烈焰深渊」已消费的 lava 集（# = B W c @ X），未发明新字符、未铺 '~'（熔岩=踩空死）。
-  const L19 = { name: '19 · 火焰山', theme: 'lava', par: 210, boss: 6,   // v12：顶栏只放得下 9 字，Boss 全名在登场横幅/血条
+  // v30：章内间奏——鬼差追逃与牛魔王之间插一关街机打靶，避免 Boss 连排。
+  // 无 build（ui 走 ARCADE.start，engine 不构建平台关）；theme 沿用 nether。
+  const L19 = { name: '19 · 幽冥炮台', theme: 'nether', par: 45, arcadeOnly: true,
+    hint: '转动灵炮打鬼火；金火给奖励币，红色魂雷千万别打' };
+
+  const L20 = { name: '20 · 火焰山', theme: 'lava', par: 210, boss: 6,   // v12：顶栏只放得下 9 字，Boss 全名在登场横幅/血条
     hint: '牛魔王会连撞三道墙再反弹；别贴墙、别站正前方，火油弹要弹两下才炸',
     w: 72, h: 18,
     build(g) { const H = g.h - 1;              // H=17；主地板顶=行 15
@@ -492,7 +498,7 @@
 
   CHAPTERS.push({
     id: 3, name: '第三章·幽冥终章',
-    levels: [L14, L15, L16, L17, L18, L19],
+    levels: [L14, L15, L16, L17, L18, L19, L20],
     puzzles: { 14: P14, 15: P15 }
   });
 })();

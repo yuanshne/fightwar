@@ -1222,3 +1222,40 @@ T5 断言改「站雾里 hp 不动 + 减速标记生效」，全文件 80 PASS /
 - `python tools/_v26_arcade_qa.py`：旧用例继续跑 14 关真按键与截图（v29 下全 PASS）。
 - `python tools/_live_v29_check.py`：线上 v=42、27 关、14 关新难度参数与街机可进入。
 - 缓存版本：`index.html` 全部脚本 `?v=42`（v29 发版）。
+
+## v30 后三章间奏（追加，2026-11-04 · 集成队录入）
+
+> 用户口径：「后续 boss 接着 boss 是不是有一点混乱，可以修改一下，让其中夹带一些有趣的小关」。
+> 只重排关卡节奏，**不改任何 Boss 的机制/数值/美术**。
+
+### 关卡表（31 关，索引 0~30）
+- 第三章 L14~L20：`maze(13) / jumper(14) / boss3(15) / breakout(16) / boss4(17) / cannon(18) / boss6(19)`。
+- 第四章 L21~L27：`boss7(20) / rhythm(21) / boss8(22) / boss9(23) / gold2(24) / boss10(25) / boss11(26)`。
+- 第五章 L28~L31：`boss12(27) / dodge2(28) / boss13(29) / boss14(30)`。
+- 除 L19/L22/L25/L29 外，所有旧关下标不变（0~17 与 arcade 既有 14 关零改动），
+  后三章最多连打 2 只 Boss。选关章首表 `CH_HEAD=[[0,7],[7,6],[13,7],[20,7],[27,4]]`。
+
+### 新关卡数据纪律
+- 间奏关必须同时满足：`arcadeOnly:true`、**没有 `build`**、`ARCADE.has(idx)` 为真。
+- `engine.loadLevel` 对无 `build` 的关返回 `false`（不构建平台世界）；`ui.startLevel` 仍先走 `ARCADE.has` 分流。
+- `gate engine` 对无 `build` 关只允许显式 `arcadeOnly`，并跳过构造/空转/神龛；`reach` 同样跳过。
+- `STAGES[18] cannon`：8 鬼火配额、最多 5 目标、生成 1.0s、炮口限上半圈；金火 +1 币、魂雷扣心。
+- `STAGES[21] rhythm`：10 拍、首拍 1.2s、每拍 ×0.94（下限 0.85s）；金环窗口半径 7~26px；
+  完成 10 拍即胜，抢拍/漏拍各扣 1 心（三心耗尽失败）。
+- `STAGES[24]` = gold 深拷贝改参：配额 8 / 翡翠 6 / 石 5 / par 65 / limit 140；
+  `STAGES[28]` = dodge 深拷贝改参：45s / 12 星屑 / par 58 / limit 110。
+- 矿脉 `put()` 增加网格兜底（间距 22→18→14），保证配额所需宝石一定生成；随机重试 400 次。
+
+### 存档迁移（`migrateProgress`，幂等）
+- 旧下标 `18..26` → `19,20,22,23,25,26,27,29,30`；先整体快照再落表，避免新旧键重叠互相覆盖。
+- `unlocked > 18` 时按旧最后一张卡换算到新下标 +1；置 `v30m=1` 并 `saveProgress`。
+- `v30m` 已存在时不再迁移；旧键（如 18）后续写入不会被改写。
+
+### 测试与验收
+- `node tools/_arcade_test.js`：31 关 / 18 小关 / 13 Boss / 16 种玩法；新增 cannon/rhythm 机制、
+  两个进阶变体与 4 组难度断言（570 项）。
+- `node tools/_v29_arcade_reach.js`：18 关 × 3 种子 = 54 项；新增 `botCannon`（先验弹道再开炮）
+  与 `botRhythm`（缩环进窗敲拍），gold/dodge 机器人直接复用进阶变体。
+- `python tools/_v30_qa.py`：分章截图、18 关进入、4 个间奏真按键、旧档迁移/二次启动幂等（30 项）。
+- `gate art/levels/engine/puzzle/reach` 全绿；`levels.js` 第五章断言改为 L28/L29/L30/L31 新顺序。
+- 缓存版本：`index.html` 全部脚本 `?v=43`（v30 发版）。

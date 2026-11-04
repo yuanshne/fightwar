@@ -358,7 +358,9 @@ function auditReach(opts) {
   let fail = 0, warn = 0;
   for (let i = 0; i < N; i++) {
     if (o.onlyLevel !== undefined && o.onlyLevel !== i) continue;
-    sb.loadLevel(i, false);
+    const meta0 = sb.ALL_LEVELS[i];
+    if (!meta0 || typeof meta0.build !== 'function') continue; // v30：街机间奏无平台网格，不参与走图可达性
+    if (!sb.loadLevel(i, false)) continue;
     const L0 = sb.game.level;
     const targets = [];
     for (const sh of L0.shrines) targets.push({ kind: 'shrine', idx: sh.idx, name: 'P' + sh.idx,

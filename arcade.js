@@ -71,8 +71,10 @@
     A.floats.push({ s: s, c: color, x: x, y: y, t: 0 });
   }
 
-  /* ---------------- 14 个小关的街机配置 ----------------
+  /* ---------------- 18 个小关的街机配置 ----------------
      键 = ALL_LEVELS 下标；只有非 Boss 关有配置，Boss 关返回 false 走平台动作。
+     v30：后三章插入 4 个「间奏」小关——18 灵火打靶（新）、21 共鸣节拍（新）、
+           24 喉中拾遗（矿脉进阶）、28 镜海流星（弹幕进阶），打散 Boss 连排。
      par = 三星计时目标（秒）；totalCoin = 奖励目标（结算星）；limit = 超时失败。 */
   const STAGES = {
     0: {
@@ -187,8 +189,34 @@
       objective: '击碎封印墙上的全部砖块；球掉下去扣 1 心',
       controls: '←→ / 鼠标移动挡板 · J/空格 发射',
       hint: '挡板边缘反弹角度更斜；先打穿一侧，再救中间的赤核。'
+    },
+    18: {
+      type: 'cannon', genre: '灵火打靶', title: '幽冥炮台',
+      quota: 8, maxTargets: 5, rate: 1.0, speed: 26, par: 45, limit: 80, totalCoin: 1,
+      objective: '转动灵炮，击落 8 只飘荡的鬼火；误击红色魂雷扣 1 心',
+      controls: '←→ 瞄准 · J/空格 开炮 · 鼠标瞄准点击',
+      hint: '鬼火左右飘、越飘越快；金火 +1 奖励币，引线冒火的魂雷千万别打。'
+    },
+    21: {
+      type: 'rhythm', genre: '共鸣节拍', title: '回响节拍',
+      beats: 10, interval: 1.2, minInt: 0.85, par: 50, limit: 110, totalCoin: 1,
+      objective: '缩环落进金环的瞬间敲响共鸣，完成 10 拍；抢拍或漏拍扣 1 心',
+      controls: 'J/空格 敲响 · 鼠标点击',
+      hint: '缩环进入金环再敲；一轮比一轮快，抢拍或漏拍都会断连扣心。'
     }
   };
+  // v30：后两章的进阶间奏——沿用 gold/dodge 的规则，只把盘面与压力调高。
+  // 单独赋值而不是塞进字面量：上面 STAGES 尚未初始化完，字面量内读不到 STAGES[7]/[9]。
+  STAGES[24] = Object.assign({}, STAGES[7], {
+    title: '喉中拾遗', quota: 8, emeralds: 6, rocks: 5, par: 65, limit: 140,
+    objective: '从巨喉深处钩取 8 颗宝石；翡翠 +1 奖励币，石头拖慢回收',
+    hint: '石堆更密、回收更慢；先摘近处翡翠，再赌深处的金脉。'
+  });
+  STAGES[28] = Object.assign({}, STAGES[9], {
+    title: '镜海流星', survive: 45, shards: 12, par: 58, limit: 110,
+    objective: '撑过 45 秒并收集 12 枚星屑；被镜面陨星擦到扣 1 心',
+    hint: '镜海里的陨星更密；先保命，再趁空档绕去捡星屑。'
+  });
 
   /* ---------------- 运行时状态 ---------------- */
   let A = null;
@@ -1428,9 +1456,15 @@
     d.state = 'swing'; d.hold = null; d.pull = 0;
     d.quota = st.quota; d.got = 0; d.em = 0; d.emTotal = st.emeralds;
     d.gems = []; d.spark = 0;
+    function goldPush(kind, x, y, r) {
+      d.gems.push({
+        x: x, y: y, kind: kind, r: r,
+        w: kind === 'rock' ? 2.5 : kind === 'emerald' ? 1.15 : 1, taken: false
+      });
+    }
     function put(kind) {
-      for (let t = 0; t < 160; t++) {
-        const r = kind === 'rock' ? 11 : 8;
+      const r = kind === 'rock' ? 11 : 8;
+      for (let t = 0; t < 400; t++) {
         const y = 112 + Math.random() * 72;
         // 只在吊臂 ±1.05 rad、够得到的扇形里生成，避免出现永远抓不到的宝石。
         const half = Math.tan(1.05) * (y - d.ay);
@@ -1438,13 +1472,21 @@
         if (hi <= lo) continue;
         const x = lo + Math.random() * (hi - lo);
         if (Math.hypot(x - d.ax, y - d.ay) > d.maxLen - 6) continue;
-        if (d.gems.some(g => Math.hypot(g.x - x, g.y - y) < 26)) continue;
-        d.gems.push({
-          x: x, y: y, kind: kind, r: r,
-          w: kind === 'rock' ? 2.5 : kind === 'emerald' ? 1.15 : 1, taken: false
-        });
+        if (d.gems.some(g => Math.hypot(g.x - x, g.y - y) < 23)) continue;
+        goldPush(kind, x, y, r);
         return;
       }
+      // v30 兜底：随机撒点被挤满时按网格补位（间距逐级放宽），保证配额数量的宝石一定齐。
+      for (const gap of [22, 18, 14]) {
+        for (let y = 112; y <= 184; y += 6) for (let x = 20; x <= W - 20; x += 6) {
+          if (Math.hypot(x - d.ax, y - d.ay) > d.maxLen - 6) continue;
+          if (Math.abs(Math.atan2(x - d.ax, y - d.ay)) > 1.05) continue;
+          if (d.gems.some(g => Math.hypot(g.x - x, g.y - y) < gap)) continue;
+          goldPush(kind, x, y, r);
+          return;
+        }
+      }
+      goldPush(kind, d.ax, d.ay + 70, r); // 极端情况下允许叠放，也绝不吞掉关键宝石
     }
     for (let i = 0; i < st.emeralds; i++) put('emerald');
     for (let i = 0; i < st.rocks; i++) put('rock');
@@ -2406,6 +2448,289 @@
       txt('终点 ' + Math.floor(d.target - d.maxH) + ' 尺', W / 2, 48, 9, '#68f8a0', 'center');
       ax.globalAlpha = 1;
     }
+  };
+
+  /* ============================================================
+     15) 灵火打靶（v30 · 第三章间奏）
+     炮台固定在中下方，←→ 或鼠标瞄准，J/空格/点击开炮。鬼火横向飘移，
+     金火给奖励币，红色魂雷打中扣心；击落配额即胜。
+     ============================================================ */
+  INIT.cannon = function (st, d) {
+    d.cx = W / 2; d.cy = 178;
+    d.ang = -Math.PI / 2; d.cd = 0; d.recoil = 0;
+    d.hits = 0; d.spawnT = 0.35; d.spawnCount = 0;
+    d.maxTargets = st.maxTargets || 5;
+    d.targets = []; d.beam = 0; d.beamX = 0; d.beamY = 0;
+  };
+  function cannonSpawn(d) {
+    const roll = Math.random();
+    const kind = roll < 0.18 ? 'bomb' : roll < 0.30 ? 'gold' : 'wisp';
+    const spd = (A.st.speed || 26) + d.spawnCount * 0.8;
+    d.targets.push({
+      x: 28 + Math.random() * (W - 56),
+      y: 50 + Math.random() * 92,
+      vx: (Math.random() < 0.5 ? -1 : 1) * (14 + Math.random() * spd),
+      vy: (Math.random() - 0.5) * 18,
+      r: kind === 'bomb' ? 8 : 7,
+      kind: kind, t: Math.random() * TAU
+    });
+    d.spawnCount++;
+  }
+  function cannonFire(d) {
+    d.cd = 0.34; d.recoil = 1; d.beam = 0.09; sfx('shot');
+    const dx = Math.cos(d.ang), dy = Math.sin(d.ang);
+    let best = null, bestT = 1e9;
+    for (const t of d.targets) {
+      const rx = t.x - d.cx, ry = t.y - d.cy;
+      const proj = rx * dx + ry * dy;
+      if (proj <= 4 || proj > 300) continue;
+      const perp = Math.abs(rx * dy - ry * dx);
+      if (perp > t.r + 3) continue;
+      if (proj < bestT) { bestT = proj; best = t; }
+    }
+    if (!best) return;
+    d.beamX = best.x; d.beamY = best.y;
+    const bi = d.targets.indexOf(best);
+    if (bi >= 0) d.targets.splice(bi, 1);
+    if (best.kind === 'bomb') {
+      addFloat('魂雷 -1 心', '#f85868', best.x, best.y - 10);
+      A.shake = 7; loseHeart();
+      return;
+    }
+    d.hits++;
+    if (best.kind === 'gold') {
+      game.coins = Math.min(A.st.totalCoin, game.coins + 1);
+      addFloat('金火 +1', '#f8d048', best.x, best.y - 10);
+    } else addFloat('+1', '#c8f0ff', best.x, best.y - 10);
+    A.shake = Math.max(A.shake, 2); sfx('hit');
+    if (d.hits >= A.st.quota) { A.status = '击落 ' + d.hits + ' 只'; win(); }
+  }
+  UPDATE.cannon = function (dt, inp) {
+    const d = A.data;
+    d.cd = Math.max(0, d.cd - dt);
+    d.beam = Math.max(0, d.beam - dt);
+    d.recoil = Math.max(0, d.recoil - dt * 7);
+    if (inp.left) d.ang -= 2.2 * dt;
+    if (inp.right) d.ang += 2.2 * dt;
+    if (inp.mx >= 0) {
+      const ma = Math.atan2(inp.my - d.cy, inp.mx - d.cx);
+      if (ma < 0) d.ang = ma;                        // 只允许朝上半圈瞄准
+    }
+    d.ang = clamp(d.ang, -Math.PI + 0.28, -0.28);
+    if ((inp.attackHit || inp.confirmHit || inp.click) && d.cd <= 0) cannonFire(d);
+    if (A.done) return;
+    d.spawnT -= dt;
+    if (d.spawnT <= 0) {
+      if (d.targets.length < d.maxTargets) cannonSpawn(d);
+      d.spawnT = (A.st.rate || 1.0) * (0.7 + Math.random() * 0.6);
+    }
+    for (const t of d.targets) {
+      t.t += dt;
+      t.x += t.vx * dt; t.y += t.vy * dt;
+      if (t.x < 16 + t.r) { t.x = 16 + t.r; t.vx = Math.abs(t.vx); }
+      if (t.x > W - 16 - t.r) { t.x = W - 16 - t.r; t.vx = -Math.abs(t.vx); }
+      if (t.y < 44 + t.r) { t.y = 44 + t.r; t.vy = Math.abs(t.vy); }
+      if (t.y > 154 - t.r) { t.y = 154 - t.r; t.vy = -Math.abs(t.vy); }
+    }
+    A.status = '击落 ' + d.hits + '/' + A.st.quota + '　金火 ' + game.coins + '/' + A.st.totalCoin;
+  };
+  function cannonFlame(x, y, r, col, dark) {
+    ax.globalAlpha = 0.18; ax.fillStyle = col;
+    ax.beginPath(); ax.arc(x, y, r * 2.2, 0, TAU); ax.fill();
+    ax.globalAlpha = 1;
+    ax.fillStyle = dark; ax.beginPath(); ax.arc(x, y + r * 0.25, r, 0, TAU); ax.fill();
+    ax.fillStyle = col; ax.beginPath();
+    ax.moveTo(x, y - r * 1.7);
+    ax.quadraticCurveTo(x + r, y - r * 0.5, x + r * 0.55, y + r * 0.5);
+    ax.quadraticCurveTo(x, y + r * 0.9, x - r * 0.55, y + r * 0.5);
+    ax.quadraticCurveTo(x - r, y - r * 0.5, x, y - r * 1.7);
+    ax.fill();
+    ax.fillStyle = '#101828';
+    ax.fillRect(x - r * 0.42, y - r * 0.15, 2, 2);
+    ax.fillRect(x + r * 0.18, y - r * 0.15, 2, 2);
+  }
+  RENDER.cannon = function () {
+    const d = A.data;
+    panel(6, 34, W - 12, 168, 0.55);
+    // 两侧灵龛剪影
+    for (let i = 0; i < 2; i++) {
+      const px = i ? W - 26 : 10;
+      ax.fillStyle = 'rgba(20,28,52,0.75)'; ax.fillRect(px, 42, 16, 150);
+      ax.fillStyle = 'rgba(90,140,200,0.16)'; ax.fillRect(px + 2, 44, 3, 146);
+      ax.fillStyle = 'rgba(248,208,72,0.30)'; ax.fillRect(px + 7, 48, 3, 3);
+    }
+    // 瞄准虚线
+    ax.save();
+    ax.strokeStyle = 'rgba(180,220,255,0.22)'; ax.lineWidth = 1;
+    ax.setLineDash([3, 5]);
+    ax.beginPath(); ax.moveTo(d.cx, d.cy);
+    ax.lineTo(d.cx + Math.cos(d.ang) * 210, d.cy + Math.sin(d.ang) * 210);
+    ax.stroke();
+    ax.restore();
+    // 鬼火目标
+    for (const t of d.targets) {
+      if (t.kind === 'bomb') {
+        ax.fillStyle = '#2a2030'; ax.beginPath(); ax.arc(t.x, t.y, t.r, 0, TAU); ax.fill();
+        ax.fillStyle = '#f85868'; ax.beginPath(); ax.arc(t.x - 2, t.y - 1, 2, 0, TAU); ax.fill();
+        ax.fillStyle = '#ffd0d8'; ax.beginPath(); ax.arc(t.x + 3, t.y - 1, 2, 0, TAU); ax.fill();
+        ax.strokeStyle = '#f8b048'; ax.lineWidth = 1;
+        ax.beginPath(); ax.moveTo(t.x + 2, t.y - t.r);
+        ax.quadraticCurveTo(t.x + 9, t.y - t.r - 7, t.x + 5, t.y - t.r - 11); ax.stroke();
+        ax.fillStyle = '#f85838'; ax.fillRect(t.x + 4, t.y - t.r - 13, 2, 2);
+      } else {
+        const wob = Math.sin(t.t * 6) * 1.2;
+        cannonFlame(t.x, t.y + wob, t.r,
+          t.kind === 'gold' ? '#f8d048' : '#78d8f8',
+          t.kind === 'gold' ? '#a87818' : '#2868a0');
+      }
+    }
+    // 炮台
+    const muzzle = 20 - d.recoil * 4;
+    ax.save();
+    ax.translate(d.cx, d.cy);
+    ax.rotate(d.ang);
+    ax.fillStyle = '#4a5478'; ax.fillRect(0, -5, muzzle, 10);
+    ax.fillStyle = '#8a9ac0'; ax.fillRect(0, -5, muzzle, 2);
+    ax.fillStyle = '#f8d048'; ax.fillRect(muzzle - 4, -5, 4, 10);
+    ax.restore();
+    ax.fillStyle = '#2c3450'; ax.beginPath();
+    ax.moveTo(d.cx - 15, d.cy + 8); ax.lineTo(d.cx + 15, d.cy + 8);
+    ax.lineTo(d.cx + 11, d.cy + 1); ax.lineTo(d.cx - 11, d.cy + 1); ax.closePath(); ax.fill();
+    ax.fillStyle = '#586a92'; ax.fillRect(d.cx - 11, d.cy + 1, 22, 2);
+    ax.fillStyle = '#f8d048'; ax.fillRect(d.cx - 3, d.cy + 3, 6, 3);
+    // 炮口火光
+    if (d.recoil > 0.2) {
+      const mx = d.cx + Math.cos(d.ang) * muzzle, my = d.cy + Math.sin(d.ang) * muzzle;
+      ax.globalAlpha = d.recoil * 0.6; ax.fillStyle = '#fff0b0';
+      ax.beginPath(); ax.arc(mx, my, 10 * d.recoil, 0, TAU); ax.fill();
+      ax.globalAlpha = 1;
+    }
+    // 命中光束
+    if (d.beam > 0) {
+      ax.globalAlpha = d.beam / 0.09;
+      ax.strokeStyle = '#f8f8d0'; ax.lineWidth = 2;
+      ax.beginPath(); ax.moveTo(d.cx, d.cy); ax.lineTo(d.beamX, d.beamY); ax.stroke();
+      ax.fillStyle = '#fff8c8'; ax.beginPath(); ax.arc(d.beamX, d.beamY, 6, 0, TAU); ax.fill();
+      ax.globalAlpha = 1;
+    }
+  };
+
+  /* ============================================================
+     16) 共鸣节拍（v30 · 第四章间奏）
+     缩环从外圈收向金环，在重叠窗口内敲响即得 1 拍；抢拍/漏拍扣心。
+     每拍间隔缩短，最后几拍明显更快。
+     ============================================================ */
+  INIT.rhythm = function (st, d) {
+    d.beats = st.beats || 10; d.beat = 0; d.bt = 0;
+    d.interval = st.interval || 1.2; d.minInt = st.minInt || 0.85;
+    d.hits = 0; d.combo = 0; d.best = 0;
+    d.beatHit = false; d.beatMiss = false;
+    d.ringX = W / 2; d.ringY = 118;
+    d.impact = 0;
+  };
+  function rhythmRadius(d) { return 64 * (1 - clamp(d.bt / d.interval, 0, 1)); }
+  function rhythmWindow(r) { return r >= 7 && r <= 26; }
+  UPDATE.rhythm = function (dt, inp) {
+    const d = A.data;
+    if (d.beat >= d.beats || A.done) return;
+    d.bt += dt;
+    d.impact = Math.max(0, d.impact - dt * 5);
+    const r = rhythmRadius(d);
+    if ((inp.attackHit || inp.confirmHit || inp.click) && !d.beatHit) {
+      d.beatHit = true;
+      if (rhythmWindow(r)) {
+        d.hits++; d.combo++; d.best = Math.max(d.best, d.combo);
+        d.impact = 1; A.flash = Math.max(A.flash, 0.12);
+        addFloat('共鸣 ×' + d.combo, '#f8e890', W / 2, 78);
+        sfx('gem');
+      } else {
+        d.combo = 0;
+        addFloat('抢拍 -1 心', '#f85868', W / 2, 78);
+        loseHeart();
+        if (A.done) return;
+      }
+    }
+    if (d.bt >= d.interval && !d.beatHit && !d.beatMiss) {
+      d.beatMiss = true; d.combo = 0;
+      addFloat('漏拍 -1 心', '#f85868', W / 2, 78);
+      loseHeart();
+      if (A.done) return;
+    }
+    if (d.bt >= d.interval + 0.22) {
+      d.beat++; d.bt = 0; d.beatHit = false; d.beatMiss = false;
+      d.interval = Math.max(d.minInt, d.interval * 0.94);
+      if (d.beat >= d.beats) {
+        A.status = '共鸣 ' + d.hits + '/' + d.beats + ' 拍';
+        win();
+        return;
+      }
+    }
+    A.status = '拍 ' + Math.min(d.beat + 1, d.beats) + '/' + d.beats +
+      '　命中 ' + d.hits + '　连击 ' + d.combo;
+  };
+  RENDER.rhythm = function () {
+    const d = A.data;
+    panel(6, 34, W - 12, 168, 0.55);
+    const cx = d.ringX, cy = d.ringY;
+    // 外圈轨道
+    ax.strokeStyle = 'rgba(120,180,220,0.20)'; ax.lineWidth = 1;
+    ax.beginPath(); ax.arc(cx, cy, 64, 0, TAU); ax.stroke();
+    ax.beginPath(); ax.arc(cx, cy, 40, 0, TAU); ax.stroke();
+    // 金环目标
+    const r = rhythmRadius(d);
+    const inWin = rhythmWindow(r);
+    ax.strokeStyle = inWin ? '#fff8c8' : '#f8d048';
+    ax.lineWidth = inWin ? 3 : 2;
+    ax.beginPath(); ax.arc(cx, cy, 16, 0, TAU); ax.stroke();
+    if (inWin) {
+      ax.globalAlpha = 0.18 + 0.12 * Math.sin(A.t * 12);
+      ax.fillStyle = '#f8e890';
+      ax.beginPath(); ax.arc(cx, cy, 17, 0, TAU); ax.fill();
+      ax.globalAlpha = 1;
+    }
+    // 收缩环
+    if (d.beat < d.beats) {
+      ax.globalAlpha = 0.9;
+      ax.strokeStyle = inWin ? '#fff8c8' : '#78d8f8';
+      ax.lineWidth = 2;
+      ax.beginPath(); ax.arc(cx, cy, Math.max(1, r), 0, TAU); ax.stroke();
+      ax.globalAlpha = 1;
+      // 环上的四枚音符刻度
+      for (let i = 0; i < 4; i++) {
+        const a = i * TAU / 4 + Math.PI / 4;
+        ax.fillStyle = inWin ? '#fff8c8' : '#a8e8ff';
+        ax.fillRect(cx + Math.cos(a) * Math.max(1, r) - 1,
+          cy + Math.sin(a) * Math.max(1, r) - 1, 2, 2);
+      }
+    }
+    // 中心的钟
+    ax.fillStyle = '#c89028';
+    ax.beginPath();
+    ax.moveTo(cx - 9, cy + 9); ax.quadraticCurveTo(cx - 9, cy - 8, cx, cy - 11);
+    ax.quadraticCurveTo(cx + 9, cy - 8, cx + 9, cy + 9); ax.closePath(); ax.fill();
+    ax.fillStyle = '#f8d048'; ax.fillRect(cx - 9, cy + 7, 18, 3);
+    ax.fillStyle = '#f8f0c8'; ax.fillRect(cx - 2, cy - 14, 4, 3);
+    ax.fillStyle = '#7a5818'; ax.fillRect(cx - 1, cy + 10, 2, 3);
+    if (d.impact > 0) {
+      ax.globalAlpha = d.impact * 0.8;
+      ax.strokeStyle = '#fff8c8'; ax.lineWidth = 2;
+      for (let i = 0; i < 8; i++) {
+        const a = i * TAU / 8 + 0.2;
+        ax.beginPath();
+        ax.moveTo(cx + Math.cos(a) * 20, cy + Math.sin(a) * 20);
+        ax.lineTo(cx + Math.cos(a) * (26 + 8 * d.impact), cy + Math.sin(a) * (26 + 8 * d.impact));
+        ax.stroke();
+      }
+      ax.globalAlpha = 1;
+    }
+    // 当前拍点进度
+    for (let i = 0; i < d.beats; i++) {
+      const x = W / 2 - (d.beats - 1) * 6 + i * 12;
+      ax.fillStyle = i < d.beat ? '#f8d048' : i === d.beat ? '#fff8c8' : '#33405e';
+      ax.fillRect(x, 44, 4, 4);
+    }
+    if (d.combo >= 2) txt('连击 ×' + d.combo, W / 2, 176, 10, '#f8e890', 'center');
+    else txt('缩环入金环时敲响', W / 2, 176, 8, '#8a96b8', 'center');
   };
 
   /* ---------------- 导出 ---------------- */

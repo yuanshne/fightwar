@@ -985,13 +985,19 @@ function validateLevels(){
     if(nG3<1)errs.push('L14~L16 隐藏砖G合计='+nG3+'(应≥1)');
     if(nChest!==1)errs.push('L14~L16 宝箱g合计='+nChest+'(应为1)');
   }
-  if(ALL_LEVELS.length>=27){                     // v28 第五章三关合入（chapter5.js）——地图三全 Boss
-    const want=['anthem','mirror','abyss'],bk=[12,13,14];
-    for(let i=0;i<3;i++){
-      const li=24+i;
-      if(ALL_LEVELS[li].theme!==want[i])errs.push('L'+(li+1)+' 第五章 theme 应为 '+want[i]);
-      if(ALL_LEVELS[li].boss!==bk[i])errs.push('L'+(li+1)+' meta.boss 应为 '+bk[i]);
-      const m=ALL_LEVELS[li];if(!m.build)continue;
+  if(ALL_LEVELS.length>=31){                     // v30 后三章插入间奏后的第五章（chapter5.js，L28~L31）
+    // L28 Boss12 / L29 街机间奏 / L30 Boss13 / L31 Boss14
+    const want={27:'anthem',28:'mirror',29:'mirror',30:'abyss'};
+    const bk={27:12,29:13,30:14};
+    for(const k in want){
+      const li=+k,m=ALL_LEVELS[li];
+      if(m.theme!==want[k])errs.push('L'+(li+1)+' 第五章 theme 应为 '+want[k]);
+      if(bk[li]!==undefined&&m.boss!==bk[li])errs.push('L'+(li+1)+' meta.boss 应为 '+bk[li]);
+      if(bk[li]===undefined){
+        if(m.arcadeOnly!==true||m.build)errs.push('L'+(li+1)+' 街机间奏应 arcadeOnly 且无 build');
+        continue;
+      }
+      if(!m.build)continue;
       const gg=new LG(m.w,m.h);m.build(gg);
       let nX=0,nP=0,nQ=0;
       for(let y=0;y<m.h;y++)for(let x=0;x<m.w;x++){

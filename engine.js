@@ -1473,6 +1473,10 @@ function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 +
 }
 
 function loadLevel(idx, keepStats) {
+  // v30：第三~五章插入的街机间奏（arcadeOnly，无 build）不构建平台关卡；
+  // 正常流程由 ui.startLevel 的 ARCADE.has 分流，此处守卫覆盖测试/调试直达调用。
+  const _meta30 = ((typeof ALL_LEVELS !== 'undefined' && ALL_LEVELS) ? ALL_LEVELS[idx] : undefined) || LEVELS[idx];
+  if (!_meta30 || typeof _meta30.build !== 'function') return false;
   game.levelIdx = idx;
   game.level = new Level(idx);
   const L = game.level;
@@ -1514,6 +1518,7 @@ function loadLevel(idx, keepStats) {
   game.blades = [];
   game.gearDrops = []; game.pickups = []; game.bagActive = false;
   game.input.down = 0; game.input.skillLHit = 0;
+  return true; // v30：平台关构建成功（街机间奏在上方返回 false）
 }
 
 function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复位、子弹清空；钥匙/门/开关/已收金币保持

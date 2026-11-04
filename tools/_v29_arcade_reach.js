@@ -926,17 +926,70 @@ const botBreakout = {
 };
 
 /* ============================================================
+   15) 幽冥炮台（v30 · L19）：只打鬼火/金火，避开魂雷；转到射线干净再开炮
+   ============================================================ */
+const botCannon = {
+  init() { return {}; },
+  act(s, inp) {
+    const d = s.data;
+    if (s.done) return;
+    let best = null, bestDiff = 1e9, bestTol = 0;
+    for (const t of d.targets) {
+      if (t.kind === 'bomb') continue;
+      const ang = Math.atan2(t.y - d.cy, t.x - d.cx);
+      if (ang < -Math.PI + 0.28 || ang > -0.28) continue;
+      const dx = Math.cos(ang), dy = Math.sin(ang);
+      const dist = Math.hypot(t.x - d.cx, t.y - d.cy);
+      let blocked = false, nearest = 1e9;
+      for (const o of d.targets) {
+        const rx = o.x - d.cx, ry = o.y - d.cy;
+        const proj = rx * dx + ry * dy;
+        if (proj <= 4 || proj > 300) continue;
+        const perp = Math.abs(rx * dy - ry * dx);
+        if (perp <= o.r + 3 && proj < nearest) { nearest = proj; blocked = o.kind === 'bomb'; }
+      }
+      if (blocked) continue;
+      let diff = ang - d.ang;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const tol = Math.min(0.10, Math.atan2(t.r + 2, Math.max(20, dist)));
+      if (Math.abs(diff) < bestDiff) { bestDiff = Math.abs(diff); best = diff; bestTol = tol; }
+    }
+    if (best === null) return;
+    if (bestDiff > 0.02) { hold(inp, best > 0 ? 'right' : 'left'); return; }
+    if (d.cd <= 0) hit(inp, 'attack');
+  },
+  summary(s) { return 'hits=' + s.data.hits + '/coin=' + game.coins; }
+};
+
+/* ============================================================
+   16) 回响节拍（v30 · L22）：缩环进入金环窗口时敲响
+   ============================================================ */
+const botRhythm = {
+  init() { return {}; },
+  act(s, inp) {
+    const d = s.data;
+    if (s.done || d.beat >= d.beats) return;
+    const r = 64 * (1 - clamp(d.bt / d.interval, 0, 1));
+    if (!d.beatHit && r >= 7 && r <= 26) hit(inp, 'attack');
+  },
+  summary(s) { return 'hits=' + s.data.hits + '/' + s.data.beats + ' combo=' + s.data.best; }
+};
+
+/* ============================================================
    主流程
    ============================================================ */
 const BOTS = {
   0: botMine, 1: botMole, 2: botLights, 3: botMemory, 4: botSokoban, 5: botSnake,
   7: botGold, 8: botTetris, 9: botDodge, 10: botSimon, 11: botBubble, 13: botMaze,
-  14: botJumper, 16: botBreakout
+  14: botJumper, 16: botBreakout, 18: botCannon, 21: botRhythm,
+  24: botGold, 28: botDodge
 };
 const NAMES = {
   0: '动作扫雷', 1: '打地鼠', 2: '点灯', 3: '记忆翻牌', 4: '推箱子', 5: '贪吃蛇',
   7: '矿脉寻宝', 8: '落块筑墙', 9: '弹幕生存', 10: '编钟', 11: '泡泡消除', 13: '迷宫追逃',
-  14: '垂直攀跃', 16: '打砖块'
+  14: '垂直攀跃', 16: '打砖块', 18: '幽冥炮台', 21: '回响节拍',
+  24: '喉中拾遗', 28: '镜海流星'
 };
 let pass = 0, fail = 0;
 function ok(cond, msg, extra) {

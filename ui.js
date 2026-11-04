@@ -461,6 +461,23 @@ function migrateProgress(p){
   // v19 §3.1：当前英雄（'knight'|'mage'）。只增键：缺省/非法（篡改、回退版本）一律回落 'knight'，
   // 其余既有键（unlocked/stars/puzzles/equip/inv/shards/skin/skins/unlockAll）一概不动。
   if (p.hero !== 'knight' && p.hero !== 'mage') p.hero = 'knight';
+  // v30：第三~五章插入 4 个街机间奏（新 L19/L22/L25/L29），旧 L19~L27 的 Boss 依次顺延。
+  // 老档的星级键与解锁进度按「旧 idx → 新 idx」平移一次（v5 §D 同规：打过的不用重打）；
+  // 标记 v30m 防重复迁移。新旧索引重叠（如旧 18→19、旧 19→20）必须先快照再落表。
+  if (!p.v30m) {
+    const REMAP = { 18: 19, 19: 20, 20: 22, 21: 23, 22: 25, 23: 26, 24: 27, 25: 29, 26: 30 };
+    if (p.stars) {
+      const ns = {};
+      for (const k in p.stars) ns[Object.prototype.hasOwnProperty.call(REMAP, k) ? REMAP[k] : k] = p.stars[k];
+      p.stars = ns;
+    }
+    if (typeof p.unlocked === 'number' && p.unlocked > 18) {
+      const oldLast = Math.min(p.unlocked - 1, 26); // 旧档最后一张已解锁卡（旧关表 0~26）
+      p.unlocked = Math.max(p.unlocked, REMAP[oldLast] + 1);
+    }
+    p.v30m = 1;
+    saveProgress(p);
+  }
   return p;
 }
 let progress=migrateProgress(loadProgress()); // v6 波2 §A：新档回退对象同样补 v6 缺省字段（幂等）
@@ -5952,13 +5969,14 @@ function renderTitleCover(tick){
 // 选中关详情面板 y=112~170 → 底栏面板 y=197~223（提示 y=201 + STARS y=214）。
 // 一章一屏取代「四章竖排一屏」：卡回到 44 高、关名/星 12px，同屏只画一章，不再把 24 张卡压进
 // 四行 30 高的小卡（旧版最上一行压标题、"角色/衣橱"按钮，字缩到 5~7px）。
-// 章首表 [章首 0 基 idx, 章长]，7+6+6+5=24：
+// 章首表 [章首 0 基 idx, 章长]，v30 为 7+6+7+7+4=31：
 //   v23 修「牛魔王（L19）消失」——旧表第三章 [13,5] 只覆盖 idx13~17，L19(idx18) 不属于任何章，
 //   光标能 clamp 到 18 却落在没有卡的空白处；chapter3.js 实为 L14~L19 六关，改 [13,6] 后 24 关全部有章可依。
+//   v30 后三章插入 4 个街机间奏（新 L19/L22/L25/L29），旧 Boss 顺延；第三/四章各 7 卡、末章 4 卡。
 // 截断规则（过渡期兼容）：ALL_LEVELS.length≤10（章节文件未合入）→ 单章画全部关卡并按 7 列换行
 // （第二行 y+62，由 _cardXY 消费）；≥11 关按表截断，章显示条件=章首 idx<length，章长=min(声明,余量)——
 // 章节文件只到 L16 时第三章自动只画 3 卡，末章吃掉剩余关（上限 7 卡）。
-const CH_HEAD=[[0,7],[7,6],[13,6],[19,5],[24,3]];   // 第一章 L1~L7 / 第二章 L8~L13 / 第三章 L14~L19 / 第四章 L20~L24 / 第五章 L25~L27
+const CH_HEAD=[[0,7],[7,6],[13,7],[20,7],[27,4]];   // 第一章 L1~L7 / 第二章 L8~L13 / 第三章 L14~L20 / 第四章 L21~L27 / 第五章 L28~L31
 const CH_NAME=['第一章·星之大陆','第二章·星海巡旅','第三章·幽冥终章','第四章·回响之厅','第五章·终焉镜海'];
 const CH_ROW_MAX=7;                          // 单行卡位上限（x=6+6*53=324，右缘 370 < 384）
 // 章签几何（渲染与命中同源 _chTabXY）：v28 五枚 70×17、x=4+ci*75，末签右缘 374 < 384；y=18 起，顶栏（y=2~15）之下

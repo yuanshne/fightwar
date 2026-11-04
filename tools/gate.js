@@ -159,6 +159,16 @@ try {
     const nLevels = sandbox.ALL_LEVELS.length; // v7 §1.5：覆盖全部 10~16 关
     // ① 构造+空转循环（120 帧静止 + 60 帧右移起跳）
     for (let i = 0; i < nLevels; i++) {
+      const lm = sandbox.ALL_LEVELS[i];
+      if (!lm || typeof lm.build !== 'function') {
+        // v30：街机间奏（arcadeOnly）没有平台网格，由 arcade.js 独立运行；只允许显式标记的关跳过。
+        if (!lm || !lm.arcadeOnly) {
+          console.error('L' + (i + 1) + ' 缺 build 且未标 arcadeOnly');
+          process.exit(1);
+        }
+        console.log('engine L' + (i + 1) + ' SKIP: ' + lm.name + '（街机间奏，无平台关卡）');
+        continue;
+      }
       sandbox.loadLevel(i, false);
       const g = sandbox.game;
       g.state = 'play';
@@ -254,6 +264,7 @@ try {
         for (let i = 0; i < nLevels; i++) {
           const m = sandbox.ALL_LEVELS[i];
           if (m && !!m.boss) continue; // Boss 关零神龛（负例断言在下方统一做）
+          if (!m || typeof m.build !== 'function') continue; // v30：街机间奏无平台关卡/神龛
           sandbox.loadLevel(i, false);
           const g = sandbox.game;
           g.state = 'play';
