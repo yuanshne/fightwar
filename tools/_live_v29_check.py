@@ -81,9 +81,10 @@ with sync_playwright() as p:
     check(s['type'] == 'dodge' and s['survive'] == 40 and s['shards'] == 10,
           'L10 弹幕 40s / 10 星屑', s)
     s = arcade_state(pg, 14)
+    # hold 是「鬼差将至」倒计时，进关即从 2.2 递减，读到时已略小；只校验上界与配置项
     check(s['type'] == 'maze' and abs(s['rate'] - 0.40) < 1e-6 and
-          abs(s['hold'] - 2.2) < 1e-6 and abs(s['holdReset'] - 1.0) < 1e-6,
-          'L14 迷宫 rate 0.40 / hold 2.2 / reset 1.0', s)
+          0 < s['hold'] <= 2.2 + 1e-6 and abs(s['holdReset'] - 1.0) < 1e-6,
+          'L14 迷宫 rate 0.40 / hold ≤2.2 / reset 1.0', s)
     s = arcade_state(pg, 15)
     check(s['type'] == 'jumper' and s['target'] == 1200, 'L15 攀跃 1200 尺', s)
     s = arcade_state(pg, 17)
