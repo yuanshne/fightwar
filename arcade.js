@@ -12,6 +12,10 @@
        供 ui 的结算/星级/解锁逻辑复用）；
      · 音效一律经 window.ArcadeBridge（ui.js 注入），缺省回落 game.sfxQueue。
    输入由 ui.js 以 inp 对象逐步传入（不再全局监听键盘，避免和 ui 的 KEYMAP 抢键）。
+   v54：小关美术精修（只改绘制，不动判定/数值）——主题视差背景 + 星点/浮尘/扫描线、
+        玻璃切角面板与四角包角、关号徽章 HUD + 限时进度条、开场卡、胜负横幅、
+        打地鼠泥土场地、矿脉矿洞/宝石辉光、贪吃蛇圆角身体、垂直攀跃深渊岩壁/熔岩火星、
+        珊瑚光柱、迷宫灯火、牌背暗纹等。
    ============================================================ */
 'use strict';
 (function () {
@@ -19,6 +23,8 @@
   const cv = document.getElementById('game');
   const ax = cv.getContext('2d');
   ax.imageSmoothingEnabled = false;
+  // v34：主画布后备缓冲提升到 768×448 后，街机关同样按比例放大，避免只画左上角。
+  const RS = Math.max(1, Math.round(cv.width / W));
   const TAU = Math.PI * 2;
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -51,13 +57,65 @@
     ax.lineTo(x + w, y + h - c); ax.lineTo(x + w - c, y + h); ax.lineTo(x + c, y + h);
     ax.lineTo(x, y + h - c); ax.lineTo(x, y + c); ax.closePath();
   }
+  function rgba(hex, a) {
+    let h = String(hex || '#88aaff').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16) || 0;
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+  }
+  // 确定性伪随机：同一关同一序号每帧一致（美术抖动不会变成噪点）
+  function rnd1(i, s) {
+    const v = Math.sin(i * 127.1 + (s || 0) * 311.7 + A.idx * 53.3) * 43758.5453;
+    return v - Math.floor(v);
+  }
+  function roundRectPath(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ax.beginPath();
+    ax.moveTo(x + r, y);
+    ax.lineTo(x + w - r, y); ax.quadraticCurveTo(x + w, y, x + w, y + r);
+    ax.lineTo(x + w, y + h - r); ax.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ax.lineTo(x + r, y + h); ax.quadraticCurveTo(x, y + h, x, y + h - r);
+    ax.lineTo(x, y + r); ax.quadraticCurveTo(x, y, x + r, y);
+    ax.closePath();
+  }
   function panel(x, y, w, h, alpha, border) {
     const c = 4;
-    ax.save(); cutPath(x, y, w, h, c);
-    ax.fillStyle = 'rgba(8,14,32,' + (alpha == null ? 0.84 : alpha) + ')'; ax.fill();
-    ax.strokeStyle = border || 'rgba(240,200,96,0.72)'; ax.lineWidth = 1; ax.stroke();
+    let a = (alpha == null ? 0.84 : alpha);
+    // 棋盘面板减一点不透明度，让后面的主题背景透出来（有层次，不像贴一块黑板）
+    if (y >= 32 && y + h <= 206 && h > 40) a = Math.max(0.40, a - 0.08);
+    ax.save();
+    // 投影
+    ax.globalAlpha = 0.45; ax.fillStyle = '#02040a';
+    cutPath(x + 2, y + 3, w, h, c); ax.fill();
+    ax.globalAlpha = 1;
+    // 主体：上浅下深，带一点冷色玻璃感
+    const g = ax.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, 'rgba(24,36,68,' + a.toFixed(3) + ')');
+    g.addColorStop(0.45, 'rgba(10,17,38,' + a.toFixed(3) + ')');
+    g.addColorStop(1, 'rgba(5,9,22,' + a.toFixed(3) + ')');
+    cutPath(x, y, w, h, c); ax.fillStyle = g; ax.fill();
+    // 金色外框 + 冷色内框
+    ax.strokeStyle = border || 'rgba(240,200,96,0.72)';
+    ax.lineWidth = 1; ax.stroke();
     ax.strokeStyle = 'rgba(174,196,236,0.20)';
     cutPath(x + 1.5, y + 1.5, w - 3, h - 3, Math.max(2, c - 1)); ax.stroke();
+    // 顶缘反光
+    if (w > 16) {
+      ax.globalAlpha = 0.30; ax.fillStyle = '#ffffff';
+      ax.fillRect(x + c, y + 1, w - c * 2, 1);
+      ax.globalAlpha = 1;
+    }
+    // 四角金属包角
+    if (w > 30 && h > 24) {
+      const L = 7, o = 2.5;
+      ax.strokeStyle = 'rgba(248,208,72,0.50)'; ax.lineWidth = 1;
+      ax.beginPath();
+      ax.moveTo(x + o, y + o + L); ax.lineTo(x + o, y + o); ax.lineTo(x + o + L, y + o);
+      ax.moveTo(x + w - o - L, y + o); ax.lineTo(x + w - o, y + o); ax.lineTo(x + w - o, y + o + L);
+      ax.moveTo(x + o, y + h - o - L); ax.lineTo(x + o, y + h - o); ax.lineTo(x + o + L, y + h - o);
+      ax.moveTo(x + w - o - L, y + h - o); ax.lineTo(x + w - o, y + h - o); ax.lineTo(x + w - o, y + h - o - L);
+      ax.stroke();
+    }
     ax.restore();
   }
   const HEART = ['0110110', '1111111', '1111111', '0111110', '0011100', '0001000'];
@@ -306,74 +364,259 @@
   }
 
   /* ---------------- 背景 / HUD ---------------- */
+  function drawRidge(col, alpha, base, seed) {
+    ax.save(); ax.globalAlpha = alpha; ax.fillStyle = col;
+    ax.beginPath(); ax.moveTo(0, H);
+    const n = 9;
+    for (let i = 0; i <= n; i++) {
+      const x = i / n * W;
+      const bump = rnd1(i, seed) * 38 + Math.sin(i * 1.9 + seed) * 8;
+      ax.lineTo(x, base - bump);
+    }
+    ax.lineTo(W, H); ax.closePath(); ax.fill();
+    // 山脊顶缘微光
+    ax.globalAlpha = alpha * 0.55; ax.strokeStyle = 'rgba(255,255,255,0.10)';
+    ax.lineWidth = 1; ax.beginPath(); ax.moveTo(0, H);
+    for (let i = 0; i <= n; i++) {
+      const x = i / n * W;
+      const bump = rnd1(i, seed) * 38 + Math.sin(i * 1.9 + seed) * 8;
+      ax.lineTo(x, base - bump);
+    }
+    ax.stroke();
+    ax.restore();
+  }
   function drawBg(tick) {
     const th = themeOf(A.theme);
+    const accent = th.band || th.accent || '#f8d048';
+    // 天空
     const g = ax.createLinearGradient(0, 0, 0, H);
     g.addColorStop(0, th.skyT || '#0e1238');
-    g.addColorStop(1, th.skyB || '#2c3472');
+    g.addColorStop(0.55, th.skyB || '#2c3472');
+    g.addColorStop(1, '#090d1c');
     ax.fillStyle = g; ax.fillRect(0, 0, W, H);
-    ax.fillStyle = 'rgba(6,10,24,0.38)'; ax.fillRect(0, 0, W, H);
-    // 浮尘：确定性与 tick 驱动，不依赖 Math.random
-    for (let i = 0; i < 26; i++) {
-      const x = (i * 97 + A.idx * 41 + A.t * (7 + (i % 4) * 3)) % W;
-      const y = (i * 53 + A.idx * 19) % H;
-      ax.globalAlpha = 0.10 + 0.10 * ((i % 3) / 2);
-      ax.fillStyle = i % 5 === 0 ? '#f8d048' : '#d8e8ff';
-      ax.fillRect(x | 0, y | 0, 1, 1);
+    // 地平线光晕
+    const rg = ax.createRadialGradient(W / 2, 108, 8, W / 2, 108, 220);
+    rg.addColorStop(0, rgba(accent, 0.18));
+    rg.addColorStop(0.5, rgba(accent, 0.06));
+    rg.addColorStop(1, rgba(accent, 0));
+    ax.fillStyle = rg; ax.fillRect(0, 0, W, H);
+    // 星点（确定性 + 呼吸闪烁）
+    for (let i = 0; i < 44; i++) {
+      const sx = (rnd1(i, 3) * W) | 0;
+      const sy = (rnd1(i, 9) * 152) | 0;
+      const tw = 0.5 + 0.5 * Math.sin(A.t * (1.2 + (i % 5) * 0.4) + i);
+      ax.globalAlpha = 0.10 + 0.42 * tw;
+      ax.fillStyle = i % 7 === 0 ? accent : '#d8e8ff';
+      const sz = i % 11 === 0 ? 2 : 1;
+      ax.fillRect(sx, sy, sz, sz);
+      if (i % 11 === 0) {
+        ax.globalAlpha *= 0.32;
+        ax.fillRect(sx - 2, sy, 6, 1); ax.fillRect(sx, sy - 2, 1, 6);
+      }
     }
     ax.globalAlpha = 1;
+    // 两层视差山脊（面板半透，能透出一点轮廓）
+    drawRidge(th.far || '#2a2f5a', 0.30, 128, 7);
+    drawRidge(th.near || '#191d38', 0.46, 166, 13);
+    // 通栏玩法水印
     ax.save();
-    ax.globalAlpha = 0.05; ax.fillStyle = '#ffffff';
+    ax.globalAlpha = 0.045; ax.fillStyle = '#ffffff';
     ax.font = 'bold 72px "Microsoft YaHei","PingFang SC",sans-serif';
     ax.textAlign = 'center'; ax.textBaseline = 'middle';
     ax.fillText(A.st.genre, W / 2, 118);
     ax.restore();
+    // 浮尘：确定性与 tick 驱动，不依赖 Math.random
+    for (let i = 0; i < 26; i++) {
+      const x = (i * 97 + A.idx * 41 + A.t * (7 + (i % 4) * 3)) % W;
+      const y = (i * 53 + A.idx * 19 + Math.sin(A.t * 0.7 + i) * 3) % H;
+      ax.globalAlpha = 0.10 + 0.10 * ((i % 3) / 2);
+      ax.fillStyle = i % 5 === 0 ? '#f8d048' : '#d8e8ff';
+      ax.fillRect(x | 0, y | 0, 1, 1);
+    }
+    // 四边暗角，把视线收进棋盘
+    let vg = ax.createLinearGradient(0, 0, 0, 26);
+    vg.addColorStop(0, 'rgba(2,5,14,0.55)'); vg.addColorStop(1, 'rgba(2,5,14,0)');
+    ax.globalAlpha = 1; ax.fillStyle = vg; ax.fillRect(0, 0, W, 26);
+    vg = ax.createLinearGradient(0, H - 26, 0, H);
+    vg.addColorStop(0, 'rgba(2,5,14,0)'); vg.addColorStop(1, 'rgba(2,5,14,0.58)');
+    ax.fillStyle = vg; ax.fillRect(0, H - 26, W, 26);
+    vg = ax.createLinearGradient(0, 0, 18, 0);
+    vg.addColorStop(0, 'rgba(2,5,14,0.35)'); vg.addColorStop(1, 'rgba(2,5,14,0)');
+    ax.fillStyle = vg; ax.fillRect(0, 0, 18, H);
+    vg = ax.createLinearGradient(W - 18, 0, W, 0);
+    vg.addColorStop(0, 'rgba(2,5,14,0)'); vg.addColorStop(1, 'rgba(2,5,14,0.35)');
+    ax.fillStyle = vg; ax.fillRect(W - 18, 0, 18, H);
+    // 细扫描线（CRT 街机柜质感）
+    ax.globalAlpha = 0.026; ax.fillStyle = '#ffffff';
+    for (let y = 1; y < H; y += 4) ax.fillRect(0, y, W, 1);
+    ax.globalAlpha = 1;
   }
   function drawHeader() {
-    panel(0, 0, W, 32, 0.88);
-    txt('L' + (A.idx + 1) + ' · ' + A.st.genre, 8, 4, 10, '#f8d048');
-    txt(A.status || A.st.title, 8, 18, 9, '#c8d4ec');
+    const accent = (themeOf(A.theme).band || themeOf(A.theme).accent || '#f8d048');
+    const g = ax.createLinearGradient(0, 0, 0, 32);
+    g.addColorStop(0, 'rgba(18,28,56,0.97)');
+    g.addColorStop(1, 'rgba(6,10,24,0.90)');
+    ax.fillStyle = g; ax.fillRect(0, 0, W, 32);
+    ax.fillStyle = rgba(accent, 0.52); ax.fillRect(0, 0, W, 1);
+    ax.fillStyle = rgba(accent, 0.26); ax.fillRect(0, 31, W, 1);
+    // 左侧关号徽章
+    const bw = 28, bh = 20, bx = 6, by = 6;
+    cutPath(bx, by, bw, bh, 3);
+    ax.fillStyle = 'rgba(0,0,0,0.34)'; ax.fill();
+    ax.strokeStyle = rgba(accent, 0.85); ax.lineWidth = 1; ax.stroke();
+    pix('L' + String(A.idx + 1).padStart(2, '0'), bx + bw / 2, by + 5, 2, '#ffe890', 'center');
+    // 标题 / 状态
+    txt(A.st.genre, 40, 3, 10, '#ffe890');
+    txt(A.status || A.st.title, 40, 17, 8, '#c8d4ec');
+    // 右侧：三颗心 + 计时 + 限时进度
     const over = game.time > A.st.par;
-    pix(fmtTime(game.time), W - 8, 6, 1, over ? '#f87858' : '#a8f0b0', 'right');
-    for (let i = 0; i < 3; i++) drawHeart(W - 42 + i * 10, 18, A.hearts > i);
+    const tcol = over ? '#f87858' : '#a8f0b0';
+    for (let i = 0; i < 3; i++) drawHeart(W - 40 + i * 9, 5, A.hearts > i);
+    pix(fmtTime(game.time), W - 8, 15, 2, tcol, 'right');
+    const pw = 108, px0 = W - 116, py0 = 28;
+    ax.fillStyle = 'rgba(255,255,255,0.10)'; ax.fillRect(px0, py0, pw, 2);
+    const frac = clamp(game.time / A.st.limit, 0, 1);
+    ax.fillStyle = tcol; ax.fillRect(px0, py0, pw * frac, 2);
+    ax.fillStyle = rgba(accent, 0.85);
+    ax.fillRect(px0 + pw * clamp(A.st.par / A.st.limit, 0, 1) - 1, py0 - 1, 2, 4);
+  }
+  function drawFrame() {
+    const accent = (themeOf(A.theme).band || themeOf(A.theme).accent || '#f8d048');
+    ax.save();
+    ax.strokeStyle = rgba(accent, 0.12); ax.lineWidth = 1;
+    ax.strokeRect(3.5, 32.5, W - 7, 169);
+    // 四角 L 形装饰
+    const L = 10;
+    ax.strokeStyle = rgba(accent, 0.55); ax.lineWidth = 1;
+    ax.beginPath();
+    ax.moveTo(4, 33 + L); ax.lineTo(4, 33); ax.lineTo(4 + L, 33);
+    ax.moveTo(W - 4 - L, 33); ax.lineTo(W - 4, 33); ax.lineTo(W - 4, 33 + L);
+    ax.moveTo(4, 202 - L); ax.lineTo(4, 202); ax.lineTo(4 + L, 202);
+    ax.moveTo(W - 4 - L, 202); ax.lineTo(W - 4, 202); ax.lineTo(W - 4, 202 - L);
+    ax.stroke();
+    // 上下中点小菱形
+    ax.fillStyle = rgba(accent, 0.55);
+    ax.beginPath(); ax.moveTo(W / 2, 31); ax.lineTo(W / 2 + 3, 34); ax.lineTo(W / 2, 37); ax.lineTo(W / 2 - 3, 34); ax.closePath(); ax.fill();
+    ax.beginPath(); ax.moveTo(W / 2, 199); ax.lineTo(W / 2 + 3, 202); ax.lineTo(W / 2, 205); ax.lineTo(W / 2 - 3, 202); ax.closePath(); ax.fill();
+    // 剩余时间不足 10s：红色呼吸边框
+    const left = A.st.limit - game.time;
+    if (!A.done && left <= 10) {
+      ax.globalAlpha = 0.25 + 0.25 * Math.sin(A.t * 9);
+      ax.strokeStyle = '#f85868'; ax.lineWidth = 2;
+      ax.strokeRect(4.5, 33.5, W - 9, 168);
+    }
+    ax.restore();
+    ax.globalAlpha = 1;
   }
   function drawFooter() {
-    panel(0, 204, W, 20, 0.82);
-    txt(A.st.controls, W / 2, 207, 8, '#c8d4ec', 'center');
-    pix('P PAUSE   R RESTART   ESC MENU', W / 2, 216, 1, '#7a86a8', 'center');
+    const accent = (themeOf(A.theme).band || themeOf(A.theme).accent || '#f8d048');
+    ax.fillStyle = 'rgba(5,9,20,0.92)'; ax.fillRect(0, 203, W, 21);
+    ax.fillStyle = rgba(accent, 0.28); ax.fillRect(0, 203, W, 1);
+    ax.fillStyle = rgba(accent, 0.55);
+    for (const x of [7, W - 7]) {
+      ax.beginPath(); ax.moveTo(x, 210); ax.lineTo(x + 2, 212);
+      ax.lineTo(x, 214); ax.lineTo(x - 2, 212); ax.closePath(); ax.fill();
+    }
+    txt(A.st.controls, W / 2, 206, 8, '#c8d4ec', 'center');
+    pix('P PAUSE   R RESTART   ESC MENU', W / 2, 215, 1, '#6f7a9c', 'center');
   }
   function drawIntro() {
-    if (A.t > 2.3) return;
-    const a = clamp(A.t < 0.35 ? A.t / 0.35 : (2.3 - A.t) / 0.55, 0, 1);
+    if (A.t > 2.6) return;
+    const a = clamp(A.t < 0.35 ? A.t / 0.35 : (2.6 - A.t) / 0.62, 0, 1);
     ax.save(); ax.globalAlpha = a;
-    panel(30, 64, W - 60, 62, 0.9);
-    txt(A.st.title, W / 2, 70, 16, '#f8d048', 'center');
-    txt(A.st.objective, W / 2, 93, 9, '#f0f4ff', 'center');
-    txt(A.st.hint, W / 2, 108, 8, '#a8b4d8', 'center');
+    // 标题卡背后的柔光
+    const rg = ax.createRadialGradient(W / 2, 96, 4, W / 2, 96, 120);
+    rg.addColorStop(0, 'rgba(248,208,72,0.13)');
+    rg.addColorStop(1, 'rgba(248,208,72,0)');
+    ax.fillStyle = rg; ax.fillRect(0, 34, W, 168);
+    panel(26, 58, W - 52, 82, 0.94);
+    // 顶部微型标签
+    ax.fillStyle = 'rgba(138,232,248,0.16)';
+    cutPath(W / 2 - 34, 63, 68, 11, 3); ax.fill();
+    pix('MINI GAME', W / 2, 66, 1, '#8ae8f8', 'center');
+    txt(A.st.title, W / 2, 77, 17, '#ffe890', 'center');
+    // 金色分隔线 + 菱形
+    ax.fillStyle = 'rgba(248,208,72,0.45)';
+    ax.fillRect(W / 2 - 66, 98, 132, 1);
+    ax.fillStyle = '#f8d048';
+    ax.beginPath(); ax.moveTo(W / 2, 95.5); ax.lineTo(W / 2 + 3, 98.5);
+    ax.lineTo(W / 2, 101.5); ax.lineTo(W / 2 - 3, 98.5); ax.closePath(); ax.fill();
+    txt(A.st.objective, W / 2, 104, 9, '#f0f4ff', 'center');
+    txt(A.st.hint, W / 2, 117, 8, '#a8b4d8', 'center');
+    txt('限时 ' + fmtTime(A.st.limit) + ' · 3 心 · 三星 ' + fmtTime(A.st.par), W / 2, 130, 7, '#7e8cb0', 'center');
     ax.restore();
+  }
+  function drawResult() {
+    // 只在自己的 0.75/0.85s 演出窗口内画；commitWin/Fail 之后 game.state 已切走，
+    // 结算屏由 ui 负责，不能再叠一层本文件的统计文字。
+    if (!A.done || game.state !== 'play') return;
+    const win = A.win;
+    const total = win ? 0.75 : 0.85;
+    const t = clamp(1 - Math.max(0, A.finish) / total, 0, 1);
+    const a = clamp(t * 3.2, 0, 1);
+    ax.save();
+    ax.globalAlpha = a;
+    ax.fillStyle = win ? 'rgba(6,12,26,0.52)' : 'rgba(26,6,10,0.58)';
+    ax.fillRect(0, 0, W, H);
+    if (win) {
+      // 旋转金色光芒
+      const cx = W / 2, cy = 110;
+      ax.save(); ax.translate(cx, cy);
+      for (let i = 0; i < 12; i++) {
+        ax.rotate(TAU / 12 + A.t * 0.10);
+        ax.fillStyle = 'rgba(248,208,72,0.045)';
+        ax.beginPath(); ax.moveTo(0, 0); ax.lineTo(-11, -250); ax.lineTo(11, -250); ax.closePath(); ax.fill();
+      }
+      ax.restore();
+      // 彩带
+      for (let i = 0; i < 34; i++) {
+        const px = rnd1(i, 21) * W;
+        const py = ((rnd1(i, 5) * 220 + A.t * (26 + (i % 5) * 9)) % 230) - 6;
+        ax.globalAlpha = a * 0.75;
+        ax.fillStyle = i % 3 === 0 ? '#f8d048' : i % 3 === 1 ? '#8ae8f8' : '#f87898';
+        ax.fillRect(px | 0, py | 0, 2, 3);
+      }
+      ax.globalAlpha = a;
+    }
+    panel(46, 62, W - 92, 94, 0.94, win ? 'rgba(248,208,72,0.92)' : 'rgba(248,88,104,0.92)');
+    txt(win ? '挑战成功' : '挑战失败', W / 2, 70, 24, win ? '#ffe890' : '#ff9a9a', 'center');
+    ax.fillStyle = win ? 'rgba(248,208,72,0.55)' : 'rgba(248,88,104,0.55)';
+    ax.fillRect(W / 2 - 62, 102, 124, 1);
+    ax.fillRect(W / 2 - 9, 100, 18, 4);
+    txt(win ? (A.status || '关卡完成') : (A.failReason || '挑战失败'), W / 2, 110, 9, '#e8eefc', 'center');
+    const stat = win
+      ? '用时 ' + fmtTime(game.time) + '　心 ' + A.hearts + '/3' + (game.coins ? '　奖励币 ' + game.coins : '')
+      : '按 R 重试 · ESC 返回选关';
+    txt(stat, W / 2, 130, 8, win ? '#a8f0b0' : '#c8d4ec', 'center');
+    ax.restore();
+    ax.globalAlpha = 1;
   }
   function drawFloats() {
     for (const f of A.floats) {
-      ax.save(); ax.globalAlpha = clamp(1 - f.t / 0.9, 0, 1);
+      const a = clamp(1 - f.t / 0.9, 0, 1);
+      ax.save(); ax.globalAlpha = a;
+      txt(f.s, f.x + 1, f.y + 1, 10, 'rgba(4,8,18,0.75)', 'center');
       txt(f.s, f.x, f.y, 10, f.c, 'center');
       ax.restore();
     }
   }
   function render(tick) {
     if (!A || !A.active) return;
-    ax.setTransform(1, 0, 0, 1, 0, 0);
+    ax.setTransform(RS, 0, 0, RS, 0, 0);
     ax.globalAlpha = 1;
     drawBg(tick);
     ax.save();
     if (A.shake > 0) ax.translate((Math.random() * 2 - 1) * A.shake, (Math.random() * 2 - 1) * A.shake);
     drawHeader();
     RENDER[A.type](tick);
+    drawFrame();
     drawFooter();
     drawIntro();
+    drawResult();
     drawFloats();
     ax.restore();
     if (A.flash > 0) {
-      ax.setTransform(1, 0, 0, 1, 0, 0);
+      ax.setTransform(RS, 0, 0, RS, 0, 0);
       ax.fillStyle = 'rgba(255,248,220,' + (0.55 * A.flash).toFixed(3) + ')';
       ax.fillRect(0, 0, W, H);
     }
@@ -508,7 +751,11 @@
           ax.fillStyle = '#fff0b0'; ax.fillRect(mx - 2, my - 3, 2, 2);
         } else if (c.n > 0) {
           const cols = ['', '#8ae8f8', '#78f878', '#f8d048', '#f8a030', '#f87858', '#d878f8', '#f8f0ff', '#ffffff'];
-          pix(String(c.n), x + d.cell / 2, y + d.cell / 2 - 5, 2, cols[c.n] || '#fff', 'center');
+          const mx = x + d.cell / 2, my = y + d.cell / 2;
+          ax.globalAlpha = 0.14; ax.fillStyle = cols[c.n] || '#fff';
+          ax.beginPath(); ax.arc(mx, my, d.cell * 0.30, 0, TAU); ax.fill();
+          ax.globalAlpha = 1;
+          pix(String(c.n), mx, my - 5, 2, cols[c.n] || '#fff', 'center');
         }
       }
     }
@@ -611,6 +858,37 @@
     const th = themeOf(A.theme);
     ax.fillStyle = 'rgba(30,44,48,0.55)'; ax.fillRect(0, 38, W, 160);
     ax.fillStyle = th.accent || '#38c860'; ax.globalAlpha = 0.10; ax.fillRect(0, 38, W, 160); ax.globalAlpha = 1;
+    // 泥土场地：让洞真正长在地上，而不是浮在黑板里
+    const gy = 76;
+    const gg = ax.createLinearGradient(0, gy, 0, 202);
+    gg.addColorStop(0, 'rgba(74,58,40,0.94)');
+    gg.addColorStop(0.35, 'rgba(46,36,26,0.95)');
+    gg.addColorStop(1, 'rgba(24,18,16,0.97)');
+    ax.fillStyle = gg; ax.fillRect(8, gy, W - 16, 202 - gy);
+    // 草皮边缘
+    ax.globalAlpha = 0.60; ax.fillStyle = th.cap || '#38c860';
+    ax.beginPath(); ax.moveTo(8, gy + 3);
+    for (let x = 8; x <= W - 8; x += 8) ax.lineTo(x, gy + Math.sin(x * 0.18) * 2);
+    ax.lineTo(W - 8, gy + 11); ax.lineTo(8, gy + 11); ax.closePath(); ax.fill();
+    ax.globalAlpha = 1;
+    // 草簇与碎石
+    for (let i = 0; i < 30; i++) {
+      const x = 12 + rnd1(i, 2) * (W - 24);
+      const y = gy + 15 + rnd1(i, 6) * (188 - gy);
+      ax.globalAlpha = 0.30;
+      if (i % 3) {
+        ax.fillStyle = '#6a8a4a';
+        ax.fillRect(x, y, 1, 3); ax.fillRect(x + 2, y + 1, 1, 2);
+      } else {
+        ax.fillStyle = '#7a6a52'; ax.fillRect(x, y, 3, 2);
+      }
+    }
+    ax.globalAlpha = 1;
+    // 左上角木牌
+    ax.fillStyle = '#3c2918'; ax.fillRect(11, 42, 62, 17);
+    ax.strokeStyle = '#a87a42'; ax.lineWidth = 1; ax.strokeRect(11.5, 42.5, 61, 16);
+    ax.fillStyle = '#241708'; ax.fillRect(16, 46, 52, 9);
+    txt('敲中 ' + d.hits + '/' + A.st.quota, 42, 45, 8, '#ffe890', 'center');
     for (const h of d.holes) {
       ax.fillStyle = '#2a2018'; ax.beginPath(); ax.ellipse(h.cx, h.cy + 3, 22, 9, 0, 0, TAU); ax.fill();
       ax.fillStyle = '#120e14'; ax.beginPath(); ax.ellipse(h.cx, h.cy + 2, 17, 6, 0, 0, TAU); ax.fill();
@@ -895,9 +1173,24 @@
       if (c.open || c.matched) {
         drawIcon(c.icon, x + d.cw / 2, y + d.ch / 2 + lift, Math.min(d.cw, d.ch) * 0.30);
       } else {
-        ax.fillStyle = 'rgba(120,150,220,0.14)';
-        ax.fillRect(x + 5, y + 5, d.cw - 10, d.ch - 10);
-        pix('?', x + d.cw / 2, y + d.ch / 2 - 6, 2, '#7e92c8', 'center');
+        // 牌背：内凹底 + 菱形暗纹 + 呼吸符文
+        const ix = x + 5, iy = y + 5, iw = d.cw - 10, ih = d.ch - 10;
+        ax.fillStyle = 'rgba(9,16,36,0.78)'; ax.fillRect(ix, iy, iw, ih);
+        ax.strokeStyle = 'rgba(120,160,240,0.16)'; ax.lineWidth = 1;
+        for (let gy = iy + 4; gy < iy + ih; gy += 8)
+          for (let gx = ix + 4; gx < ix + iw; gx += 8) {
+            ax.beginPath();
+            ax.moveTo(gx, gy - 3); ax.lineTo(gx + 3, gy);
+            ax.lineTo(gx, gy + 3); ax.lineTo(gx - 3, gy); ax.closePath(); ax.stroke();
+          }
+        const ccx = x + d.cw / 2, ccy = y + d.ch / 2;
+        ax.globalAlpha = 0.20 + 0.10 * Math.sin(A.t * 2.4 + i);
+        ax.fillStyle = '#7ea8ff';
+        ax.beginPath(); ax.arc(ccx, ccy, Math.min(d.cw, d.ch) * 0.26, 0, TAU); ax.fill();
+        ax.globalAlpha = 1;
+        ax.strokeStyle = 'rgba(150,190,255,0.35)';
+        ax.beginPath(); ax.arc(ccx, ccy, Math.min(d.cw, d.ch) * 0.26, 0, TAU); ax.stroke();
+        pix('?', ccx, ccy - 6, 2, '#d8e8ff', 'center');
       }
       if (i === d.cur) {
         ax.strokeStyle = A.t % 0.6 < 0.3 ? '#fff8c8' : '#f8c860'; ax.lineWidth = 2;
@@ -1120,6 +1413,12 @@
       ax.fillStyle = ((x + y) & 1) ? '#101828' : '#141e32';
       ax.fillRect(d.bx + x * cs, d.by + y * cs, cs, cs);
     }
+    // 网格暗点 + 内描边：空旷盘面有细节但不抢蛇身
+    ax.fillStyle = 'rgba(130,220,170,0.10)';
+    for (let y = 1; y < d.rows; y++) for (let x = 1; x < d.cols; x++)
+      ax.fillRect(d.bx + x * cs - 1, d.by + y * cs - 1, 1, 1);
+    ax.strokeStyle = 'rgba(120,220,170,0.16)'; ax.lineWidth = 1;
+    ax.strokeRect(d.bx + 0.5, d.by + 0.5, d.bw - 1, d.bh - 1);
     for (const w of d.walls) {
       const p = w.split(','), x = +p[0], y = +p[1];
       ax.fillStyle = '#5a3a2a'; ax.fillRect(d.bx + x * cs + 1, d.by + y * cs + 1, cs - 2, cs - 2);
@@ -1134,23 +1433,40 @@
       ax.fillStyle = '#f8d048'; ax.beginPath(); ax.arc(fx, fy, cs * 0.32, 0, TAU); ax.fill();
       ax.fillStyle = '#fff8c8'; ax.fillRect(fx - 2, fy - 3, 2, 2);
     }
+    // 身体连线：先画相邻节点之间的圆角连接条，蛇身不再是断开的方块
+    for (let i = d.snake.length - 1; i > 0; i--) {
+      const a = d.snake[i], b = d.snake[i - 1];
+      const ax0 = d.bx + a.x * cs + cs / 2, ay0 = d.by + a.y * cs + cs / 2;
+      const bx0 = d.bx + b.x * cs + cs / 2, by0 = d.by + b.y * cs + cs / 2;
+      ax.strokeStyle = i % 2 ? '#2aa868' : '#38c878';
+      ax.lineWidth = cs * 0.52; ax.lineCap = 'round';
+      ax.beginPath(); ax.moveTo(ax0, ay0); ax.lineTo(bx0, by0); ax.stroke();
+    }
+    ax.lineCap = 'butt';
     for (let i = d.snake.length - 1; i >= 0; i--) {
       const s = d.snake[i];
-      const x = d.bx + s.x * cs, y = d.by + s.y * cs;
-      ax.fillStyle = i === 0 ? '#8af8b0' : (i % 2 ? '#38c878' : '#2aa868');
-      ax.fillRect(x + 1, y + 1, cs - 2, cs - 2);
-      ax.fillStyle = i === 0 ? '#d8ffe8' : 'rgba(200,255,220,0.20)';
-      ax.fillRect(x + 2, y + 2, cs - 4, 2);
-      if (i === 0) {
-        ax.fillStyle = '#102818';
+      const x = d.bx + s.x * cs + 1.5, y = d.by + s.y * cs + 1.5, w = cs - 3, h = cs - 3;
+      const head = i === 0;
+      roundRectPath(x, y, w, h, head ? 5 : 4);
+      ax.fillStyle = head ? '#8af8b0' : (i % 2 ? '#38c878' : '#2aa868');
+      ax.fill();
+      ax.strokeStyle = head ? '#d8ffe8' : 'rgba(10,52,32,0.55)';
+      ax.lineWidth = 1; ax.stroke();
+      if (head) {
+        ax.fillStyle = 'rgba(255,255,255,0.38)';
+        ax.fillRect(x + 3, y + 2, w - 6, 1);
+        ax.fillStyle = '#0c2418';
         const ex = d.dir.x, ey = d.dir.y;
-        if (ex) {
-          ax.fillRect(x + (ex > 0 ? cs - 5 : 2), y + 3, 2, 2);
-          ax.fillRect(x + (ex > 0 ? cs - 5 : 2), y + cs - 5, 2, 2);
-        } else {
-          ax.fillRect(x + 3, y + (ey > 0 ? cs - 5 : 2), 2, 2);
-          ax.fillRect(x + cs - 5, y + (ey > 0 ? cs - 5 : 2), 2, 2);
-        }
+        let e1, e2;
+        if (ex) { e1 = [x + (ex > 0 ? w - 5 : 2), y + 2]; e2 = [x + (ex > 0 ? w - 5 : 2), y + h - 4]; }
+        else { e1 = [x + 2, y + (ey > 0 ? h - 5 : 2)]; e2 = [x + w - 4, y + (ey > 0 ? h - 5 : 2)]; }
+        ax.fillRect(e1[0], e1[1], 2, 2); ax.fillRect(e2[0], e2[1], 2, 2);
+        ax.fillStyle = '#f85878';
+        if (ex) ax.fillRect(x + (ex > 0 ? w : -2), y + h / 2 - 1, 2, 2);
+        else ax.fillRect(x + w / 2 - 1, y + (ey > 0 ? h : -2), 2, 2);
+      } else {
+        ax.fillStyle = 'rgba(200,255,220,0.18)';
+        ax.fillRect(x + 2, y + 2, w - 4, 2);
       }
     }
   };
@@ -1552,6 +1868,37 @@
     const d = A.data;
     panel(6, 34, W - 12, 168, 0.9);
     ax.fillStyle = '#20263c'; ax.fillRect(6, 34, W - 12, 18);
+    // 矿洞氛围：顶部矿灯暖光 + 两侧岩壁 + 地面碎石
+    const rg = ax.createRadialGradient(d.ax, d.ay + 16, 4, d.ax, d.ay + 16, 150);
+    rg.addColorStop(0, 'rgba(248,196,72,0.16)');
+    rg.addColorStop(1, 'rgba(248,196,72,0)');
+    ax.fillStyle = rg; ax.fillRect(6, 34, W - 12, 168);
+    for (const side of [0, 1]) {
+      const bx = side ? W - 6 : 6, dir = side ? -1 : 1;
+      ax.fillStyle = 'rgba(12,17,34,0.72)';
+      ax.beginPath(); ax.moveTo(bx, 34); ax.lineTo(bx + dir * 8, 34);
+      for (let i = 0; i <= 9; i++) {
+        const yy = 34 + i * 19;
+        const ww = 5 + rnd1(i, side ? 8 : 4) * 11;
+        ax.lineTo(bx + dir * ww, yy);
+      }
+      ax.lineTo(bx, 202); ax.closePath(); ax.fill();
+      ax.strokeStyle = 'rgba(120,160,220,0.10)'; ax.lineWidth = 1;
+      ax.beginPath(); ax.moveTo(bx + dir * 5, 40); ax.lineTo(bx + dir * 5, 196); ax.stroke();
+    }
+    // 两盏矿灯
+    for (const lx of [26, W - 26]) {
+      ax.globalAlpha = 0.20; ax.fillStyle = '#f8c048';
+      ax.beginPath(); ax.arc(lx, 62, 13, 0, TAU); ax.fill();
+      ax.globalAlpha = 1;
+      ax.fillStyle = '#3a2a1c'; ax.fillRect(lx - 3, 55, 6, 5);
+      ax.fillStyle = '#ffe890'; ax.fillRect(lx - 2, 57, 4, 7);
+      ax.strokeStyle = '#8a6a3a'; ax.lineWidth = 1;
+      ax.beginPath(); ax.moveTo(lx, 55); ax.lineTo(lx, 48); ax.stroke();
+    }
+    ax.fillStyle = 'rgba(8,12,24,0.55)'; ax.fillRect(6, 190, W - 12, 12);
+    ax.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let i = 0; i < 8; i++) ax.fillRect(12 + i * 46 + (i % 3) * 5, 194 + (i % 2) * 3, 9, 1);
     for (let i = 0; i < 20; i++) {
       const x = 10 + (i * 37) % (W - 20);
       ax.fillStyle = i % 3 ? '#2c3350' : '#38405e';
@@ -1567,7 +1914,9 @@
       } else {
         const col = g.kind === 'emerald' ? '#58f0a0' : '#78d8f8';
         const dark = g.kind === 'emerald' ? '#1e8a58' : '#2878a0';
-        ax.globalAlpha = 0.16; ax.fillStyle = col;
+        ax.globalAlpha = 0.07; ax.fillStyle = col;
+        ax.beginPath(); ax.arc(g.x, g.y, g.r * 2.7 * pulse, 0, TAU); ax.fill();
+        ax.globalAlpha = 0.17; ax.fillStyle = col;
         ax.beginPath(); ax.arc(g.x, g.y, g.r * 1.7 * pulse, 0, TAU); ax.fill();
         ax.globalAlpha = 1;
         ax.fillStyle = dark; ax.beginPath();
@@ -1577,6 +1926,12 @@
         ax.moveTo(g.x, g.y - g.r * 0.95); ax.lineTo(g.x + g.r * 0.62, g.y);
         ax.lineTo(g.x, g.y + g.r * 0.7); ax.lineTo(g.x - g.r * 0.62, g.y); ax.closePath(); ax.fill();
         ax.fillStyle = '#eaffff'; ax.fillRect(g.x - 2, g.y - 4, 2, 2);
+        // 高光十字星
+        const tw = 0.5 + 0.5 * Math.sin(A.t * 5 + g.x * 0.3);
+        ax.globalAlpha = 0.35 + 0.45 * tw; ax.fillStyle = '#ffffff';
+        ax.fillRect(g.x + g.r * 0.45, g.y - g.r * 0.95, 1, 3);
+        ax.fillRect(g.x + g.r * 0.45 - 1, g.y - g.r * 0.95 + 1, 3, 1);
+        ax.globalAlpha = 1;
       }
     }
     // 矿工 + 吊臂
@@ -1780,6 +2135,7 @@
       }
     }
     // 右侧：下一块 + 进度
+    panel(W - 92, 68, 76, 40, 0.50, 'rgba(174,196,236,0.30)');
     txt('下一块', W - 54, 62, 8, '#8a96b8', 'center');
     if (d.next) {
       const n = d.next, ox = W - 54 - (n.m[0].length * 7) / 2, oy = 76;
@@ -1878,6 +2234,20 @@
   RENDER.dodge = function () {
     const d = A.data;
     panel(6, 34, W - 12, 168, 0.86);
+    // 星海背景：远处行星 + 闪烁星点
+    ax.globalAlpha = 0.12; ax.fillStyle = '#6a88d8';
+    ax.beginPath(); ax.arc(W - 64, 82, 34, 0, TAU); ax.fill();
+    ax.globalAlpha = 0.20; ax.fillStyle = '#b8d8ff';
+    ax.beginPath(); ax.arc(W - 72, 72, 20, 0, TAU); ax.fill();
+    for (let i = 0; i < 30; i++) {
+      const sx = 10 + rnd1(i, 31) * (W - 20);
+      const sy = 40 + rnd1(i, 37) * 150;
+      const tw = 0.5 + 0.5 * Math.sin(A.t * 2 + i * 1.7);
+      ax.globalAlpha = 0.12 + 0.32 * tw;
+      ax.fillStyle = i % 6 === 0 ? '#f8d048' : '#9ad8f8';
+      ax.fillRect(sx | 0, sy | 0, 1, 1);
+    }
+    ax.globalAlpha = 1;
     // 生存进度
     ax.fillStyle = '#1a2440'; ax.fillRect(12, 37, W - 24, 3);
     ax.fillStyle = '#8ae8f8'; ax.fillRect(12, 37, (W - 24) * d.elapsed / d.survive, 3);
@@ -1907,6 +2277,12 @@
     }
     const blink = d.inv > 0 && ((A.t * 16) | 0) % 2 === 0;
     if (!blink) {
+      // 引擎尾焰
+      const fl = 5 + (Math.sin(A.t * 30) + 1) * 2;
+      ax.globalAlpha = 0.55; ax.fillStyle = '#58c8f8';
+      ax.beginPath(); ax.moveTo(d.p.x - 3.5, d.p.y + 4);
+      ax.lineTo(d.p.x, d.p.y + 4 + fl); ax.lineTo(d.p.x + 3.5, d.p.y + 4);
+      ax.closePath(); ax.fill();
       ax.globalAlpha = 0.22; ax.fillStyle = '#8ae8f8';
       ax.beginPath(); ax.arc(d.p.x, d.p.y, 11, 0, TAU); ax.fill();
       ax.globalAlpha = 1;
@@ -2072,6 +2448,23 @@
   RENDER.bubble = function () {
     const d = A.data;
     panel(6, 34, W - 12, 168, 0.86);
+    // 珊瑚海的光柱与水面波纹
+    for (let i = 0; i < 5; i++) {
+      const rx = 24 + i * 78;
+      ax.globalAlpha = 0.045 + 0.015 * Math.sin(A.t * 1.6 + i);
+      ax.fillStyle = '#8af8e8';
+      ax.beginPath(); ax.moveTo(rx, 36); ax.lineTo(rx + 26, 36);
+      ax.lineTo(rx + 62, 202); ax.lineTo(rx + 24, 202); ax.closePath(); ax.fill();
+    }
+    ax.globalAlpha = 0.10; ax.strokeStyle = '#b8f8ff'; ax.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const wy = 42 + i * 9 + Math.sin(A.t * 2 + i) * 2;
+      ax.beginPath(); ax.moveTo(10, wy);
+      for (let x = 10; x < W - 10; x += 12)
+        ax.lineTo(x, wy + Math.sin(x * 0.09 + A.t * 2.2 + i) * 2);
+      ax.stroke();
+    }
+    ax.globalAlpha = 1;
     // 危险线
     const dy = bubY(d, d.dangerRow) - d.r;
     ax.save();
@@ -2274,6 +2667,17 @@
         ax.fillStyle = 'rgba(120,150,190,0.08)'; ax.fillRect(px0, py0, 1, cs);
       }
     }
+    // 四角幽冥灯火：暖光把整张迷宫从纯黑底里托起来
+    for (const p of [[d.bx + 18, d.by + 18], [d.bx + d.bw - 18, d.by + 18],
+      [d.bx + 18, d.by + d.bh - 18], [d.bx + d.bw - 18, d.by + d.bh - 18]]) {
+      const flick = 0.16 + 0.05 * Math.sin(A.t * 7 + p[0]);
+      const tg = ax.createRadialGradient(p[0], p[1], 2, p[0], p[1], 46);
+      tg.addColorStop(0, 'rgba(248,176,72,' + flick.toFixed(3) + ')');
+      tg.addColorStop(1, 'rgba(248,176,72,0)');
+      ax.fillStyle = tg; ax.fillRect(p[0] - 46, p[1] - 46, 92, 92);
+      ax.fillStyle = '#f8b048'; ax.fillRect(p[0] - 1, p[1] - 6, 2, 4);
+      ax.fillStyle = '#ffe890'; ax.fillRect(p[0] - 1, p[1] - 7, 2, 2);
+    }
     for (const t of d.talismans) {
       const p = t.split(','), cx = mazePixelX(d, +p[1]), cy = mazePixelY(d, +p[0]);
       const bob = Math.sin(A.t * 5 + cx) * 1.5;
@@ -2407,25 +2811,80 @@
   };
   RENDER.jumper = function () {
     const d = A.data;
-    panel(0, 34, W, 168, 0.55);
+    panel(0, 34, W, 168, 0.42);
+    // 深渊纵向背景：上方冷、下方被熔岩烤暖
+    const bg = ax.createLinearGradient(0, 34, 0, 202);
+    bg.addColorStop(0, 'rgba(10,14,34,0.55)');
+    bg.addColorStop(0.65, 'rgba(20,16,38,0.35)');
+    bg.addColorStop(1, 'rgba(70,26,24,0.30)');
+    ax.fillStyle = bg; ax.fillRect(0, 34, W, 168);
+    // 星尘与上升余烬
+    for (let i = 0; i < 34; i++) {
+      const sx = 12 + rnd1(i, 41) * (W - 24);
+      const sy = 34 + ((rnd1(i, 43) * 168 - A.t * (8 + (i % 5) * 4) - d.camY * 0.5) % 168 + 168) % 168;
+      ax.globalAlpha = 0.10 + 0.25 * ((i % 4) / 3);
+      ax.fillStyle = i % 7 === 0 ? '#f8a048' : '#9ab8e8';
+      ax.fillRect(sx | 0, sy | 0, 1, i % 5 === 0 ? 2 : 1);
+    }
+    ax.globalAlpha = 1;
+    // 高度刻度线（随镜头滚动）
+    const off = ((d.camY * 0.5) % 56 + 56) % 56;
+    ax.strokeStyle = 'rgba(160,190,240,0.10)'; ax.lineWidth = 1;
+    ax.setLineDash([4, 6]);
+    for (let y = 34 + off; y < 202; y += 56) {
+      ax.beginPath(); ax.moveTo(14, y); ax.lineTo(W - 14, y); ax.stroke();
+    }
+    ax.setLineDash([]);
+    // 两侧岩壁（随镜头滚动，制造上升感）
+    for (const side of [0, 1]) {
+      const x0 = side ? W - 12 : 0, dir = side ? -1 : 1;
+      ax.fillStyle = 'rgba(20,18,36,0.90)'; ax.fillRect(x0, 34, 12, 168);
+      ax.beginPath(); ax.moveTo(x0, 34); ax.lineTo(x0 + dir * 9, 34);
+      for (let i = 0; i <= 8; i++) {
+        const yy = 34 + i * 21;
+        ax.lineTo(x0 + dir * (7 + rnd1(i, side ? 8 : 4) * 6), yy);
+      }
+      ax.lineTo(x0, 202); ax.closePath(); ax.fill();
+      ax.strokeStyle = 'rgba(120,220,255,0.10)'; ax.lineWidth = 1;
+      ax.beginPath(); ax.moveTo(x0 + dir * 6, 40); ax.lineTo(x0 + dir * 6, 196); ax.stroke();
+      ax.fillStyle = 'rgba(248,160,72,0.35)';
+      for (let i = 0; i < 6; i++) {
+        const yy = ((i * 31 - d.camY * 0.6) % 170 + 170) % 170 + 34;
+        ax.fillRect(x0 + dir * 4, yy, 2, 1);
+      }
+    }
     // 高度进度尺
     ax.fillStyle = '#1a2038'; ax.fillRect(W - 10, 40, 4, 158);
     const ph = clamp(d.maxH / d.target, 0, 1);
     ax.fillStyle = '#f8d048'; ax.fillRect(W - 10, 198 - 158 * ph, 4, 158 * ph);
     ax.fillStyle = '#f8f0c8'; ax.fillRect(W - 11, 198 - 158 * ph - 1, 6, 2);
-    // 浮石
+    // 浮石：圆角岩台 + 发光边 + 底部挂石
     for (const pl of d.plats) {
       const sy = pl.y - d.camY;
       if (sy < 32 || sy > 206) continue;
-      ax.fillStyle = '#3a3a52'; ax.fillRect(pl.x, sy, pl.w, 7);
-      ax.fillStyle = '#5a5a78'; ax.fillRect(pl.x, sy, pl.w, 2);
-      ax.fillStyle = pl.move ? '#f8a048' : '#8a5a3a';
-      ax.fillRect(pl.x + 3, sy + 3, pl.w - 6, 1);
-      ax.fillStyle = '#22223a'; ax.fillRect(pl.x + 2, sy + 7, pl.w - 4, 2);
+      ax.globalAlpha = 0.22; ax.fillStyle = pl.move ? '#f8a048' : '#8a5a3a';
+      ax.fillRect(pl.x - 1, sy - 1, pl.w + 2, 9);
+      ax.globalAlpha = 1;
+      roundRectPath(pl.x, sy, pl.w, 8, 3);
+      const pg = ax.createLinearGradient(0, sy, 0, sy + 8);
+      pg.addColorStop(0, '#62628a'); pg.addColorStop(0.5, '#3a3a56'); pg.addColorStop(1, '#22223a');
+      ax.fillStyle = pg; ax.fill();
+      ax.strokeStyle = pl.move ? 'rgba(248,160,72,0.85)' : 'rgba(150,110,80,0.85)';
+      ax.lineWidth = 1; ax.stroke();
+      ax.fillStyle = 'rgba(255,255,255,0.18)'; ax.fillRect(pl.x + 3, sy + 1, pl.w - 6, 1);
+      ax.fillStyle = '#1c1c30';
+      ax.fillRect(pl.x + 4, sy + 8, 3, 2);
+      ax.fillRect(pl.x + pl.w - 7, sy + 8, 3, 2);
     }
     // 熔岩
     const ly = d.lavaY - d.camY;
     if (ly < 210) {
+      // 熔岩上方的热浪光
+      const lg = ax.createLinearGradient(0, Math.max(34, ly - 28), 0, ly + 4);
+      lg.addColorStop(0, 'rgba(248,120,56,0)');
+      lg.addColorStop(1, 'rgba(248,120,56,0.30)');
+      ax.fillStyle = lg;
+      ax.fillRect(0, Math.max(34, ly - 28), W, Math.max(0, Math.min(32, 224 - Math.max(34, ly - 28))));
       ax.fillStyle = '#c83818'; ax.fillRect(0, Math.max(34, ly), W, 224 - Math.max(34, ly));
       ax.fillStyle = '#f87838';
       for (let x = 0; x < W; x += 8) {
@@ -2434,9 +2893,26 @@
       }
       ax.fillStyle = '#ffd060';
       for (let x = 0; x < W; x += 16) ax.fillRect(x + 4, ly - 1 + Math.sin(A.t * 4 + x) * 1.5, 6, 1);
+      // 上升的火星
+      for (let i = 0; i < 18; i++) {
+        const ex = (i * 47 + A.t * 22) % W;
+        const ey = ly - ((i * 19 + A.t * 68) % 48);
+        if (ey < 34 || ey > ly) continue;
+        ax.globalAlpha = 0.20 + 0.35 * ((i % 3) / 2);
+        ax.fillStyle = i % 4 === 0 ? '#ffe890' : '#ffb050';
+        ax.fillRect(ex | 0, ey | 0, 1, 2);
+      }
+      ax.globalAlpha = 1;
     }
-    // 玩家
+    // 玩家：光晕 + 飘动围巾
     const pyx = d.p.x, pyy = d.p.y - d.camY;
+    const glow = ax.createRadialGradient(pyx, pyy + 2, 1, pyx, pyy + 2, 18);
+    glow.addColorStop(0, 'rgba(120,220,255,0.22)');
+    glow.addColorStop(1, 'rgba(120,220,255,0)');
+    ax.fillStyle = glow; ax.fillRect(pyx - 18, pyy - 16, 36, 36);
+    ax.fillStyle = '#f87838'; ax.fillRect(pyx - 6, pyy - 1, 3, 6);
+    ax.fillStyle = '#f8a048';
+    ax.fillRect(pyx - 9 - Math.sin(A.t * 8) * 2, pyy + 2, 4, 2);
     ax.fillStyle = '#2858a8'; ax.fillRect(pyx - 5, pyy + 4, 10, 8);
     ax.fillStyle = '#48c8f8'; ax.fillRect(pyx - 5, pyy - 4, 10, 8);
     ax.fillStyle = '#e8f4ff'; ax.fillRect(pyx - 3, pyy - 2, 2, 2); ax.fillRect(pyx + 1, pyy - 2, 2, 2);
@@ -2552,6 +3028,20 @@
   RENDER.cannon = function () {
     const d = A.data;
     panel(6, 34, W - 12, 168, 0.55);
+    // 夜空月轮 + 云带
+    ax.globalAlpha = 0.13; ax.fillStyle = '#c8e0ff';
+    ax.beginPath(); ax.arc(W - 70, 80, 30, 0, TAU); ax.fill();
+    ax.globalAlpha = 0.22; ax.fillStyle = '#e8f4ff';
+    ax.beginPath(); ax.arc(W - 78, 72, 21, 0, TAU); ax.fill();
+    ax.globalAlpha = 1;
+    for (let i = 0; i < 3; i++) {
+      ax.globalAlpha = 0.09; ax.fillStyle = '#b8d0f0';
+      ax.beginPath();
+      ax.ellipse(W * 0.5 + Math.sin(i * 2.1) * 46, 62 + i * 26 + Math.sin(A.t * 0.5 + i) * 2,
+        72 - i * 10, 6, 0, 0, TAU);
+      ax.fill();
+    }
+    ax.globalAlpha = 1;
     // 两侧灵龛剪影
     for (let i = 0; i < 2; i++) {
       const px = i ? W - 26 : 10;

@@ -1,3 +1,14 @@
 testshots/
 __pycache__/
 tools/_shots/
+
+# 本地验收截图 / TRAE 分享包（不入库）
+.screenshots/
+.trae-html-share-packages/
+
+# AI 美术的原始素材与校验图（运行时只用处理后的成品）
+assets/ai/bosses/raw/
+assets/ai/bosses/tmp/
+assets/ai/tiles/verify_*
+assets/ai/vfx2/shots/
+assets/ai/vfx2/raw_*

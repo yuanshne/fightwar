@@ -1,0 +1,1033 @@
+{
+  "generator": "pip-quest scripts/fetch-assets.ts (CC0 bake)",
+  "tileSize": 18,
+  "tiles": {
+    "image": "tiles.png",
+    "width": 360,
+    "height": 270,
+    "columns": 20,
+    "rows": 15,
+    "count": 290,
+    "names": {
+      "GRASS_TOP_SOLO": 1,
+      "GRASS_TOP_L": 2,
+      "GRASS_TOP_M": 3,
+      "GRASS_TOP_R": 4,
+      "GRASS_SURF_SOLO": 5,
+      "GRASS_SURF_L": 6,
+      "GRASS_SURF_M": 7,
+      "GRASS_SURF_R": 8,
+      "GRASS_BODY_SOLO": 9,
+      "GRASS_BODY_L": 10,
+      "GRASS_BODY_M": 11,
+      "GRASS_BODY_R": 12,
+      "GRASS_BASE_SOLO": 13,
+      "GRASS_BASE_L": 14,
+      "GRASS_BASE_M": 15,
+      "GRASS_BASE_R": 16,
+      "SAND_TOP_SOLO": 17,
+      "SAND_TOP_L": 18,
+      "SAND_TOP_M": 19,
+      "SAND_TOP_R": 20,
+      "SAND_SURF_SOLO": 21,
+      "SAND_SURF_L": 22,
+      "SAND_SURF_M": 23,
+      "SAND_SURF_R": 24,
+      "SAND_BODY_SOLO": 25,
+      "SAND_BODY_L": 26,
+      "SAND_BODY_M": 27,
+      "SAND_BODY_R": 28,
+      "SAND_BASE_SOLO": 29,
+      "SAND_BASE_L": 30,
+      "SAND_BASE_M": 31,
+      "SAND_BASE_R": 32,
+      "SNOW_TOP_SOLO": 33,
+      "SNOW_TOP_L": 34,
+      "SNOW_TOP_M": 35,
+      "SNOW_TOP_R": 36,
+      "SNOW_SURF_SOLO": 37,
+      "SNOW_SURF_L": 38,
+      "SNOW_SURF_M": 39,
+      "SNOW_SURF_R": 40,
+      "SNOW_BODY_SOLO": 41,
+      "SNOW_BODY_L": 42,
+      "SNOW_BODY_M": 43,
+      "SNOW_BODY_R": 44,
+      "SNOW_BASE_SOLO": 45,
+      "SNOW_BASE_L": 46,
+      "SNOW_BASE_M": 47,
+      "SNOW_BASE_R": 48,
+      "DIRT_FILL": 49,
+      "DIRT_FILL_B": 50,
+      "STONE_TL": 51,
+      "STONE_TM": 52,
+      "STONE_TR": 53,
+      "STONE_ML": 54,
+      "STONE_MM": 55,
+      "STONE_MR": 56,
+      "STONE_BL": 57,
+      "STONE_BM": 58,
+      "STONE_BR": 59,
+      "STONE_ROUGH_TL": 60,
+      "STONE_ROUGH_TM": 61,
+      "STONE_ROUGH_TR": 62,
+      "STONE_ROUGH_ML": 63,
+      "STONE_ROUGH_MM": 64,
+      "STONE_ROUGH_MR": 65,
+      "STONE_ROUGH_BL": 66,
+      "STONE_ROUGH_BM": 67,
+      "STONE_ROUGH_BR": 68,
+      "ROCK_TL": 69,
+      "ROCK_TM": 70,
+      "ROCK_TR": 71,
+      "ROCK_ML": 72,
+      "ROCK_MM": 73,
+      "ROCK_MR": 74,
+      "ROCK_BL": 75,
+      "ROCK_BM": 76,
+      "ROCK_BR": 77,
+      "ROCK_ROUGH_TL": 78,
+      "ROCK_ROUGH_TM": 79,
+      "ROCK_ROUGH_TR": 80,
+      "ROCK_ROUGH_ML": 81,
+      "ROCK_ROUGH_MM": 82,
+      "ROCK_ROUGH_MR": 83,
+      "ROCK_ROUGH_BL": 84,
+      "ROCK_ROUGH_BM": 85,
+      "ROCK_ROUGH_BR": 86,
+      "MARBLE_TL": 87,
+      "MARBLE_TM": 88,
+      "MARBLE_TR": 89,
+      "MARBLE_ML": 90,
+      "MARBLE_MM": 91,
+      "MARBLE_MR": 92,
+      "MARBLE_BL": 93,
+      "MARBLE_BM": 94,
+      "MARBLE_BR": 95,
+      "MARBLE_ROUGH_TL": 96,
+      "MARBLE_ROUGH_TM": 97,
+      "MARBLE_ROUGH_TR": 98,
+      "MARBLE_ROUGH_ML": 99,
+      "MARBLE_ROUGH_MM": 100,
+      "MARBLE_ROUGH_MR": 101,
+      "MARBLE_ROUGH_BL": 102,
+      "MARBLE_ROUGH_BM": 103,
+      "MARBLE_ROUGH_BR": 104,
+      "SANDSTONE_TL": 105,
+      "SANDSTONE_TM": 106,
+      "SANDSTONE_TR": 107,
+      "SANDSTONE_ML": 108,
+      "SANDSTONE_MM": 109,
+      "SANDSTONE_MR": 110,
+      "SANDSTONE_BL": 111,
+      "SANDSTONE_BM": 112,
+      "SANDSTONE_BR": 113,
+      "SANDSTONE_ROUGH_TL": 114,
+      "SANDSTONE_ROUGH_TM": 115,
+      "SANDSTONE_ROUGH_TR": 116,
+      "SANDSTONE_ROUGH_ML": 117,
+      "SANDSTONE_ROUGH_MM": 118,
+      "SANDSTONE_ROUGH_MR": 119,
+      "SANDSTONE_ROUGH_BL": 120,
+      "SANDSTONE_ROUGH_BM": 121,
+      "SANDSTONE_ROUGH_BR": 122,
+      "ICE_TL": 123,
+      "ICE_TM": 124,
+      "ICE_TR": 125,
+      "ICE_ML": 126,
+      "ICE_MM": 127,
+      "ICE_MR": 128,
+      "ICE_BL": 129,
+      "ICE_BM": 130,
+      "ICE_BR": 131,
+      "ICE_ROUGH_TL": 132,
+      "ICE_ROUGH_TM": 133,
+      "ICE_ROUGH_TR": 134,
+      "ICE_ROUGH_ML": 135,
+      "ICE_ROUGH_MM": 136,
+      "ICE_ROUGH_MR": 137,
+      "ICE_ROUGH_BL": 138,
+      "ICE_ROUGH_BM": 139,
+      "ICE_ROUGH_BR": 140,
+      "CASTLE_TL__tint": 141,
+      "CASTLE_TL": 142,
+      "CASTLE_TM__tint": 143,
+      "CASTLE_TM": 144,
+      "CASTLE_TR__tint": 145,
+      "CASTLE_TR": 146,
+      "CASTLE_ML__tint": 147,
+      "CASTLE_ML": 148,
+      "CASTLE_MM__tint": 149,
+      "CASTLE_MM": 150,
+      "CASTLE_MR__tint": 151,
+      "CASTLE_MR": 152,
+      "CASTLE_BL__tint": 153,
+      "CASTLE_BL": 154,
+      "CASTLE_BM__tint": 155,
+      "CASTLE_BM": 156,
+      "CASTLE_BR__tint": 157,
+      "CASTLE_BR": 158,
+      "CASTLE_ROUGH_TL__tint": 159,
+      "CASTLE_ROUGH_TL": 160,
+      "CASTLE_ROUGH_TM__tint": 161,
+      "CASTLE_ROUGH_TM": 162,
+      "CASTLE_ROUGH_TR__tint": 163,
+      "CASTLE_ROUGH_TR": 164,
+      "CASTLE_ROUGH_ML__tint": 165,
+      "CASTLE_ROUGH_ML": 166,
+      "CASTLE_ROUGH_MM__tint": 167,
+      "CASTLE_ROUGH_MM": 168,
+      "CASTLE_ROUGH_MR__tint": 169,
+      "CASTLE_ROUGH_MR": 170,
+      "CASTLE_ROUGH_BL__tint": 171,
+      "CASTLE_ROUGH_BL": 172,
+      "CASTLE_ROUGH_BM__tint": 173,
+      "CASTLE_ROUGH_BM": 174,
+      "CASTLE_ROUGH_BR__tint": 175,
+      "CASTLE_ROUGH_BR": 176,
+      "NIGHT_ROCK_TL__tint": 177,
+      "NIGHT_ROCK_TL": 178,
+      "NIGHT_ROCK_TM__tint": 179,
+      "NIGHT_ROCK_TM": 180,
+      "NIGHT_ROCK_TR__tint": 181,
+      "NIGHT_ROCK_TR": 182,
+      "NIGHT_ROCK_ML__tint": 183,
+      "NIGHT_ROCK_ML": 184,
+      "NIGHT_ROCK_MM__tint": 185,
+      "NIGHT_ROCK_MM": 186,
+      "NIGHT_ROCK_MR__tint": 187,
+      "NIGHT_ROCK_MR": 188,
+      "NIGHT_ROCK_BL__tint": 189,
+      "NIGHT_ROCK_BL": 190,
+      "NIGHT_ROCK_BM__tint": 191,
+      "NIGHT_ROCK_BM": 192,
+      "NIGHT_ROCK_BR__tint": 193,
+      "NIGHT_ROCK_BR": 194,
+      "NIGHT_ROCK_ROUGH_TL__tint": 195,
+      "NIGHT_ROCK_ROUGH_TL": 196,
+      "NIGHT_ROCK_ROUGH_TM__tint": 197,
+      "NIGHT_ROCK_ROUGH_TM": 198,
+      "NIGHT_ROCK_ROUGH_TR__tint": 199,
+      "NIGHT_ROCK_ROUGH_TR": 200,
+      "NIGHT_ROCK_ROUGH_ML__tint": 201,
+      "NIGHT_ROCK_ROUGH_ML": 202,
+      "NIGHT_ROCK_ROUGH_MM__tint": 203,
+      "NIGHT_ROCK_ROUGH_MM": 204,
+      "NIGHT_ROCK_ROUGH_MR__tint": 205,
+      "NIGHT_ROCK_ROUGH_MR": 206,
+      "NIGHT_ROCK_ROUGH_BL__tint": 207,
+      "NIGHT_ROCK_ROUGH_BL": 208,
+      "NIGHT_ROCK_ROUGH_BM__tint": 209,
+      "NIGHT_ROCK_ROUGH_BM": 210,
+      "NIGHT_ROCK_ROUGH_BR__tint": 211,
+      "NIGHT_ROCK_ROUGH_BR": 212,
+      "BRICK": 213,
+      "BRICK_DARK": 214,
+      "BLOCK_PLAIN": 215,
+      "BLOCK_Q": 216,
+      "BLOCK_COIN": 217,
+      "BLOCK_USED": 218,
+      "BLOCK_Q_DIM": 219,
+      "BLOCK_COIN_DIM": 220,
+      "CRATE": 221,
+      "CRATE_WIDE_L": 222,
+      "CRATE_WIDE_M": 223,
+      "CRATE_WIDE_R": 224,
+      "DOOR_TOP": 225,
+      "DOOR_BOTTOM": 226,
+      "PLATFORM_LEFT": 227,
+      "PLATFORM_RIGHT": 228,
+      "BRIDGE_LEFT": 229,
+      "BRIDGE_MID": 230,
+      "BRIDGE_RIGHT": 231,
+      "CLOUD_LEFT": 232,
+      "CLOUD_MID": 233,
+      "CLOUD_RIGHT": 234,
+      "LAVA_TOP": 235,
+      "LAVA": 236,
+      "SPIKES": 237,
+      "WATER_TOP": 238,
+      "WATER": 239,
+      "WATER_DEEP": 240,
+      "LADDER_TOP": 241,
+      "LADDER": 242,
+      "PIPE_TOP_LEFT": 243,
+      "PIPE_TOP_RIGHT": 244,
+      "PIPE_BODY_LEFT": 245,
+      "PIPE_BODY_RIGHT": 246,
+      "PIPE_H_LEFT": 247,
+      "PIPE_H_MID": 248,
+      "PIPE_H_RIGHT": 249,
+      "BUSH_SMALL": 250,
+      "BUSH_LEFT": 251,
+      "BUSH_MID": 252,
+      "BUSH_RIGHT": 253,
+      "HEDGE_LEFT": 254,
+      "HEDGE_MID": 255,
+      "HEDGE_RIGHT": 256,
+      "TREE_TRUNK": 257,
+      "TREE_TRUNK_BASE": 258,
+      "TREE_CANOPY": 259,
+      "TREE_BRANCH": 260,
+      "BRANCH_ARCH": 261,
+      "GRASS_TUFT": 262,
+      "PLANT": 263,
+      "PINE": 264,
+      "CACTUS": 265,
+      "MUSHROOM_DECO": 266,
+      "FENCE": 267,
+      "FENCE_BROKEN": 268,
+      "SIGN": 269,
+      "SIGN_LEFT": 270,
+      "SIGN_RIGHT": 271,
+      "CHAIN": 272,
+      "SNOWMAN": 273,
+      "SNOW_PILE": 274,
+      "TORCH": 275,
+      "WINDOW": 276,
+      "ROCK_DECO": 277,
+      "PEBBLE": 278,
+      "CLOUD_PUFF": 279,
+      "STONE_PILLAR": 280,
+      "STONE_PILLAR_BASE": 281,
+      "BACKFILL_DARK": 282,
+      "BACKFILL_CAVE": 283,
+      "BACKFILL_NIGHT": 284,
+      "BACKFILL_WATER": 285
+    },
+    "animations": [
+      {
+        "gid": 235,
+        "frames": [
+          235,
+          286
+        ],
+        "rate": 3
+      },
+      {
+        "gid": 236,
+        "frames": [
+          236,
+          287
+        ],
+        "rate": 3
+      },
+      {
+        "gid": 238,
+        "frames": [
+          238,
+          288,
+          289
+        ],
+        "rate": 4
+      },
+      {
+        "gid": 239,
+        "frames": [
+          239,
+          290
+        ],
+        "rate": 3
+      }
+    ]
+  },
+  "sprites": {
+    "image": "sprites.png",
+    "atlas": "sprites.json",
+    "width": 1024,
+    "height": 128,
+    "count": 108,
+    "frames": {
+      "pip-big-idle": {
+        "x": 524,
+        "y": 2,
+        "w": 20,
+        "h": 23
+      },
+      "pip-big-walk": {
+        "x": 546,
+        "y": 2,
+        "w": 20,
+        "h": 23
+      },
+      "pip-big-walk-b": {
+        "x": 656,
+        "y": 2,
+        "w": 21,
+        "h": 22
+      },
+      "pip-big-jump": {
+        "x": 418,
+        "y": 2,
+        "w": 18,
+        "h": 26
+      },
+      "pip-big-fall": {
+        "x": 679,
+        "y": 2,
+        "w": 22,
+        "h": 22
+      },
+      "pip-big-skid": {
+        "x": 824,
+        "y": 2,
+        "w": 23,
+        "h": 21
+      },
+      "pip-big-duck": {
+        "x": 421,
+        "y": 68,
+        "w": 24,
+        "h": 14
+      },
+      "pip-big-hurt": {
+        "x": 568,
+        "y": 2,
+        "w": 20,
+        "h": 23
+      },
+      "pip-big-swim": {
+        "x": 703,
+        "y": 2,
+        "w": 22,
+        "h": 22
+      },
+      "pip-big-climb": {
+        "x": 458,
+        "y": 2,
+        "w": 18,
+        "h": 24
+      },
+      "pip-small-idle": {
+        "x": 222,
+        "y": 68,
+        "w": 14,
+        "h": 16
+      },
+      "pip-small-walk": {
+        "x": 238,
+        "y": 68,
+        "w": 14,
+        "h": 16
+      },
+      "pip-small-walk-b": {
+        "x": 325,
+        "y": 68,
+        "w": 15,
+        "h": 15
+      },
+      "pip-small-jump": {
+        "x": 943,
+        "y": 2,
+        "w": 13,
+        "h": 18
+      },
+      "pip-small-fall": {
+        "x": 342,
+        "y": 68,
+        "w": 16,
+        "h": 15
+      },
+      "pip-small-skid": {
+        "x": 360,
+        "y": 68,
+        "w": 16,
+        "h": 15
+      },
+      "pip-small-duck": {
+        "x": 866,
+        "y": 68,
+        "w": 17,
+        "h": 10
+      },
+      "pip-small-hurt": {
+        "x": 254,
+        "y": 68,
+        "w": 14,
+        "h": 16
+      },
+      "pip-small-swim": {
+        "x": 378,
+        "y": 68,
+        "w": 15,
+        "h": 15
+      },
+      "pip-small-climb": {
+        "x": 170,
+        "y": 68,
+        "w": 13,
+        "h": 17
+      },
+      "pip-power-idle": {
+        "x": 590,
+        "y": 2,
+        "w": 20,
+        "h": 23
+      },
+      "pip-power-walk": {
+        "x": 612,
+        "y": 2,
+        "w": 20,
+        "h": 23
+      },
+      "pip-power-walk-b": {
+        "x": 727,
+        "y": 2,
+        "w": 21,
+        "h": 22
+      },
+      "pip-power-jump": {
+        "x": 438,
+        "y": 2,
+        "w": 18,
+        "h": 26
+      },
+      "pip-power-fall": {
+        "x": 750,
+        "y": 2,
+        "w": 22,
+        "h": 22
+      },
+      "pip-power-skid": {
+        "x": 849,
+        "y": 2,
+        "w": 23,
+        "h": 21
+      },
+      "pip-power-duck": {
+        "x": 447,
+        "y": 68,
+        "w": 24,
+        "h": 14
+      },
+      "pip-power-hurt": {
+        "x": 634,
+        "y": 2,
+        "w": 20,
+        "h": 23
+      },
+      "pip-power-swim": {
+        "x": 774,
+        "y": 2,
+        "w": 22,
+        "h": 22
+      },
+      "pip-power-climb": {
+        "x": 478,
+        "y": 2,
+        "w": 18,
+        "h": 24
+      },
+      "walker-0": {
+        "x": 958,
+        "y": 2,
+        "w": 18,
+        "h": 18
+      },
+      "walker-1": {
+        "x": 978,
+        "y": 2,
+        "w": 18,
+        "h": 18
+      },
+      "walker-flat": {
+        "x": 82,
+        "y": 88,
+        "w": 21,
+        "h": 6
+      },
+      "shelled-0": {
+        "x": 532,
+        "y": 68,
+        "w": 15,
+        "h": 13
+      },
+      "shelled-1": {
+        "x": 473,
+        "y": 68,
+        "w": 15,
+        "h": 14
+      },
+      "shelled-shell": {
+        "x": 569,
+        "y": 68,
+        "w": 15,
+        "h": 12
+      },
+      "shelled-shell-spin": {
+        "x": 586,
+        "y": 68,
+        "w": 15,
+        "h": 12
+      },
+      "flyer-0": {
+        "x": 185,
+        "y": 68,
+        "w": 18,
+        "h": 17
+      },
+      "flyer-1": {
+        "x": 603,
+        "y": 68,
+        "w": 24,
+        "h": 12
+      },
+      "flyer-2": {
+        "x": 549,
+        "y": 68,
+        "w": 18,
+        "h": 13
+      },
+      "spiker-0": {
+        "x": 998,
+        "y": 2,
+        "w": 15,
+        "h": 18
+      },
+      "spiker-1": {
+        "x": 926,
+        "y": 2,
+        "w": 15,
+        "h": 19
+      },
+      "spiker-hurt": {
+        "x": 205,
+        "y": 68,
+        "w": 15,
+        "h": 17
+      },
+      "jumper-0": {
+        "x": 874,
+        "y": 2,
+        "w": 24,
+        "h": 21
+      },
+      "jumper-1": {
+        "x": 798,
+        "y": 2,
+        "w": 24,
+        "h": 22
+      },
+      "jumper-crouch": {
+        "x": 900,
+        "y": 2,
+        "w": 24,
+        "h": 20
+      },
+      "spitter-0": {
+        "x": 395,
+        "y": 68,
+        "w": 11,
+        "h": 15
+      },
+      "spitter-1": {
+        "x": 408,
+        "y": 68,
+        "w": 11,
+        "h": 15
+      },
+      "boss-src": {
+        "x": 498,
+        "y": 2,
+        "w": 24,
+        "h": 24
+      },
+      "boss-idle": {
+        "x": 126,
+        "y": 2,
+        "w": 48,
+        "h": 48
+      },
+      "boss-angry": {
+        "x": 176,
+        "y": 2,
+        "w": 48,
+        "h": 48
+      },
+      "boss-hurt": {
+        "x": 226,
+        "y": 2,
+        "w": 48,
+        "h": 48
+      },
+      "boss-phase2": {
+        "x": 276,
+        "y": 2,
+        "w": 48,
+        "h": 48
+      },
+      "boss-phase3": {
+        "x": 326,
+        "y": 2,
+        "w": 48,
+        "h": 48
+      },
+      "coin-0": {
+        "x": 629,
+        "y": 68,
+        "w": 12,
+        "h": 12
+      },
+      "coin-1": {
+        "x": 643,
+        "y": 68,
+        "w": 8,
+        "h": 12
+      },
+      "coin-2": {
+        "x": 653,
+        "y": 68,
+        "w": 8,
+        "h": 12
+      },
+      "coin-3": {
+        "x": 663,
+        "y": 68,
+        "w": 12,
+        "h": 12
+      },
+      "mushroom": {
+        "x": 677,
+        "y": 68,
+        "w": 12,
+        "h": 12
+      },
+      "oneup": {
+        "x": 691,
+        "y": 68,
+        "w": 12,
+        "h": 12
+      },
+      "flower": {
+        "x": 490,
+        "y": 68,
+        "w": 20,
+        "h": 14
+      },
+      "star-item": {
+        "x": 270,
+        "y": 68,
+        "w": 17,
+        "h": 16
+      },
+      "key-item": {
+        "x": 705,
+        "y": 68,
+        "w": 18,
+        "h": 12
+      },
+      "gem-red": {
+        "x": 725,
+        "y": 68,
+        "w": 18,
+        "h": 12
+      },
+      "gem-blue": {
+        "x": 745,
+        "y": 68,
+        "w": 18,
+        "h": 12
+      },
+      "gem-green": {
+        "x": 765,
+        "y": 68,
+        "w": 18,
+        "h": 12
+      },
+      "gem-yellow": {
+        "x": 785,
+        "y": 68,
+        "w": 18,
+        "h": 12
+      },
+      "heart-full": {
+        "x": 805,
+        "y": 68,
+        "w": 14,
+        "h": 12
+      },
+      "heart-half": {
+        "x": 821,
+        "y": 68,
+        "w": 14,
+        "h": 12
+      },
+      "heart-empty": {
+        "x": 837,
+        "y": 68,
+        "w": 14,
+        "h": 12
+      },
+      "spring-up": {
+        "x": 885,
+        "y": 68,
+        "w": 18,
+        "h": 10
+      },
+      "spring-down": {
+        "x": 512,
+        "y": 68,
+        "w": 18,
+        "h": 14
+      },
+      "plat-move-l": {
+        "x": 905,
+        "y": 68,
+        "w": 18,
+        "h": 10
+      },
+      "plat-move-r": {
+        "x": 925,
+        "y": 68,
+        "w": 18,
+        "h": 10
+      },
+      "plat-fall-l": {
+        "x": 945,
+        "y": 68,
+        "w": 18,
+        "h": 10
+      },
+      "plat-fall-r": {
+        "x": 965,
+        "y": 68,
+        "w": 18,
+        "h": 10
+      },
+      "conveyor-l": {
+        "x": 13,
+        "y": 88,
+        "w": 16,
+        "h": 8
+      },
+      "conveyor-r": {
+        "x": 105,
+        "y": 88,
+        "w": 16,
+        "h": 6
+      },
+      "block-q": {
+        "x": 2,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "block-q-used": {
+        "x": 22,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "block-brick": {
+        "x": 42,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "block-coin": {
+        "x": 62,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "flag-0": {
+        "x": 82,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "flag-1": {
+        "x": 102,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "flag-pole": {
+        "x": 122,
+        "y": 68,
+        "w": 6,
+        "h": 18
+      },
+      "checkpoint-off": {
+        "x": 130,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "checkpoint-on": {
+        "x": 150,
+        "y": 68,
+        "w": 18,
+        "h": 18
+      },
+      "bolt-0": {
+        "x": 31,
+        "y": 88,
+        "w": 8,
+        "h": 8
+      },
+      "bolt-1": {
+        "x": 41,
+        "y": 88,
+        "w": 8,
+        "h": 8
+      },
+      "fireball-0": {
+        "x": 985,
+        "y": 68,
+        "w": 9,
+        "h": 10
+      },
+      "fireball-1": {
+        "x": 996,
+        "y": 68,
+        "w": 9,
+        "h": 10
+      },
+      "p-dust": {
+        "x": 131,
+        "y": 88,
+        "w": 5,
+        "h": 5
+      },
+      "p-spark": {
+        "x": 150,
+        "y": 88,
+        "w": 3,
+        "h": 3
+      },
+      "p-brick": {
+        "x": 51,
+        "y": 88,
+        "w": 9,
+        "h": 7
+      },
+      "p-brick-grey": {
+        "x": 62,
+        "y": 88,
+        "w": 9,
+        "h": 7
+      },
+      "p-bubble": {
+        "x": 73,
+        "y": 88,
+        "w": 7,
+        "h": 7
+      },
+      "p-snow": {
+        "x": 138,
+        "y": 88,
+        "w": 4,
+        "h": 4
+      },
+      "p-ember": {
+        "x": 144,
+        "y": 88,
+        "w": 4,
+        "h": 4
+      },
+      "p-star": {
+        "x": 2,
+        "y": 88,
+        "w": 9,
+        "h": 9
+      },
+      "p-leaf": {
+        "x": 155,
+        "y": 88,
+        "w": 4,
+        "h": 3
+      },
+      "p-smoke": {
+        "x": 123,
+        "y": 88,
+        "w": 6,
+        "h": 6
+      },
+      "ui-panel": {
+        "x": 289,
+        "y": 68,
+        "w": 16,
+        "h": 16
+      },
+      "ui-panel-light": {
+        "x": 307,
+        "y": 68,
+        "w": 16,
+        "h": 16
+      },
+      "ui-dot": {
+        "x": 1007,
+        "y": 68,
+        "w": 10,
+        "h": 10
+      },
+      "ui-ring": {
+        "x": 376,
+        "y": 2,
+        "w": 40,
+        "h": 40
+      },
+      "ui-life": {
+        "x": 853,
+        "y": 68,
+        "w": 11,
+        "h": 12
+      },
+      "ui-touch-pad": {
+        "x": 2,
+        "y": 2,
+        "w": 64,
+        "h": 64
+      },
+      "ui-touch-btn": {
+        "x": 68,
+        "y": 2,
+        "w": 56,
+        "h": 56
+      }
+    }
+  },
+  "backgrounds": [
+    {
+      "file": "bg-castle.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-cave.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-desert.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-grass.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-ice.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-night.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-sky.png",
+      "width": 384,
+      "height": 216
+    },
+    {
+      "file": "bg-water.png",
+      "width": 384,
+      "height": 216
+    }
+  ]
+}

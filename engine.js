@@ -223,6 +223,11 @@ function _engSign(v) { return v < 0 ? -1 : v > 0 ? 1 : 0; }
 function _engAabb(a, b) { // a/b 均为 {x,y,w,h}
   return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 }
+/* v41：主角精灵可视顶。ui 的 _heroXform 以 (p.x+p.w/2, p.y+p.h-2) 为脚底、精灵 32×38 向上画，
+   所以可视顶 ≈ p.y+p.h-38。技能/弹体的生成点必须按这个锚点算，不能再拿旧 14 高碰撞盒的
+   p.y 当「头顶」或 p.y+p.h 当「身体中心」。 */
+const _engHeroVisH = 38; // 内部：主角精灵高度（ai_sprites / ui 绘制口径）
+function _engSpriteTop(p) { return p.y + p.h - _engHeroVisH; }
 function _engMulberry(seed) { // 内部：种子随机（装饰摆放必须确定性）
   return function () {
     seed |= 0; seed = seed + 0x6D2B79F5 | 0;
@@ -259,6 +264,72 @@ function _engAddStars(x, y, n, color) { // 内部（v5 §D）：星形火花 4~6
     _engFx(x, y, { star: 1, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 40, grav: 260,
       life: 0.3 + Math.random() * 0.2, color: color, size: 1 });
   }
+}
+/* 传送门持续粒子：每帧每个门 1~2 粒青紫漩涡（切向速度 + 向上漂移）。
+   容量上限 28：给传送爆发的 2 环 + 8 星火预留 12 个名额，portal 相关总数 ≤40。
+   fxParts 缺失/非数组时整段空转（旧存档/桩环境安全）。 */
+function _engPortalAmbient(L) {
+  const fx = game.fxParts;
+  if (!Array.isArray(fx) || !L || !L.portals) return;
+  const cap = 28;
+  for (const pt of L.portals) {
+    if (!pt) continue;
+    const n = Math.random() < 0.25 ? 1 : 2;
+    for (let i = 0; i < n; i++) {
+      if (fx.length >= cap) return;
+      const a = Math.random() * 6.283;
+      const rad = 2 + Math.random() * 6;
+      const spin = (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 26);
+      const cx = pt.x + (pt.w || 12) / 2;
+      const cy = pt.y + (pt.h || 24) / 2;
+      fx.push({
+        x: cx + Math.cos(a) * rad, y: cy + Math.sin(a) * rad,
+        vx: Math.cos(a + 1.5708) * spin, vy: Math.sin(a + 1.5708) * spin - (18 + Math.random() * 22),
+        life: 0.35 + Math.random() * 0.3, color: Math.random() < 0.5 ? '#22d8ff' : '#8a4cff',
+        size: 1, grav: -18
+      });
+    }
+    // 少量青紫脉冲环：让门在暗背景上有明确的漩涡中心，而不是只剩白色粒子。
+    if (Math.random() < 0.08 && fx.length < cap) {
+      const cx = pt.x + (pt.w || 12) / 2, cy = pt.y + (pt.h || 24) / 2;
+      fx.push({ x: cx, y: cy, ring: 1, r: 2, r1: 13, life: 0.45, life0: 0.45,
+        color: Math.random() < 0.5 ? '#22d8ff' : '#8a4cff' });
+    }
+  }
+}
+/* 传送落点爆发：1 圈扩散环 + 4 粒星火（两端各调一次 = 2 环 + 8 星火）。
+   小闪屏/轻震由 _engPortalFlash 统一处理；字段缺失时静默跳过。 */
+function _engPortalBurst(x, y, color) {
+  if (!Array.isArray(game.fxParts)) return;
+  _engFx(x, y, { ring: 1, r: 3, r1: 22, life: 0.34, life0: 0.34, color: color });
+  for (let i = 0; i < 4; i++) {
+    const a = Math.random() * 6.283, s = 55 + Math.random() * 60;
+    _engFx(x, y, { star: 1, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 30, grav: 220,
+      life: 0.3 + Math.random() * 0.2, color: color, size: 1 });
+  }
+}
+function _engPortalFlash() {
+  if (typeof game.flashT === 'number') game.flashT = Math.max(game.flashT, 0.08);
+  if (typeof game.shake === 'number') game.shake = Math.max(game.shake, 3);
+}
+/* 落点安全检查：玩家矩形不压实心，且脚下 4px 内能找到实心/'=' 支撑。
+   旧关卡（如 L17 原有门）一侧贴墙/悬空时自动改落到另一侧，避免传进墙或深渊。 */
+function _engPortalSpotOk(L, x, y, p) {
+  const x0 = Math.floor(x / _engTile), x1 = Math.floor((x + p.w - _engEps) / _engTile);
+  const y0 = Math.floor(y / _engTile), y1 = Math.floor((y + p.h - _engEps) / _engTile);
+  for (let ty = y0; ty <= y1; ty++)
+    for (let tx = x0; tx <= x1; tx++)
+      if (L.solid(tx, ty, game.switchState)) return false;
+  const fy = Math.floor((y + p.h + 4) / _engTile);
+  for (let tx = x0; tx <= x1; tx++) {
+    if (L.solid(tx, fy, game.switchState) || L.tileAt(tx, fy) === '=') return true;
+  }
+  return false;
+}
+function _engPortalLanding(L, q, p, dir) {
+  const nx = dir > 0 ? q.x + q.w + 2 : q.x - p.w - 2;
+  const ny = q.y + q.h - p.h - 4;
+  return _engPortalSpotOk(L, nx, ny, p) ? { x: nx, y: ny } : null;
 }
 function _engShake(m, delay) { // 内部（v5 §1.5）：分级震屏（单槽 shakePend；大值可覆盖未生效小值）
   if (!game.shakePend || game.shakePend.m <= m) game.shakePend = { m: m, t: delay || 0 };
@@ -302,7 +373,8 @@ const BAL = {
   fall:  { fast: 360 },                       // §F 速降上限（=旧 maxFall，按住↓恢复精准落地）
   player:{ hpBase: 5, atkBase: 2, critMul: 2, critMod: 4,
            stompDmg: 1, stompBounce: 235, hurtKbX: 160, hurtKbY: 131, invT: 1.0, respawnInvT: 1.5 },
-  atk:   { cd: 0.35, boxW: 32, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10 }, // v20.5：boxW 18→32——勇者改「剑」：攻击距离=剑的范围（用户实测原范围太小）
+  atk:   { cd: 0.35, boxW: 32, boxH: 14, anim: 0.25, wind: 0.05, dur: 0.12, hitStop: 0.10,
+           downW: 30, downH: 18, pogoV: 290, pogoStop: 0.06 }, // v31：空中↓+J 下劈——踩敌反弹（下劈盒/反弹速度/命中顿帧）
   // v7.7 手感：cd 0.8→0.5（对照空洞骑士 0.45~0.55s；dur/v 不动 ⇒ 冲刺距离 59.53px 不变）
   // v7.9：冲刺追加无敌帧。0.10s（6 帧）刚好覆盖「看到攻击抬手 → 按 K 穿过判定框」的反应窗口，
   // 又远短于 dash 总时长 0.28 —— 不会变成「一直按 K 无敌」。取 0.10 而非 0.18 是玩家明确要求：
@@ -312,8 +384,14 @@ const BAL = {
   // 一次性穿过多段判定（弹幕、连撞、劈地波）不再看运气；但连按 K 仍留 0.30s 裸窗，
   // 「滚地无敌」不成立。若还要再松，优先动 player.invT（受击后 1.0s）而不是继续拉这个值——
   // inv ≥ dur 会让冲刺后半段也免疫，等于把闪避变成短距瞬移。
-  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5, inv: 0.20 },
-  combo: { win: 2, ultNeed: 8 },
+  dash:  { cd: 0.5, dur: 0.28, v: 260, gravMul: 0.5, inv: 0.20,
+           perfectCharge: 8, perfectStop: 0.05 }, // v31：冲刺无敌帧穿过攻击 = 完美闪避（充能/顿帧）
+  // v31：连击≥4 普攻附带剑波；≥8 升级为 2 伤 / 穿 2 目标；终结技另走 dragon 波
+  combo: { win: 2, ultNeed: 8, waveAt: 4, waveDmg: 1, waveAt2: 8, waveDmg2: 2,
+           waveLife: 0.45, waveV: 210,
+           // 连击终结技「龙吟斩」：连击≥8 且冷却就绪时，普通剑波升级为宽体龙波
+           finisherAt: 8, dragonDmg: 3, dragonPierce: 3, finisherCd: 1.2 },
+  counter: { t: 1.2, bonus: 0.5, stop: 0.06 }, // v31：完美闪避后的反击窗口（时长 / 额外伤害比例 / 追加顿帧）
   // v7.1 O 重做：连击门槛与实战节奏脱节（怪少窗短叠不满 8）→ 改能量充能制：
   // 任何命中充 ultCharge.hit（碎砖减半），满 ultNeed 释放；死亡/断连击不清充能
   ult: { chargeHit: 10, chargeBrick: 5, ultNeed: 100 },
@@ -1083,7 +1161,9 @@ class Level {
         // 确定性动画相位（代替旧文件的 Math.random，保证门禁/重放一致）
         const phase = (x * 0.7 + y * 1.3) % 6.283;
         switch (ch) {
-          case '@': this.spawn = { x: px + 3, y: py + 2 }; this.tiles[y][x] = '.'; break;
+          // v41：玩家碰撞盒 14→30 高（视觉 32×38），出生点改为「脚底仍落在本格底」：
+          // y = py + 2 - 16 ⇒ y + 30 = py + 16（与原 14 高时 y+14 = py+16 同一落脚面）
+          case '@': this.spawn = { x: px + 3, y: py + 2 - 16 }; this.tiles[y][x] = '.'; break;
           case 'P': this.goal = { x: px, y: py - 16, w: 16, h: 32 }; this.tiles[y][x] = '.'; break;
           case 'o': this.coins.push({ x: px + 4, y: py + 4, w: 8, h: 8, got: false, t: phase }); this.tiles[y][x] = '.'; break;
           case '*': this.coins.push({ x: px + 4, y: py + 3, w: 8, h: 10, got: false, gem: true, t: phase }); this.tiles[y][x] = '.'; break;
@@ -1369,6 +1449,8 @@ const game = {
   hazards: [],
   skills: { u: 0, i: 0, o: 0, l: 0 }, // 技能 CD 剩余秒（U/I/O + v6 L）
   flashT: 0,             // 流星连斩白屏剩余（s）
+  zoomPunch: 0,          // 镜头冲击强度 0..1（ui 读取；engine 每帧约 4/s 衰减）
+  fxEvents: [],          // 演出事件总线（engine 只 push：dragon/execute/counter；ui 推进消费）
   // v4：谜题神龛（沿 v2/v3 先例扩展字段，不新增契约外顶层全局符号）
   puzzleActive: false,   // 谜题覆盖层打开中——updateWorld 顶部直接 return（同 paused 冻结语义，不改 paused）
   puzzleNear: -1,        // 玩家靠近的神龛 idx（1~6），不靠近=-1（每步刷新；ui 据此提示/消费开龛键）
@@ -1452,7 +1534,10 @@ function _engHero() { // 内部（v19）：当前英雄表项——非法/缺省
 function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 + v2 P1 攻击/冲刺字段 + v3/v5/v6 扩展）
   const maxHp = _engHero().hpBase + (game.equip ? game.equip.hp : 0); // v6 §C：装备头饰加成（骑士 5 / 法师 4）；v7.7：局外成长项已删；v19：基础血按英雄表
   return {
-    x: x, y: y, w: 10, h: 14, vx: 0, vy: 0, face: 1,
+    // v41：碰撞盒贴近视觉体积（AI 精灵 32×38，脚底锚定 p.y+p.h）——旧值 10×14 只有精灵的 1/3：
+    // 金币/敌人接触/尖刺熔岩/窄缝都读 p.w/p.h，改这里即整体生效。16 宽=1 格、30 高<2 格（32），
+    // 保证 1 格缝与 2 格高通道仍可通过；跳跃/重力/落地代码全部读 p.h，无需另改。
+    x: x, y: y, w: 16, h: 30, vx: 0, vy: 0, face: 1,
     onGround: false, coyote: 0, jbuf: 0, anim: 'idle', animT: 0,
     dead: false, deadT: 0, standOn: null, landT: 0,
     atkCd: 0, atkT: 0,     // v2 P1：攻击冷却剩余 / 判定框剩余存在时间
@@ -1468,7 +1553,13 @@ function _engMkPlayer(x, y) { // 内部：玩家对象（字段 = 契约清单 +
     convV: 0,              // v8.0：传送带带速（与 p.vx 分开——带速要能叠加在跑速上，不能共用同一个钳制）
     pullV: 0,              // v10：Boss 吸附力场速度（同上，独立于 p.vx；力场结束 8/s 衰减归零）
     atkSeq: 0, // v5 §C：每次挥击序号——hit-stop 冻结后判定框仍存活，同一摆不得对同一目标二次结算
-    shotSeq: 0  // v19：法师普攻「一次起手只发一发」序号（对标 atkSeq；与 _engResolveMageAttack 比对）
+    shotSeq: 0, // v19：法师普攻「一次起手只发一发」序号（对标 atkSeq；与 _engResolveMageAttack 比对）
+    // v31：下劈/完美闪避/剑波——atkDir 本摆方向；pogoSeq 保证一摆只反弹一次；
+    // waveSeq 保证一摆只出一次剑波；dashSeq/perfectSeq 保证一次冲刺只奖励一次完美闪避。
+    atkDir: 'side', abufDown: false, pogoSeq: 0, waveSeq: 0,
+    dashSeq: 0, perfectSeq: 0, lastFromX: 0, lastHurtT: 0,
+    perfectT: 0, // v31：完美闪避反击窗口剩余时间（命中即消费）
+    finisherCd: 0 // 连击终结技「龙吟斩」冷却剩余（s）
   };
 }
 
@@ -1502,6 +1593,7 @@ function loadLevel(idx, keepStats) {
   const kind = L.meta.boss === true ? 1 : (L.meta.boss || 0);
   game.boss = L.bossSpawn ? _engMkBoss(L.bossSpawn.x, L.bossSpawn.y, kind) : null;
   game.drops = []; game.meteors = []; game.waves = []; game.flashT = 0;
+  game.fxEvents = []; game.zoomPunch = 0; // 演出事件总线 / 镜头冲击随换关复位
   game.hazards = []; // v10：场地危险物随换关清空（与 bullets/waves 同口径，避免上一关的陨石/地刺残留）
   game.skills = { u: 0, i: 0, o: 0, l: 0 };
   // v4：谜题状态复位——覆盖层强制关闭 / 接近清空 / 已解表清空（工单 4：
@@ -1528,6 +1620,9 @@ function respawn() { // 死亡序列终点：敌人复活重置、崩塌砖复�
   p.vx = 0; p.vy = 0; p.dead = false; p.deadT = 0;
   p.standOn = null; p.onGround = false; p.coyote = 0; p.jbuf = 0;
   p.atkT = 0; p.dashT = 0; p.atkCd = 0; p.dashCd = 0; p.abuf = 0; // v2 P1：动作状态复位（v7.7 追加攻击缓冲）
+  p.atkDir = 'side'; p.abufDown = false; p.pogoSeq = 0; p.waveSeq = 0; // v31：下劈/剑波复位
+  p.dashSeq = 0; p.perfectSeq = 0; p.lastHurtT = 0; p.perfectT = 0; // v31：完美闪避/反击窗口复位
+  p.finisherCd = 0; // 连击终结技冷却随重生清零
   p.mistT = 0; p.mistSlow = 0; // v18：水雾减速标记复位（重生点不在雾里，防残留半帧）
   p.webNoJump = 0;             // v20：蛛网禁跳同口径复位（否则重生第一帧按跳没反应）
   // v6 §C：HP 回满（maxHp 含装备头饰加成）+ BAL 出生保护；技能 CD 保留计时（设计 §5）
@@ -1604,7 +1699,7 @@ function killPlayer() {
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return;
   p.dead = true; p.deadT = 0;
-  p.atkT = 0; p.dashT = 0; p.abuf = 0; // v2 P1：动作状态随死亡终止（v7.7 追加攻击缓冲）
+  p.atkT = 0; p.dashT = 0; p.abuf = 0; p.perfectT = 0; // v2 P1：动作状态随死亡终止（v7.7 追加攻击缓冲；v31 反击窗口清零）
   p.shotSeq = 0; // v19：法师普攻序号随死亡清零（复活第一发必须能出手）
   game.deaths++; game.shake = 8; // v2 P1：死亡震屏 6→8
   game.sfxQueue.push('die'); // 音效只能入队，engine 不发声
@@ -2083,6 +2178,23 @@ function _engHurtPlayer(fromX, dmg) { // 内部：一切 HP 伤害的唯一入�
   // 原来的表里的 contactDmg 是个没人读的死字段，写 2 也只是自我安慰。
   const p = game.player;
   if (!p || p.dead || game.state !== 'play') return false;
+  /* v31：完美闪避——冲刺无敌窗口内被攻击判定擦到，不受伤且立刻返还冲刺、充能大招。
+     一次冲刺只奖励一次（perfectSeq/dashSeq），防止持续弹幕逐帧刷充能。 */
+  if (p.invT > 0 && p.dashT > 0 && p.perfectSeq !== p.dashSeq) {
+    p.perfectSeq = p.dashSeq;
+    p.dashCd = 0;
+    p.perfectT = BAL.counter.t; // v31：开启反击窗口（下一摆命中有额外伤害）
+    if (game.ultCharge < BAL.ult.ultNeed)
+      game.ultCharge = Math.min(BAL.ult.ultNeed, (game.ultCharge || 0) + BAL.dash.perfectCharge);
+    game.hitStop = Math.max(game.hitStop, BAL.dash.perfectStop);
+    _engShake(2, 0);
+    _engFx(p.x + p.w / 2, p.y + p.h / 2, { ring: 1, r: 4, r1: 22, life: 0.30, color: '#8af0ff' });
+    _engFloat(p.x + p.w / 2, p.y - 8, 'PERFECT', '#8af0ff', 1);
+    (game.fxEvents || (game.fxEvents = [])).push({ type: 'counter',
+      x: p.x + p.w / 2, y: p.y + p.h / 2, t: 0, life: 0.4 });
+    game.sfxQueue.push('perfect');
+    return false;
+  }
   if (p.invT > 0) return false;                    // 无敌帧：伤害与击退全免
   if (p.shieldT > 0) {                             // v5 §3.3：护盾吸收 1 次
     // v8.2 修复：吸收命中必须给无敌帧（同正常受击 1.0s）——此前不给，敌人贴身/弹幕
@@ -2098,6 +2210,7 @@ function _engHurtPlayer(fromX, dmg) { // 内部：一切 HP 伤害的唯一入�
     return false;
   }
   p.hp -= (dmg || 1); p.invT = BAL.player.invT;
+  p.lastFromX = fromX; p.lastHurtT = 0.5;          // v31：受击方向提示（ui 读）
   p.vx = (p.x + p.w / 2 < fromX ? -1 : 1) * BAL.player.hurtKbX;   // 击退方向=离伤害源
   p.vy = -BAL.player.hurtKbY; p.dashT = 0; p.atkT = 0;
   p.airJumps = 1; p.springAir = false;             // v5 §1.1：受击重置二段跳/解锁弹簧锁
@@ -2149,6 +2262,11 @@ function _engMkGear(x, y, slot, r) { // 内部：装备掉落实体（10×12 弹
 
 function _engKillEnemy(e) { // 内部：击杀统一入口（踩踏/攻击/星陨/连斩/星刃共用；30% 掉回复心，设计 §5）
   e.dead = 0.01;
+  // v31：击杀刷新冲刺与二段跳——连续清怪可以保持空中的推进节奏（不回血，只回机动）。
+  if (game.player && !game.player.dead) {
+    game.player.dashCd = 0;
+    game.player.airJumps = Math.max(game.player.airJumps || 0, 1);
+  }
   // v19（spec §2.8）：法师击杀回蓝 +12（clamp 到上限）。放唯一击杀入口内 ⇒ 近战/远程/大招击杀一致。
   if (_engHero().usesMana) {
     const mNow = Number.isFinite(game.mana) ? game.mana : 0;
@@ -2791,7 +2909,107 @@ function _engB10Spew(b) { // 喉 · 腐液喷吐（v24）：四颗绿色腐液�
   game.sfxQueue.push('spit'); _engShake(2, 0);
 }
 
-function _engUpdateBoss(dt) { // 内部：Boss 状态机（设计 §2/§3；计时单位秒=帧÷60）
+/* ==================== v41 Boss 技能体量适配（内部） ====================
+   问题：Boss 本体按 96×110 的 AI 立绘画（ai_sprites.js drawBoss），招式却仍是 8~24px 的旧体量，
+   视觉上像「巨人扔牙签」。这里只放大招式尺寸，伤害/冷却/前摇/弹速一律不动：
+     · 优先 window.PQAI_BOSS_VIS_SCALE[kind]（外部可覆盖，便于 QA 回调或活动期临时调体量）；
+     · 否则按 kind 体型给 1.08~1.35（体型越大越夸张，见 _engBossScaleByKind）。
+   落地分两类（engine 只能改引擎侧数据，ui.js 禁改）：
+     ① hazard（陨石/地刺/火柱/光柱/镜墙/虫卵/圣像/砝码/钟锤/水雾/蛛网/虫群…）：
+        ui 直接按 w/h/r 程序化绘制 ⇒ w/h/r 放大 = 视觉与判定同步放大；
+     ② bullet / wave（星弹/环弹/冲击波）：ui 用固定尺寸精灵绘制 ⇒ 引擎只能放大判定框 w/h，
+        视觉像素尺寸仍由 UI 决定（不会错位，因为同时按中心/底边回锚）。
+   不缩放：ward（安全圈，放大=白送安全区）、pull（吸附圈，放大=纯加难）、mirror（幻影按
+   96×110 固定贴图绘制，改 w/h 只会变成看不见的大判定框）。 */
+const _engBossScaleByKind = { 1:1.15, 2:1.25, 3:1.15, 4:1.30, 5:1.18, 6:1.28,
+                              7:1.15, 8:1.20, 9:1.28, 10:1.24, 11:1.22, 12:1.30, 13:1.24, 14:1.35 };
+function _engBossScale(b) { // 内部：Boss 招式尺寸系数（1.0~1.35；外部覆盖优先）
+  const k = b && b.kind;
+  const ext = (typeof window !== 'undefined') ? window.PQAI_BOSS_VIS_SCALE : null;
+  // boss_gallery.js 会把「Boss 原画归一化缩放」写进本表（0.96~1.0 属于归一化抖动，不是体量指令）；
+  // 只有外部明确给出 ≥1.02 的放大时才覆盖默认，避免把「原画等比缩放」误当成「招式也保持原样」。
+  const extV = (ext && k != null) ? +ext[k] : NaN;
+  if (isFinite(extV) && extV >= 1.02) return _engClamp(extV, 0.5, 2.5);
+  if (_engBossScaleByKind[k]) return _engBossScaleByKind[k];
+  return _engClamp(1 + ((Math.max(+b.w || 48, +b.h || 44) - 44) / 20) * 0.30, 1.0, 1.35);
+}
+/* 每种 hazard 的尺寸锚点（决定放大后往哪边回锚，避免判定框/贴图整体漂移）：
+   r=圆心半径 / groundX=x中心+y地面 / widthX=x中心+y地面只加宽 / thickness=只加厚 /
+   mid=居中 / groundRect=x中心+y地面+高向上 / foot=左缘+底边不动 */
+const _engBossHzAnchor = {
+  meteor:'r', weight:'r', hammer:'r', bomb:'r', flare:'r',
+  spike:'groundX', pillar:'groundX',
+  column:'widthX', sweepbeam:'widthX',
+  laser:'thickness',
+  mist:'groundRect', totem:'groundRect',
+  clone:'foot', egg:'foot', web:'foot', crawler:'foot', pushwall:'foot', shardwall:'foot',
+  core:'mid', shard:'mid'
+};
+function _engScaleBossHz(h, s) { // 内部：单个 hazard 放大（返回是否处理）
+  const a = _engBossHzAnchor[h.kind];
+  if (!a) return false;
+  const ow = +h.w || 0, oh = +h.h || 0;
+  if (a === 'r') { if (+h.r > 0) h.r = +h.r * s; return true; }
+  if (a === 'widthX') { if (ow) h.w = ow * s; return true; }
+  if (a === 'thickness') { if (oh) { h.h = oh * s; h.y -= (h.h - oh) / 2; } return true; }
+  if (a === 'groundX') {
+    if (ow) h.w = ow * s;
+    if (+h.mh > 0) h.mh = +h.mh * s;
+    if (oh) h.h = oh * s;
+    return true;
+  }
+  if (a === 'mid') {
+    if (ow) { h.w = ow * s; h.x -= (h.w - ow) / 2; }
+    if (oh) { h.h = oh * s; h.y -= (h.h - oh) / 2; }
+    return true;
+  }
+  if (a === 'groundRect') { // 底边（地面）不动，高度向上长
+    if (ow) { h.w = ow * s; h.x -= (h.w - ow) / 2; }
+    if (oh) h.h = oh * s;
+    return true;
+  }
+  // foot：左缘收拢到新的中心、底边不动
+  if (ow) { h.w = ow * s; h.x -= (h.w - ow) / 2; }
+  if (oh) { h.h = oh * s; h.y -= (h.h - oh); }
+  return true;
+}
+function _engScaleBossWave(o, s) { // 内部：冲击波放大（底边贴地、左右对称）
+  if (!(s > 1.0001)) return;
+  const ow = +o.w || 0, oh = +o.h || 0;
+  if (ow) { o.w = ow * s; o.x -= (o.w - ow) / 2; }
+  if (oh) { o.h = oh * s; o.y -= (o.h - oh); }
+}
+function _engScaleBossNew(s, preB, preW, preH) { // 内部：只放大本帧新生成的 Boss 招式（不重复缩放）
+  if (!(s > 1.0001)) return;
+  const B = game.bullets || [], W = game.waves || [], H = game.hazards || [];
+  for (const o of B) {                      // 弹体：中心回锚（ui 精灵固定 8×8，判定框放大）
+    if (preB.has(o) || o._bz) continue; o._bz = s;
+    const ow = +o.w || 0, oh = +o.h || 0;
+    if (ow) { o.w = ow * s; o.x -= (o.w - ow) / 2; }
+    if (oh) { o.h = oh * s; o.y -= (o.h - oh) / 2; }
+  }
+  for (const o of W) {                      // 冲击波：底边贴地不动，宽度向两侧扩
+    if (preW.has(o) || o._bz) continue; o._bz = s;
+    _engScaleBossWave(o, s);
+  }
+  for (const o of H) {                      // 场地实体：按 kind 锚点放大（视觉+判定同步）
+    if (preH.has(o) || o._bz) continue;
+    if (_engScaleBossHz(o, s)) o._bz = s;
+  }
+}
+
+function _engUpdateBoss(dt) { // 内部：Boss 状态机外壳（v41：先记录增量，再统一按 Boss 体量放大新招式）
+  const b = game.boss;
+  if (!b) { _engUpdateBossCore(dt); return; }
+  const s = _engBossScale(b);
+  if (!(s > 1.0001)) { _engUpdateBossCore(dt); return; }
+  const preB = new Set(game.bullets || []), preW = new Set(game.waves || []),
+        preH = new Set(game.hazards || []);
+  _engUpdateBossCore(dt);
+  _engScaleBossNew(s, preB, preW, preH);
+}
+
+function _engUpdateBossCore(dt) { // 内部：Boss 状态机（设计 §2/§3；计时单位秒=帧÷60）
   // v7 §6（R4 核心）：蛟龙/判官与星核巨兽共用本状态机，全部参数读 T=_engBossTable(b.kind)——
   // kind1 表值=现行硬编码逐字收编，L7 行为零变化（_v6_loot_test ②/⑤ 与 gate Boss 冒烟双证）。
   const b = game.boss; if (!b) return;
@@ -4106,8 +4324,12 @@ function _engUpdateHazards(dt) {
           game.shake = Math.max(game.shake, 6); game.sfxQueue.push('boom');
           _engAddParts(e.x, ty * _engTile, 16, '#f86020', 120, 260);
           _engFx(e.x, ty * _engTile, { ring: 1, r: 4, r1: 30, life: 0.35, color: '#f8b040' });
-          for (const d of [-1, 1]) // v10：冲击波射程 0.45s×110≈50px——预警圈（r9）外一步就安全，不是全屏
-            game.waves.push({ x: e.x + d * 8, y: ty * _engTile - 10, w: 12, h: 10, vx: d * 110, life: 0.45 });
+          for (const d of [-1, 1]) { // v10：冲击波射程 0.45s×110≈50px——预警圈（r9）外一步就安全，不是全屏
+            const wvB = { x: e.x + d * 8, y: ty * _engTile - 10, w: 12, h: 10, vx: d * 110, life: 0.45 };
+            // v41：陨石落地冲击波与 Boss 技能同一体量（hazard 侧生成，不经过 _engUpdateBoss 的增量扫描）
+            if (game.boss) _engScaleBossWave(wvB, _engBossScale(game.boss));
+            game.waves.push(wvB);
+          }
           if (!p.dead && _engCircleRect(e.x, e.y, e.r, p)) _engHurtPlayer(e.x);
         } else if (e.y > L.h * _engTile + 30) { // 掉出世界（无地面列）
           dead = true;
@@ -4650,7 +4872,8 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
          八道冰锥共用 novaSeq：同一次新星对同一敌人只结算一次（否则贴脸会吃到 8×3=24 伤）。 */
       if (S.u <= 0 && !p.dead && _engSpendMana(M.u.mana)) {
         S.u = M.u.cd * game.cdMul; p.castT = 0.3;
-        const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+        // v41：新星圆心=精灵躯干中心（可视顶下 19px），不再是旧碰撞盒中心/脚底
+        const cx = p.x + p.w / 2, cy = _engSpriteTop(p) + 19;
         const seq = (game.novaSeq = (game.novaSeq || 0) + 1);
         for (let i = 0; i < M.u.n; i++) {
           const a = (i / M.u.n) * Math.PI * 2 - Math.PI / 2;   // 从正上方起算，八向均分
@@ -4671,7 +4894,7 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
       if (S.i <= 0 && !p.dead && _engSpendMana(M.i.mana)) {
         S.i = M.i.cd * game.cdMul; p.shieldT = M.i.dur; p.shieldHp = M.i.absorb;
         game.sfxQueue.push('shield');
-        _engAddParts(p.x + 5, p.y + 7, 12, '#8ae8ff', 70, 0);
+        _engAddParts(p.x + p.w / 2, _engSpriteTop(p) + 19, 12, '#8ae8ff', 70, 0);
       } }
     if (inp.skillOHit) { inp.skillOHit = 0;
       // O 陨星风暴：能量制门控同骑士（ultCharge≥100），**不耗蓝**；伤害结算在 ult 状态机里（kind='mage'）
@@ -4689,12 +4912,13 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
       if (S.l <= 0 && !p.dead && _engSpendMana(M.l.mana)) {
         S.l = M.l.cd * game.cdMul; p.castT = 0.3;
         const W = game.wells || (game.wells = []);
-        W.push({ x: p.x + p.w / 2 - M.l.w / 2 + p.face * 10, y: p.y + p.h / 2 - M.l.h / 2,
+        // v41：奇点从躯干中心（可视顶下 20px）掷出，不再用碰撞盒中心
+        W.push({ x: p.x + p.w / 2 - M.l.w / 2 + p.face * 10, y: _engSpriteTop(p) + 20 - M.l.h / 2,
           w: M.l.w, h: M.l.h, vx: p.face * M.l.v, vy: 0, t: 0, stopped: false,
           life: M.l.hold, r: M.l.radius, pull: M.l.pull, dmg: M.l.dmg,
           stopT: M.l.stopT, face: p.face, fx: 0, trail: 0 });
         game.sfxQueue.push('well');
-        _engAddParts(p.x + p.w / 2 + p.face * 8, p.y + 7, 8, '#b090f8', 60, 40);
+        _engAddParts(p.x + p.w / 2 + p.face * 8, _engSpriteTop(p) + 20, 8, '#b090f8', 60, 40);
       } }
     return;
   }
@@ -4708,7 +4932,7 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
   if (inp.skillIHit) { inp.skillIHit = 0;
     // v5 §3.3：护盾 dur 3s，可吸收 absorb 2 次伤害（shieldHp）；破盾事件见 _engShieldBreak
     if (S.i <= 0 && !p.dead) { S.i = BAL.skills.i.cd * game.cdMul; p.shieldT = BAL.skills.i.dur; p.shieldHp = BAL.skills.i.absorb; game.sfxQueue.push('shield');
-      _engAddParts(p.x + 5, p.y + 7, 12, '#f8d048', 70, 0); } }
+      _engAddParts(p.x + p.w / 2, _engSpriteTop(p) + 19, 12, '#f8d048', 70, 0); } }
   if (inp.skillOHit) { inp.skillOHit = 0;
     // v5 §3.1：O 流星连斩 1.2s 演出状态机；v7.1 门控改能量制：ultCharge≥100 释放（原 combo≥8 废除）
     if (S.o <= 0 && game.ultCharge >= BAL.ult.ultNeed && !p.dead) {
@@ -4722,7 +4946,7 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
     if (S.l <= 0 && !p.dead && !(p.dashT > 0 && _engDashDur - p.dashT < 0.05)) {
       S.l = BAL.skills.l.cd * game.cdMul;
       p.castT = 0.2;
-      game.blades.push({ x: p.x + p.w / 2 - 6 + p.face * 6, y: p.y + 1,   // 手前出生
+      game.blades.push({ x: p.x + p.w / 2 - 6 + p.face * 6, y: _engSpriteTop(p) + 14,   // v41：手前出生（可视顶下 20px 为手高，12 高刀身取顶=+14）
         w: 12, h: 12, vx: p.face * BAL.skills.l.vOut, vy: 0, dir: p.face,
         phase: 0,            // 0=去程 1=回程
         trav: 0,             // 去程已飞行 px
@@ -5161,25 +5385,66 @@ function _engResolveMageAttack(L, p) { // 内部（v19，spec §2.3）：法师�
   const crit = false;
   const ATK = BAL.player.atkBase + (game.equip ? game.equip.atk : 0);
   const dmg = crit ? ATK * BAL.player.critMul : ATK;
-  _engPushShot({ kind: 'bolt', x: p.x + p.w / 2 - 4 + p.face * 8, y: p.y + 5, w: B.w, h: B.h,
+  // v40/v41：弹体从法杖尖出膛。精灵 32×38 脚底锚定（ui 以 p.y+p.h-2 为脚底向上画），
+  // 杖尖 ≈ 精灵顶下 10px、水平中心 ±15px。旧式 y=p.y+8 在 30 高碰撞盒下落在脚踝，
+  // 现在一律用 _engSpriteTop(p)+10，与施法帧的杖尖同高。
+  const _st = _engSpriteTop(p);
+  const bx = p.x + p.w / 2 - B.w / 2 + p.face * 15, by = _st + 10;
+  _engPushShot({ kind: 'bolt', x: bx, y: by, w: B.w, h: B.h,
     vx: p.face * B.v, vy: 0, life: B.life, base: ATK, dmg: dmg, crit: crit ? 1 : 0,
     pierce: 0, hitList: [], homeR: B.homeR, homeDeg: B.homeDeg, turn: B.turn,
     face: p.face, manaGain: BAL.heroes.mage.manaPerHit });
   p.shotSeq = p.atkSeq;
   p.castT = Math.max(p.castT, 0.12); // 施法姿态（ui 取 mgCast；不产生近战判定框、不触发 renderSlash）
   game.sfxQueue.push('bolt');
-  _engAddParts(p.x + p.w / 2 + p.face * 9, p.y + 6, 4, '#8ae8ff', 55, 0); // 枪口青白 4 粒
+  _engAddParts(bx + B.w / 2, by + B.h / 2, 4, '#8ae8ff', 55, 0); // 枪口青白 4 粒（与弹体同坐标）
 }
 
 function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打击感重写）——身前 18×14 框 vs 敌人/炮弹/'B' 砖
   if (game.hero === 'mage') { _engResolveMageAttack(L, p); return; } // v19（spec §2.3）：法师走远程弹体，骑士原逻辑一字不动
   if (!(p.atkT > 0) || p.dead) return;
-  const box = { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
+  // v31：空中下劈——判定框贴脚底（横向攻击仍是身前剑框）。
+  const down = p.atkDir === 'down' && !p.onGround;
+  const box = down
+    ? { x: p.x + p.w / 2 - BAL.atk.downW / 2, y: p.y + p.h - 2, w: BAL.atk.downW, h: BAL.atk.downH }
+    : { x: p.face > 0 ? p.x + p.w - 2 : p.x - _engAtkW + 2, y: p.y, w: _engAtkW, h: _engAtkH };
+  let pogoHit = false; // v31：本摆是否命中可踩目标（下劈反弹用）
+  // v31：连击剑波——连击≥4 时每次横斩附带一道穿透剑波（一摆只出一次；下劈不出）。
+  // 连击≥8 升级：2 伤、穿 2 个目标。
+  if (!down && game.combo >= BAL.combo.waveAt && p.waveSeq !== p.atkSeq) {
+    p.waveSeq = p.atkSeq;
+    // 连击终结技「龙吟斩」：连击≥8 且冷却就绪 → 宽体龙波（3 伤 / 穿 3）；
+    // 冷却中或连击 4~7 仍走普通剑波，且不消耗 finisherCd。
+    if (game.combo >= BAL.combo.finisherAt && p.finisherCd <= 0) {
+      p.finisherCd = BAL.combo.finisherCd;
+      const dcx = p.x + p.w / 2 + p.face * 18, dcy = p.y + p.h / 2;
+      (game.shots || (game.shots = [])).push({ kind: 'dragon',
+        x: dcx - 18, y: dcy - 12, w: 36, h: 24,
+        vx: p.face * 260, vy: 0, life: 0.55,
+        dmg: BAL.combo.dragonDmg, pierce: BAL.combo.dragonPierce,
+        hitList: [], face: p.face });
+      game.hitStop = Math.max(game.hitStop, 0.10);
+      game.shake = Math.max(game.shake, 6);
+      game.zoomPunch = 1; game.flashT = 0.06;
+      (game.fxEvents || (game.fxEvents = [])).push({ type: 'dragon',
+        x: dcx, y: dcy, face: p.face, t: 0, life: 0.6 });
+      game.sfxQueue.push('swing');
+    } else {
+      const wv2 = game.combo >= BAL.combo.waveAt2, wd = wv2 ? BAL.combo.waveDmg2 : BAL.combo.waveDmg;
+      (game.shots || (game.shots = [])).push({ kind: 'wave',
+        x: p.x + p.w / 2 - 10 + p.face * 18, y: p.y + p.h / 2 - 5, w: 20, h: 10,
+        vx: p.face * BAL.combo.waveV, vy: 0, life: BAL.combo.waveLife,
+        base: wd, dmg: wd, crit: 0, pierce: wv2 ? 2 : 1, hitList: [], face: p.face });
+      game.sfxQueue.push('swing');
+    }
+  }
   // v5 §2#4：暴击——本击使连击数到 critMod 的倍数 → 伤害×critMul、金色数字（hit-stop 不变）；全分支共用
   // v6 §C：ATK = atkBase + equip.atk（atkBase 2，满装 ATK 5）；v7.7：局外成长项已删（暴击仍 ×critMul）
   const crit = ((game.combo + 1) % BAL.player.critMod) === 0;
   const ATK = BAL.player.atkBase + (game.equip ? game.equip.atk : 0);
-  const dmg = crit ? ATK * BAL.player.critMul : ATK;
+  let dmg = crit ? ATK * BAL.player.critMul : ATK;
+  // v31：完美闪避反击窗口——本摆伤害 ×1.5（整数化：dmg + ceil(dmg*0.5)）
+  if (p.perfectT > 0) dmg += Math.ceil(dmg * BAL.counter.bonus);
   // v3：Boss 承伤——命中 +2 连击（设计 §4 连斩充能口径；免伤态 _engBossHurt 返回 false 不计数）；
   // v5 §2#11：Boss 被击瞬间朝远离玩家侧位移 2px（clamp 场内）；hitSeq 防同摆二次结算
   if (game.boss && game.boss.hitSeq !== p.atkSeq && _engAabb(box, game.boss) && _engBossHurt(dmg)) {
@@ -5187,6 +5452,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     b.x = _engClamp(b.x + push * 2, 16, L.w * _engTile - b.w - 16);
     b.hitSeq = p.atkSeq;
     _engAddCombo(); _engAddCombo();
+    pogoHit = true; p.dashCd = Math.max(0, p.dashCd - 0.08); // v31：命中反馈——剑尖踩点可刷新冲刺
     // v10：浮字改用 b.lastDmg（破绽期 ×1.5 后的真实伤害），否则玩家看到的数字和掉血对不上
     _engFloat(b.x + b.w / 2, b.y - 4, '' + b.lastDmg, crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
     game.hitStop = _engHitStop; game.sfxQueue.push('hit');
@@ -5197,6 +5463,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     if (_engAabb(box, game.waves[i])) {
       _engAddParts(game.waves[i].x + 6, game.waves[i].y + 5, 6, '#48d8e8', 70, 200);
       game.waves.splice(i, 1); _engAddCombo(); game.sfxQueue.push('break');
+      pogoHit = true; // v31：下劈斩碎冲击波也能借力
     }
   }
   /* v10：分身（hazards.kind==='clone'）可被普攻打掉——2 下消失。
@@ -5214,6 +5481,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
          && !(hz2.kind === 'web' && hz2.hp !== undefined))   // v22：无 hp 的茧网不可打掉（用户明确），带 hp 的旧网照旧
         || hz2.hitSeq === p.atkSeq || !_engAabb(box, hzBox)) continue;
     hz2.hitSeq = p.atkSeq;
+    pogoHit = true; // v31：机关/幻影/镜片同样可作为下劈落点
     if (hz2.kind === 'egg') {                        // v20：虫卵只扣 hp——打碎→爆幼虫的结算在 update 收尸处
       // ✗ 这里绝不能 splice：卵"被打碎"的结果不是消失，而是提前放出一只幼虫，
       //   在攻击路径里删掉它，玩家就永远看不到自己干了什么。
@@ -5276,8 +5544,11 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     const eface = _engSign(e.vx) || e.face || 1;
     // v6 §3.3：破绽态（盾击冲锋后 guardDown）正面格挡失效——正面也吃全额伤
     const front = (e.type === 'knight') && !e.guardDown && ((p.x + p.w / 2 > e.x + e.w / 2) === (eface > 0));
+    // 处决：非 Boss 敌 hp≤1 视为破防，下劈命中直接击杀（破防后正面格挡不再生效）
+    const ehp0 = e.hp === undefined ? 1 : e.hp;
+    const execute = down && ehp0 <= 1;
     e.hitSeq = p.atkSeq;
-    if (front) { // v5 §4.3：攻击来自骑士面朝侧 → 0 伤害（背面/上方正常结算）
+    if (front && !execute) { // v5 §4.3：攻击来自骑士面朝侧 → 0 伤害（背面/上方正常结算）
       e.kb = p.face * 98; // 推开 ≈8px（98²/(2*600)≈8，设计 §4.3；摩擦复用 _engKbFric）
       e.flashT = 0.10;
       game.sfxQueue.push('clank'); _engShake(1, 0.05);
@@ -5286,20 +5557,36 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
       continue;
     }
     _engAddCombo();                              // 连击按命中计（死活都 +1）
-    e.hp = (e.hp === undefined ? 1 : e.hp) - dmg;
-    if (e.hp > 0) {                              // 存活：击退 + 白闪 + 抖动（ui 表现）
-      e.kb = p.face * _engKbV * (e.elite ? BAL.elite.kbMul : 1); e.flashT = 0.15; e.jitT = 0.15; // v7 §5.5-1：精英击退 ×0.25 重甲感
-      game.hitStop = _engHitStop; _engShake(2, 0.05);
-      _engFloat(e.x + 6, e.y - 4, '' + dmg, crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
-      _engAddStars(e.x + 6, e.y + 6, 4 + (Math.random() * 3 | 0), '#ffffff');
-      game.sfxQueue.push('hit');
-    } else {                                     // 击杀：击飞弹道（死亡态积分，穿地）
-      _engKillEnemy(e);                          // v3：击杀统一入口（30% 掉回复心）
+    pogoHit = true; p.dashCd = Math.max(0, p.dashCd - 0.08); // v31：命中刷新冲刺（越打越能跑）
+    if (execute) {                               // 处决：直接击杀 + 专属演出反馈（pogo 照常在函数末尾结算）
+      e.hp = 0;
+      _engKillEnemy(e);
       e.dvx = p.face * 130; e.dvy = -150;
-      game.hitStop = _engHitStop; _engShake(4, 0.05);
-      _engFloat(e.x + 6, e.y - 6, crit ? '2' : 'KO', crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
+      game.hitStop = Math.max(game.hitStop, 0.12);
+      game.flashT = 0.08; game.zoomPunch = 1;
+      game.ultCharge = Math.min(BAL.ult.ultNeed, (game.ultCharge || 0) + 10);
+      p.dashCd = 0;
+      (game.fxEvents || (game.fxEvents = [])).push({ type: 'execute',
+        x: e.x + e.w / 2, y: e.y + e.h / 2, t: 0, life: 0.7 });
+      _engFloat(e.x + 6, e.y - 6, 'KO', '#ffffff', 0);
       _engAddParts(e.x + 6, e.y + 4, 12, e.type === 'bat' ? '#8858c8' : (e.type === 'knight' ? '#c8d0e8' : '#58c848'), 90, 250);
       game.sfxQueue.push('kill');
+    } else {
+      e.hp = ehp0 - dmg;
+      if (e.hp > 0) {                              // 存活：击退 + 白闪 + 抖动（ui 表现）
+        e.kb = p.face * _engKbV * (e.elite ? BAL.elite.kbMul : 1); e.flashT = 0.15; e.jitT = 0.15; // v7 §5.5-1：精英击退 ×0.25 重甲感
+        game.hitStop = _engHitStop; _engShake(2, 0.05);
+        _engFloat(e.x + 6, e.y - 4, '' + dmg, crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
+        _engAddStars(e.x + 6, e.y + 6, 4 + (Math.random() * 3 | 0), '#ffffff');
+        game.sfxQueue.push('hit');
+      } else {                                     // 击杀：击飞弹道（死亡态积分，穿地）
+        _engKillEnemy(e);                          // v3：击杀统一入口（30% 掉回复心）
+        e.dvx = p.face * 130; e.dvy = -150;
+        game.hitStop = _engHitStop; _engShake(4, 0.05);
+        _engFloat(e.x + 6, e.y - 6, crit ? '2' : 'KO', crit ? '#f8d048' : '#ffffff', crit ? 1 : 0);
+        _engAddParts(e.x + 6, e.y + 4, 12, e.type === 'bat' ? '#8858c8' : (e.type === 'knight' ? '#c8d0e8' : '#58c848'), 90, 250);
+        game.sfxQueue.push('kill');
+      }
     }
   }
   // 炮弹：可被斩碎（v6 §3.4：法师火球 fire:true 火星色 #f86030）
@@ -5308,6 +5595,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
     if (_engAabb(box, b)) {
       game.bullets.splice(i, 1);
       _engAddParts(b.x + 4, b.y + 3, 8, b.fire ? '#f86030' : '#f8b020', 80, 200);
+      pogoHit = true; // v31：斩消弹幕可作为下劈落点
       game.sfxQueue.push('break');
     }
   }
@@ -5316,11 +5604,13 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
   // v7 §4.2：'G' 隐藏砖——攻击打碎露出通道（无金币；respawn 不重建网格=保持已碎；永久消失）。
   _engRectTiles(L, box.x, box.y, box.w, box.h, function (tx, ty, ch) {
     if (ch === 'q') {                                  // v25：炸药桶——近战直接引爆（含链爆）
+      pogoHit = true;
       _engBarrelBlast(L, tx, ty);
       return;
     }
     if (ch === 'B') {
       L.tiles[ty][tx] = '.'; // 碎后从网格移除（respawn 不重建网格 → 保持已碎，与已收金币同理）
+      pogoHit = true;        // v31：下劈碎砖可反弹
       game.coins += BAL.econ.brick;
       _engFloat(tx * _engTile + 8, ty * _engTile, '+' + BAL.econ.brick, '#f8d048', 0);
       _engShake(2, 0.05);
@@ -5330,6 +5620,7 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
       game.sfxQueue.push('break');
     } else if (ch === 'G') { // v7：隐藏砖——攻击打碎露出通道（无金币；碎墙计入连击=探索奖励）
       L.tiles[ty][tx] = '.';
+      pogoHit = true;        // v31：下劈碎隐藏砖可反弹
       _engShake(3, 0.05);
       _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 12, '#9a8ad0', 90, 300);
       _engAddCombo();
@@ -5351,6 +5642,27 @@ function _engResolveAttack(L, p) { // 内部：攻击判定（v2 P1；v5 §C 打
       _engAddCombo();
       game.sfxQueue.push('break');
     }
+  }
+  /* v31：完美闪避反击——本摆第一次真正命中（敌人/Boss/机关/波/弹幕/砖块任一）后消费窗口，
+     空挥不消费。上面各分支命中时都会置 pogoHit（装饰/小游戏盘面不算），直接复用避免重复记账。 */
+  if (p.perfectT > 0 && pogoHit) {
+    p.perfectT = 0;
+    _engFloat(p.x + p.w / 2, p.y - 10, 'COUNTER', '#8af0ff', 1);
+    _engAddParts(p.x + p.w / 2, p.y + p.h / 2, 6, '#8af0ff', 90, 160);
+    game.hitStop = Math.max(game.hitStop, BAL.counter.stop);
+    game.sfxQueue.push('perfect');
+  }
+  /* v31：下劈命中 → 踩敌反弹（一摆一次）。与二段跳/冲刺刷新联动，
+     让「跳起来砍」从一次性动作变成可以连续踩点推进的空中路线。 */
+  if (down && pogoHit && p.pogoSeq !== p.atkSeq) {
+    p.pogoSeq = p.atkSeq;
+    p.vy = -BAL.atk.pogoV;
+    p.onGround = false; p.standOn = null; p.jumpCut = false;
+    p.airJumps = Math.max(p.airJumps, 1); p.dashCd = 0;
+    game.hitStop = Math.max(game.hitStop, BAL.atk.pogoStop);
+    _engFx(p.x + p.w / 2, p.y + p.h + 2, { ring: 1, r: 2, r1: 14, life: 0.22, color: '#bfeaff' });
+    _engAddParts(p.x + p.w / 2, p.y + p.h, 5, '#dff8ff', 60, 0);
+    game.sfxQueue.push('djump');
   }
 }
 
@@ -5742,6 +6054,9 @@ function _engUpdatePlayer(dt, L, p) {
 
   /* ---- v2 P1：攻击 / 冲刺（边沿消费 + 冷却门控）---- */
   p.atkCd -= dt; p.dashCd -= dt; p.atkT -= dt; p.dashT -= dt;
+  if (p.lastHurtT > 0) p.lastHurtT -= dt; // v31：受击方向箭头计时
+  if (p.perfectT > 0) p.perfectT = Math.max(0, p.perfectT - dt); // v31：完美闪避反击窗口计时
+  if (p.finisherCd > 0) p.finisherCd = Math.max(0, p.finisherCd - dt); // 连击终结技冷却逐帧递减
   p.invT -= dt; p.castT -= dt; // v3：无敌/施法计时（护盾 v5 单独带破盾判定，见下）
   p.atkAnim -= dt; // v5 §C：攻击总动画计时（0.25s=起手+判定+余韵，ui 渲染弧光用）
   if (p.atkWind > 0) { p.atkWind -= dt; if (p.atkWind <= 0) p.atkT = _engAtkDur; } // 起手毕→开判定
@@ -5752,11 +6067,14 @@ function _engUpdatePlayer(dt, L, p) {
   if (game.input.attackHit) {
     game.input.attackHit = 0; // 消费边沿（空挥也进入冷却，防止按住刷判定）
     p.abuf = _engAtkBuf;      // v7.7：改存缓冲——冷却中按下不再被吞（原先 atkCd>0 时边沿直接丢弃，0.35s 冷却里连按只剩「没反应」）
+    // v31：空中按住 ↓ 再按 J = 下劈（落地/法师仍走横向攻击；法师没有近战判定框）
+    p.abufDown = !!(game.input.down && !p.onGround && !_engHero().usesMana);
   }
   if (p.abuf > 0) {           // v7.7：缓冲到点即起手（对照空洞骑士「按下=出手」，冷却只限频率、不吃输入）
     p.abuf -= dt;
     if (p.atkCd <= 0 && p.dashT <= 0) { // v5 §C：冲刺期间不起手（三段占用操控）
       p.abuf = 0;
+      p.atkDir = p.abufDown ? 'down' : 'side'; // v31：本摆方向（下劈/横斩），整个挥击周期内保持不变
       // v19（spec §2.4）：法师攻速取英雄表（0.46s，v20.4：0.38→0.46），骑士仍走 _engAtkCd（0.35s，字节等价）
       p.atkCd = _engHero().usesMana ? BAL.heroes.mage.bolt.cd : _engAtkCd;
       p.atkAnim = _engAtkAnim; p.atkWind = _engAtkWind; p.atkT = 0;
@@ -5768,13 +6086,14 @@ function _engUpdatePlayer(dt, L, p) {
     game.input.dashHit = 0;
     if (p.dashCd <= 0) {
       p.dashCd = _engDashCd; p.dashT = _engDashDur; // v5 §B：总时长 0.28（原 0.18）；v7.7：冷却回到基础值 0.5s（局外成长已删）
+      p.dashSeq = (p.dashSeq || 0) + 1; // v31：一次冲刺只允许一次完美闪避奖励
       p.dashDir = dir !== 0 ? dir : p.face; // 有方向输入用输入向，否则用面向
       // v7.9：起手给无敌帧（与受伤无敌同一套 invT 判定，伤害/击退/即死物全部覆盖——
       // 走 _engHurtPlayer 与 _engHazardHit 两条既有路径，不另开分支，避免出现「闪了但照样死」的交互不一致）。
       // v14：0.10 → 0.15（见 BAL.dash 注释）。
       p.invT = Math.max(p.invT, BAL.dash.inv);
       game.sfxQueue.push('dash');
-      _engAddParts(p.x + 5 - p.dashDir * 6, p.y + 7, 6, '#48d8e8', 60, 0);
+      _engAddParts(p.x + p.w / 2 - p.dashDir * 6, p.y + p.h / 2, 6, '#48d8e8', 60, 0);
     }
   }
 
@@ -5807,7 +6126,7 @@ function _engUpdatePlayer(dt, L, p) {
       p.vx = p.dashDir * _engDashV;
       p.windT = (p.windT || 0) - dt;
       if (p.windT <= 0) { p.windT = 0.03; // 每 0.03s 推 1 枚风粒子（fx 层，青白细长）
-        _engFx(p.x + 5 - p.dashDir * 7, p.y + 4 + Math.random() * 8,
+        _engFx(p.x + p.w / 2 - p.dashDir * 7, p.y + p.h / 2 - 4 + Math.random() * 8,
           { vx: -p.dashDir * 90, vy: 0, life: 0.22, color: '#bfeaff', size: 1 }); }
     } else { // 滑行段：260 → maxRun 线性回落（缓冲急停，不再匀速滑块急停）
       const k = (_engDashDur - el) / (_engDashDur - 0.23);
@@ -5856,7 +6175,7 @@ function _engUpdatePlayer(dt, L, p) {
   if (p.onGround && Math.abs(p.vx) > 60 && p.dashT <= 0) {
     p.stepT -= dt;
     if (p.stepT <= 0) { p.stepT = 0.18;
-      _engAddParts(p.x + 5 - p.face * 4, p.y + 13, 1, (L.theme && L.theme.dust) || '#ffffff', 25, 120); }
+      _engAddParts(p.x + p.w / 2 - p.face * 4, p.y + p.h - 2, 1, (L.theme && L.theme.dust) || '#ffffff', 25, 120); }
   } else p.stepT = 0;
 
   // 跳跃：边沿即时判定（地面跳含土狼 → 二段跳 → 缓冲）+ 土狼时间（契约算法 2；v5 §1.1 重构）
@@ -5870,13 +6189,13 @@ function _engUpdatePlayer(dt, L, p) {
       p.onGround = false; p.standOn = null;
       p.jumpCut = true; // 普通跳才吃松手截断；弹簧/踩踏/二段跳免疫
       game.sfxQueue.push('jump');
-      _engAddParts(p.x + 5, p.y + 14, 8, (L.theme && L.theme.dust) || '#ffffff', 55, 220); // v2 P1：起跳粒子
+      _engAddParts(p.x + p.w / 2, p.y + p.h - 1, 8, (L.theme && L.theme.dust) || '#ffffff', 55, 220); // v2 P1：起跳粒子
     } else if (p.airJumps > 0 && !p.springAir) {         // v5 §1.1：二段跳（新鲜边沿直接消费）
       p.vy = -PHY.jumpV * _engDjV; p.airJumps--; p.jbuf = 0;
       p.jumpCut = false;                                 // 固定高度：不吃松手截断
       p.djT = _engDjT;                                   // 空翻演出（ui 绕脚底旋转）
       game.sfxQueue.push('djump');
-      _engFx(p.x + 5, p.y + 12, { ring: 1, r: 3, r1: 15, life: 0.3, color: '#e8f8ff' }); // 白色气环（fx 层）
+      _engFx(p.x + p.w / 2, p.y + p.h - 4, { ring: 1, r: 3, r1: 15, life: 0.3, color: '#e8f8ff' }); // 白色气环（fx 层）
     } else p.jbuf = PHY.buffer;                          // v5 §1.1：无二段跳可用才进缓冲（防落地前误烧）
   }
   p.jbuf -= dt; p.coyote -= dt;
@@ -5886,7 +6205,7 @@ function _engUpdatePlayer(dt, L, p) {
     p.onGround = false; p.standOn = null;
     p.jumpCut = true; // 普通跳才吃松手截断；弹簧/踩踏弹跳免疫
     game.sfxQueue.push('jump');
-    _engAddParts(p.x + 5, p.y + 14, 8, (L.theme && L.theme.dust) || '#ffffff', 55, 220); // v2 P1：起跳粒子加强 4→8
+    _engAddParts(p.x + p.w / 2, p.y + p.h - 1, 8, (L.theme && L.theme.dust) || '#ffffff', 55, 220); // v2 P1：起跳粒子加强 4→8
   }
   // v7.7：去掉 prevJump 前提——缓冲跳（落地瞬间自动补跳）同样吃松手截断。
   // 原来「按一下就在空中松开、落地才生效」的缓冲跳永远满高，短按有时矮有时满，手感不一致。
@@ -5972,7 +6291,7 @@ function _engUpdatePlayer(dt, L, p) {
   // 落地分级（v5 §1.3：landVy≤300 小落=尘 4+squash 0.15；>300 大落=尘 10+squash 0.22+震屏 2+land2）
   if (p.onGround && !wasGround && p.landT <= 0) {
     const big = p.landVy > 300;
-    _engAddParts(p.x + 5, p.y + 14, big ? 10 : 4, (L.theme && L.theme.dust) || '#ffffff', big ? 70 : 45, 220);
+    _engAddParts(p.x + p.w / 2, p.y + p.h - 2, big ? 10 : 4, (L.theme && L.theme.dust) || '#ffffff', big ? 70 : 45, 220);
     p.landT = big ? 0.22 : 0.15;
     if (big) { _engShake(2, 0); game.sfxQueue.push('land2'); }
     else game.sfxQueue.push('land');
@@ -6124,18 +6443,21 @@ function updateWorld(dt) {
 
   /* ⓪′ v5 §4.2：传送门——重叠且双端 cd≤0 → 传送到 partner 门内（保留 vx/vy），双端 cd 0.6s。
         旧七关 portals 为空数组 → 循环零次，空转零副作用（H4）。 */
-  for (const pt of L.portals) {
+  _engPortalAmbient(L);   // 持续漩涡粒子（每帧每门 1~2 粒，portal 相关总数 ≤40）
+  for (const pt of (L.portals || [])) {
     pt.cd -= dt;
     if (pt.cd <= 0 && pt.partner && !p.dead && _engAabb(p, pt)) {
       const q = pt.partner;
-      _engFx(pt.x + 6, pt.y + 12, { ring: 1, r: 3, r1: 16, life: 0.3, color: '#8ea0ff' }); // 白色气环（两端）
+      _engPortalFlash();                                        // 小闪屏 + 轻震（字段缺失自动跳过）
+      _engPortalBurst(pt.x + 6, pt.y + 12, '#8ee8ff');          // 入口：1 环 + 4 星火
       // 落点在出口门"行进方向外侧"：与门零重叠——原"门内居中"落点会让原地落地的玩家
       // 站在出口门里，0.6s 冷却一过被弹回进门侧，形成 ping-pong 回环（实测复现）
       const dirx = p.vx !== 0 ? (p.vx > 0 ? 1 : -1) : (p.face || 1);
-      p.x = dirx > 0 ? q.x + q.w + 2 : q.x - p.w - 2;
-      p.y = q.y + q.h - p.h - 4;                                   // 门底对齐落地
+      const land = _engPortalLanding(L, q, p, dirx) || _engPortalLanding(L, q, p, -dirx);
+      p.x = land ? land.x : (dirx > 0 ? q.x + q.w + 2 : q.x - p.w - 2);
+      p.y = land ? land.y : q.y + q.h - p.h - 4;                   // 门底对齐落地
       pt.cd = 0.6; q.cd = 0.6;                                     // 双端冷却防回环
-      _engFx(q.x + 6, q.y + 12, { ring: 1, r: 3, r1: 16, life: 0.3, color: '#8ea0ff' });
+      _engPortalBurst(q.x + 6, q.y + 12, '#b48aff');             // 出口：1 环 + 4 星火
       game.sfxQueue.push('portal');
     }
   }
@@ -6860,4 +7182,5 @@ function updateWorld(dt) {
   game.skills.o = Math.max(0, game.skills.o - dt);
   game.skills.l = Math.max(0, game.skills.l - dt); // v6 §D：技能4 星刃 CD
   if (game.flashT > 0) { game.flashT -= dt; if (game.flashT < 0) game.flashT = 0; }
+  if (game.zoomPunch > 0) game.zoomPunch = Math.max(0, game.zoomPunch - 4 * dt); // 镜头冲击约 4/s 回落
 }

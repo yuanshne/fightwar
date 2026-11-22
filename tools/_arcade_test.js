@@ -386,9 +386,14 @@ console.log('[T6] ui.js / index.html 接入点');
   ok(ui.includes('ARCADE.stop()'), '离开街机时有 stop');
   ok(ui.includes("'街机 · '+fArc.genre"), '选关详情显示街机类型');
   ok(ui.includes("drawPixelText('MINI'"), '选关卡有 MINI 角标');
-  const iArc = html.indexOf('arcade.js'), iEng = html.indexOf('engine.js'), iUi = html.indexOf('ui.js');
-  ok(iEng >= 0 && iArc > iEng && iUi > iArc, '加载顺序 engine → arcade → ui', [iEng, iArc, iUi].join(','));
-  ok(/arcade\.js\?v=43/.test(html), 'arcade.js 带缓存版本号 v43');
+  const tag = n => {
+    const m = html.match(new RegExp('<script src="' + n.replace(/\./g, '\\.') + '\\?v=(\\d+)"'));
+    return m ? { i: m.index, v: +m[1] } : null;
+  };
+  const tEng = tag('engine.js'), tArc = tag('arcade.js'), tUi = tag('ui.js');
+  ok(tEng && tArc && tUi && tArc.i > tEng.i && tUi.i > tArc.i, '加载顺序 engine → arcade → ui',
+    [tEng && tEng.i, tArc && tArc.i, tUi && tUi.i].join(','));
+  ok(tArc && tArc.v >= 53, 'arcade.js 带缓存版本号（当前 v' + (tArc ? tArc.v : '?') + '）');
 }
 
 console.log('[T7] 不含平台横向玩法残留：伪关卡不会进入 updateWorld 路径');

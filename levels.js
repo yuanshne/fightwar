@@ -54,7 +54,7 @@ class LG{
 
 const LEVELS=[
 // ---------- L1 草原：移动/跳跃/金币/史莱姆/弹簧（全程安全，沟底有底） ----------
-{ name:'1 · 草原初试', theme:'grass', par:43, hint:'←→ 移动，长按跳跃跳更高；攻击石板玩扫雷，地鼠冒头就打',
+{ name:'1 · 草原初试', theme:'grass', par:43, hint:'←→ 移动，长按跳跃跳更高；空中↓+J 下劈可踩敌反弹；攻击石板扫雷，地鼠冒头就打',
   w:100,h:20,   // v8.0：h 14→20（224→320px），给相机纵向滚动留 0~96px 余量（原 h=14 与视口等高，画面纵向恒不动）
   build(g){const H=13;   // v8.0：h 14→20 为相机纵向滚动腾空间，H 保持 13 以冻结全部已有元素坐标（原写法 g.h-1 会变成 19，整关整体上移 6 行）
     // 路线：平地→教学小沟→史莱姆草场→平台采币→弹簧上高台→宽沟弹簧飞跃→双史莱姆→台阶→终点
@@ -105,7 +105,7 @@ const LEVELS=[
     return g;}},
 
 // ---------- L2 洞窟：尖刺/崩塌桥/蝙蝠/钥匙门/检查点（先下后上） ----------
-{ name:'2 · 幽暗洞窟', theme:'cave', par:75, hint:'崩塌砖踩久会掉，尖刺即死；扫雷盘用攻击翻，地鼠冒头再打',
+{ name:'2 · 幽暗洞窟', theme:'cave', par:75, hint:'崩塌砖踩久会掉，尖刺即死；冲刺无敌帧穿过攻击＝完美闪避；扫雷盘用攻击翻，地鼠冒头再打',
   w:110,h:20,
   build(g){const H=g.h-1;
     // 路线：高地→三层平台下行→底部尖刺走廊→崩塌桥→双史莱姆→检查点→爬台取钥匙→
@@ -453,7 +453,7 @@ const LEVELS=[
 
 // ---------- L7 BOSS：星核巨兽竞技场（横向 60×16，上下平台躲冲击波） ----------
 { name:'7 · BOSS·星核巨兽', theme:'boss', par:155, boss:true,
-  hint:'BOSS 战：U 星陨 · I 护盾 · O 流星连斩(连击≥8)；跳跃或登台躲冲击波',
+  hint:'BOSS 战：完美闪避后 1.2 秒攻击更疼；U 星陨 · I 护盾 · O 流星连斩(连击≥8)；跳/登台躲冲击波',
   w:60,h:16,
   build(g){const H=g.h-1;   // H=15；主地板顶=行13
     // 走线：出生→检查点→中央高台/两翼平台躲避循环→木箱连击补给→击败 Boss
@@ -1018,8 +1018,30 @@ function validateLevels(){
 const CHAPTERS = [];        // 章节注册表：chapter2.js/chapter3.js 顶层 push
                            // 注册对象：{id, name, levels:[LEVELS 同构 meta 数组], puzzles:{键=全局 1 基关号}}
 var ALL_LEVELS = LEVELS;    // 聚合视图（aggregateLevels 调用前缺省=第一章 10 关；engine/ui/gate 只读本符号）
+/* ---------- 传送门体验补丁（v26+，已停用）：Boss 场地不应出现传送门（胜利由击杀 Boss 触发，
+   凭空出现的 'e' 只会误导玩家）。原 L7/L13/L16/L20/L28/L31 的 Boss 补丁已全部删除，
+   表格清空；街机关 L2/L5/L8/L11/L14/L17 的旧补丁此前已移除，无死数据可清。
+   章节关自带的 'e'（L12/L15/L17，非 Boss）保持原样，引擎通用 portal 逻辑不动。
+   _applyPortalPatch 保留并新增 boss:true 跳过守卫：以后即使误填表格也不会给 Boss 场加门；
+   当前没有可玩的非 Boss 平台补丁，因此保持零注入。 */
+const PORTAL_PATCH = {};
+function _applyPortalPatch(meta, no) {
+  if (!meta || typeof meta.build !== 'function') return;
+  if (meta.boss) return;                             // Boss 关一律跳过（防止误加传送门）
+  const pts = PORTAL_PATCH[no];
+  if (!pts || meta.__portalPatched) return;
+  meta.__portalPatched = true;                       // 幂等：重复 aggregateLevels 不再套娃
+  const orig = meta.build;
+  meta.build = function (g) {
+    const ret = orig.call(this, g);
+    const gg = (ret && ret.g) ? ret : g;
+    for (let i = 0; i < pts.length; i++) gg.set(pts[i][0], pts[i][1], 'e');
+    return ret || gg;
+  };
+}
 function aggregateLevels(){ // 唯一聚合入口（幂等）
   ALL_LEVELS = LEVELS.concat(CHAPTERS.reduce(function(a,c){return a.concat(c.levels||[]);},[]));
+  for (let i = 0; i < ALL_LEVELS.length; i++) _applyPortalPatch(ALL_LEVELS[i], i + 1);
   for(const c of CHAPTERS) if(c.puzzles) Object.assign(PUZZLES, c.puzzles); // 谜题就地并入全局 PUZZLES
   return ALL_LEVELS;
 }
