@@ -8,7 +8,7 @@
 import pathlib, sys
 from playwright.sync_api import sync_playwright
 
-BASE = 'file:///C:/Users/A/.zcode/workspace/draft-6e5b5889-432a-4c7b-aabe-13a594a464ac/pixel-quest/index.html'
+BASE = 'file:///' + str(pathlib.Path(__file__).resolve().parent.parent / 'index.html').replace('\\', '/')
 OUT = pathlib.Path(__file__).parent.parent / 'testshots'
 OUT.mkdir(exist_ok=True)
 errors = []
@@ -23,7 +23,7 @@ def seed(pg, prof):
 with sync_playwright() as pw:
     br = pw.chromium.launch()
     pg = br.new_page(viewport={'width': 1280, 'height': 800})
-    pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
+    pg.on('console', lambda m: errors.append(m.text) if m.type == 'error' and 'URL scheme "file" is not supported' not in m.text else None)
     pg.on('pageerror', lambda e: errors.append(str(e)))
 
     # ---- A/B：封面 + 衣橱（4 套已解锁，装备草绿） ----

@@ -56,8 +56,9 @@
     mountain: { path: 'bg/mountain_768x432.jpg', kind: 'bg' },
     palace: { path: 'bg/palace_768x432.jpg', kind: 'bg' },
     lava: { path: 'bg/lava_768x432.jpg', kind: 'bg' },
-    sky: { path: 'bg/sky_768x432.jpg', kind: 'bg' },
-    dragon: { path: 'vfx/dragon.png', kind: 'dragon' }
+    sky: { path: 'bg/sky_768x432.jpg', kind: 'bg' }
+    // 龙图（vfx/dragon.png，1024² ~1.09MB）移出首屏关键路径：仅 Boss 龙吟演出/
+    // 立绘兜底读取，由 ensureDragon() 在背景就绪后懒加载，未到位时消费方回退程序化龙。
   };
 
   function loadOne(name, i) {
@@ -252,7 +253,6 @@
           API.title = t;
         }
       }
-      if (imgs.dragon) bakeDragon(imgs.dragon);
       state.ready = true;
       API.ready = true;
 
@@ -264,11 +264,32 @@
       API.layers = state.baked;
 
       flush();
+      setTimeout(ensureDragon, 1000); // 背景就绪 1s 后再取龙图，避开首屏解码高峰
     } catch (e) {
       state.ready = false;
       API.ready = false;
     }
   }
+
+  /* 龙图懒加载：多基路径兜底；失败静默，API.dragon 保持 null 由消费方回退程序化龙 */
+  var dragonQueued = false;
+  function ensureDragon() {
+    if (dragonQueued) return;
+    dragonQueued = true;
+    var bi = 0;
+    var im = new Image();
+    function attempt() {
+      if (bi >= BASE.length) return;
+      im.onload = function () {
+        if (!im.naturalWidth && !im.width) { bi++; attempt(); return; }
+        try { bakeDragon(im); } catch (e) { /* 静默 */ }
+      };
+      im.onerror = function () { bi++; if (bi < BASE.length) attempt(); };
+      try { im.src = BASE[bi] + 'vfx/dragon.png'; } catch (e) { bi++; attempt(); }
+    }
+    attempt();
+  }
+  API.ensureDragon = ensureDragon;
 
   function flush() {
     var q = state.queue;

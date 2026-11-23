@@ -3,7 +3,9 @@
  * 已抠洋红、逐帧底部居中，尺寸与原 SPR 首帧一致（12×10 / 14×16 / 14×12 / 12×12 / 10×10 / 12×12）。
  * 只在 minion_anim.js 之后覆盖 SPR 对应键；每帧带 _aiEnemy/_aiFoot/_aiBaseW，
  * ui.js 仍按原精灵底边/中心对齐，不改命中框、速度与 AI。
- * 缺图时静默跳过该组，保留原素材。 */
+ * 缺图时静默跳过该组，保留原素材。
+ * v56 修复：图片解码可能早于 boot 的 buildSprites 填充 SPR；finish 时若原帧尚不存在，
+ * 不再永久放弃——保留已解码帧，由 500ms 看门狗在 SPR 就绪后补建（消除冷启动偶发缺 *White）。 */
 (function(){
   if(typeof window==='undefined'||typeof document==='undefined')return;
   var BASE='assets/ai/enemies/';
@@ -16,7 +18,7 @@
     {key:'boomer',  files:['boomer_0.png','boomer_1.png','boomer_2.png'],            pick:[0,1]},
     {key:'jelly',   files:['jelly_0.png','jelly_1.png','jelly_2.png'],               pick:[0,1]}
   ];
-  var orig={}, built={}, started=false, tries=0, timer=null, ready=0;
+  var orig={}, built={}, pending={}, started=false, tries=0, timer=null, ready=0;
 
   function make(w,h){var c=document.createElement('canvas');c.width=w;c.height=h;return c;}
   function ctx2(c){var g=c.getContext('2d');g.imageSmoothingEnabled=false;return g;}
@@ -36,7 +38,8 @@
     return c;
   }
 
-  // 原尺寸只取一次；若上游 minion_anim 已换帧，沿用它带的锚点，避免锚点漂移
+  // 原尺寸只取一次；若上游 minion_anim 已换帧，沿用它带的锚点，避免锚点漂移。
+  // 注意：取不到时不写缓存，留给看门狗重试（SPR 可能晚于图片解码就绪）。
   function origOf(key){
     if(orig[key])return orig[key];
     var v;
@@ -48,6 +51,28 @@
       baseW:(f._aiBaseW!=null?f._aiBaseW:f.width)
     };
     return orig[key];
+  }
+
+  // 待建组：SPR 原帧就绪后，用已解码帧补 val/white 并写入 SPR。
+  function tryBuild(key){
+    if(built[key])return;
+    var p=pending[key];
+    if(!p)return;
+    var o=origOf(key);
+    if(!o)return;
+    var arr=[],j;
+    for(j=0;j<p.d.pick.length;j++){
+      var im=p.out[p.d.pick[j]];
+      if(!im)continue;
+      arr.push(tag(im,o.foot,o.baseW));
+    }
+    if(!arr.length)return;
+    var val=arr.length>1?arr:[arr[0],arr[0]];
+    var white=[];
+    for(j=0;j<val.length;j++)white.push(tag(whiteOf(val[j]),o.foot,o.baseW));
+    built[key]={val:val,white:white};
+    delete pending[key];
+    apply();
   }
 
   function apply(){
@@ -69,8 +94,10 @@
     if(started)return;
     started=true;
     apply();
-    // 12 秒内每 500ms 压回，压住 ai_sprites / sprites_external 的后写覆盖
+    // 12 秒内每 500ms 压回，压住 ai_sprites / sprites_external 的后写覆盖；
+    // 同时补建图片先于 SPR 就绪而挂起的组。
     timer=setInterval(function(){
+      for(var k in pending)tryBuild(k);
       apply();
       if(++tries>=24){clearInterval(timer);timer=null;}
     },500);
@@ -91,21 +118,8 @@
       var list=d.files,out=[],left=list.length,failed=false;
       function finish(){
         if(failed){done();return;}
-        var o=origOf(d.key);
-        if(!o){done();return;}
-        var arr=[],j;
-        for(j=0;j<d.pick.length;j++){
-          var im=out[d.pick[j]];
-          if(!im)continue;
-          arr.push(tag(im,o.foot,o.baseW));
-        }
-        if(arr.length){
-          var val=arr.length>1?arr:[arr[0],arr[0]];
-          var white=[];
-          for(j=0;j<val.length;j++)white.push(tag(whiteOf(val[j]),o.foot,o.baseW));
-          built[d.key]={val:val,white:white};
-          apply();
-        }
+        pending[d.key]={d:d,out:out};
+        tryBuild(d.key);   // SPR 已就绪则立刻建；否则挂起等看门狗补建
         done();
       }
       for(var n=0;n<list.length;n++){

@@ -2910,6 +2910,21 @@ function getHeroSkin(id) { // 取某套皮肤的全部帧（惰性生成 + 缓�
   if (SPR.skins[sk.id]) return SPR.skins[sk.id]; // 命中缓存：同一 id 永远返回同一对象
   if (!SPR.heroIdle1) buildSprites();            // 未构建时自举（blue 帧依赖 hero*，幂等调用）
   if (SPR.skins[sk.id]) return SPR.skins[sk.id]; // 自举期间 buildSprites 末尾已预生成 blue：直接复用
+  // v54：AI 染色层（hero_skin_ai.js）就绪且返回帧时优先采用 32×38 AI 帧；
+  //   模块缺失 / 未就绪 / 返回 null → 静默回退下方原程序化逻辑，不白屏。
+  let ai = null;
+  try {
+    if (window.PQ_HERO_SKIN_AI && window.PQ_HERO_SKIN_AI.ready &&
+        typeof window.PQ_HERO_SKIN_AI.frames === 'function') {
+      ai = window.PQ_HERO_SKIN_AI.frames(sk.id);
+    }
+  } catch (e) { ai = null; }
+  if (ai) {
+    if (Array.isArray(ai.run)) Object.freeze(ai.run);
+    if (Array.isArray(ai.runL)) Object.freeze(ai.runL);
+    SPR.skins[sk.id] = Object.freeze(ai);
+    return SPR.skins[sk.id];
+  }
   const f = sk.id === 'blue' ? _heroBlueFrames() : _heroSkinFrames(sk.pal);
   Object.freeze(f.run); Object.freeze(f.runL);   // v7.7：帧对象冻结——防 ui 误改写串皮肤
   SPR.skins[sk.id] = Object.freeze(f);
@@ -3240,7 +3255,9 @@ function _buildMageSprites() { // 内部：全部法师素材（buildSprites 调
 }
 
 function buildSprites() { // 一次性构建全部精灵（幂等：重复调用直接返回，契约导出）
-  if (SPR.heroIdle1) return SPR;
+  // v54.1：幂等标志独立于任何具体精灵键——AI 主角帧 onload 可能在本函数之前同步写入
+  // SPR.heroIdle1，若探测该键会导致提前 return，机关/外观精灵整批漏建（checkOn/coin/flag/look…）。
+  if (SPR.__built) return SPR;
   // —— 主角「星之勇者」（16×16，右向为基准，左向为翻转版）——
   SPR.heroIdle1 = _makeSprite(_H_IDLE1, _P_HERO);
   SPR.heroIdle2 = _makeSprite(_H_IDLE2, _P_HERO);
@@ -4077,6 +4094,7 @@ function buildSprites() { // 一次性构建全部精灵（幂等：重复调用
   // —— v7.7：预生成 blue 皮肤帧对象（纯引用上面已画好的 hero* 帧，零额外像素绘制，耗时≈0）；
   //     其余 19 套留待 ui 首次取用时惰性生成，启动期不付 19×20 张画布的钱。——
   getHeroSkin('blue');
+  SPR.__built = true; // 全量构建完成后置位（独立幂等标志，见函数入口守卫）
   return SPR;
 }
 

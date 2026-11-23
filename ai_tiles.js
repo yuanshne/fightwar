@@ -152,12 +152,17 @@
     try { im.src = BASE[i] + FILES[name]; } catch (e) { loadOne(name, i + 1); }
   }
 
+  /* 首屏关键族：草地/洞窟（第 1 章与多数平台关）；其余 8 族纹理推迟到空闲后补拉 */
+  var EAGER_KEYS = ['grass', 'cave'];
+
+  function texReady(name) { return !!state.imgs[name] && !state.failed[name]; }
+
   function settle(name, img) {
     if (state.waiting[name]) return;
     state.waiting[name] = true;
     state.done++;
     if (!img) state.failed[name] = true;
-    if (state.done >= state.total) bakeAll();
+    bakeAvailable();
   }
 
   function flush() {
@@ -173,7 +178,16 @@
     state.started = true;
     var names = Object.keys(FILES);
     state.total = names.length;
-    for (var i = 0; i < names.length; i++) loadOne(names[i], 0);
+    var deferred = [];
+    for (var i = 0; i < names.length; i++) {
+      if (EAGER_KEYS.indexOf(names[i]) !== -1) loadOne(names[i], 0);
+      else deferred.push(names[i]);
+    }
+    var kick = function () {
+      for (var j = 0; j < deferred.length; j++) loadOne(deferred[j], 0);
+    };
+    if (document.readyState === 'complete') setTimeout(kick, 700);
+    else window.addEventListener('load', function () { setTimeout(kick, 700); }, { once: true });
   }
 
   /* ==================== 16×16 烘焙原语 ==================== */
@@ -600,19 +614,36 @@
     return out;
   }
 
-  function bakeAll() {
-    if (state.ready) return;
-    /* 任一纹理加载失败 → 视为未就绪，继续用原美术（不做半套替换） */
-    if (Object.keys(state.failed).length) {
-      state.ready = false;
-      API.ready = false;
-      window.PQAI_TILES_READY = false;
+  function familyTex(famKey) {
+    var F = FAM[famKey];
+    return F ? F.tex : null;
+  }
+
+  function bakeAvailable() {
+    if (state.ready) {
+      // 已就绪后迟到的纹理：补烤对应族并刷新主题
+      var bakedAny = false;
+      for (var i = 0; i < FAM_KEYS.length; i++) {
+        var k0 = FAM_KEYS[i];
+        if (state.baked[k0]) continue;
+        var t0 = familyTex(k0);
+        if (t0 && texReady(t0)) { state.baked[k0] = buildFamily(k0); bakedAny = true; }
+      }
+      if (bakedAny) flush();
       return;
     }
+    // eager 两族到位即视为就绪先接管首屏；其余族随纹理到达补烤。
+    // 单族纹理失败只回退该族（保留程序化瓦片），不阻塞其他族。
+    var eagerOk = EAGER_KEYS.every(function (k) {
+      var t = familyTex(k); return t ? texReady(t) : false;
+    });
+    if (!eagerOk && state.done < state.total) return;
     try {
       for (var i = 0; i < FAM_KEYS.length; i++) {
         var k = FAM_KEYS[i];
-        state.baked[k] = buildFamily(k);
+        if (state.baked[k]) continue;
+        var t = familyTex(k);
+        if (t && texReady(t)) state.baked[k] = buildFamily(k);
       }
       state.ready = true;
       API.ready = true;

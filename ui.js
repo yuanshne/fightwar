@@ -1077,6 +1077,7 @@ function awardSkin(i){
 function equipSkin(id){
   if(progress.skins.indexOf(id)<0){SFX.shot();return false;}
   progress.skin=id;
+  _lookDirty(); // v54：切皮肤立刻清合成缓存，避免复用上一套皮肤的残留外观图
   saveProgress(progress);
   SFX.select();
   _bagFloat('已装备 · '+skinName(id),'#f8d048',1,VIEW_W/2,214); // 锚在面板底缘内侧（v8.1 面板加高后避开第 4 行格子）
@@ -3626,7 +3627,7 @@ function _outlineImg(img,color,ox,oy,a){
 // 朝向契约（本轮核对 art.js:1386-1404）：SPR.hero* 全部 *L 变体=flipSprite(右向基准)，故合成一律以
 // 右向基准为底、朝向由 heroLook 统一翻转输出——heroPoseImg 改传右向基准（伪代码「无装备直通
 // return img」补一处翻转修正，否则左向玩家卸装后朝向反转为波1 回归；装备路径本就经 e.L 翻转）。
-const _lookCache=new Map();          // key=右向基准 img → {R:合成canvas, L:flipSprite(R)}
+const _lookCache=new Map();          // 外层 key=右向基准底帧 img；内层 key=尺寸|皮肤|装备档|家族 → {R:合成canvas, L:flipSprite(R)}
 function _makeCanvasUi(w,h){const c=document.createElement('canvas');c.width=w;c.height=h;return c;} // 同 whiteOf 惯例
 function lookEq(){                   // 穿着件→档位 {weapon,hat,cape:-1..2}；SPR.look 未合入恒全 -1（守卫直通，§F）
   const out={weapon:-1,hat:-1,cape:-1};
@@ -3648,19 +3649,51 @@ function heroLook(img,fam){
   const eq=lookEq();
   const faceL=game.player&&game.player.face<0;
   if(eq.weapon<0&&eq.hat<0&&eq.cape<0)return faceL?flipCache(img):img; // 无装备零开销直通（补朝向翻转）
-  let e=_lookCache.get(img);
-  if(!e){const c=_makeCanvasUi(16,16);const g=c.getContext('2d');
-    const dx=fam==='atk'?1:0;                                        // 攻/冲家族 +1 列（§7.5 核验#2）
-    if(eq.cape>=0)g.drawImage(SPR.look.cape[eq.cape],0,0);           // 披风=底层
+  // v54：画布按底帧真实尺寸创建（AI 主角 32×38；旧程序化/Kenney 帧 16×16 兜底兼容）。
+  // 旧实现写死 16×16，32×38 底帧被裁成左上 16×16——「改了没生效」的头号根因。
+  const bw=img.width||16, bh=img.height||16;
+  const sk=(typeof progress!=='undefined'&&progress.skin)||'blue';
+  // 缓存键必须含：底帧尺寸 + 皮肤 id + 三槽装备档 + 攻/冲家族（dx 偏移）。
+  // 切皮肤 / 穿脱装备 / 底帧尺寸变化都会落到新键，绝不复用上一套皮肤或旧装备的残留合成图。
+  const innerKey=bw+'x'+bh+'|'+sk+'|'+eq.weapon+','+eq.hat+','+eq.cape+'|'+(fam==='atk'?1:0);
+  let inner=_lookCache.get(img);
+  if(!inner){inner=new Map();_lookCache.set(img,inner);}
+  let e=inner.get(innerKey);
+  if(!e){
+    const c=_makeCanvasUi(bw,bh);const g=c.getContext('2d');
+    g.imageSmoothingEnabled=false; // 最近邻：整数/分数缩放都保持像素风硬边，不糊
+    // 装备层是 16×16 覆盖网格（art.js _lookSprite 烘焙了顶/行锚点：hat rows0..4、weapon rows7..15、cape rows5..15）。
+    // 按底帧尺寸做网格映射 sx=bw/16、sy=bh/16，烘焙锚点随比例对齐：头饰头顶、武器手侧、披风背后底层。
+    const sx=bw/16, sy=bh/16;
+    const dx=(fam==='atk'?1:0)*sx;                                  // 攻/冲家族 +1 列（§7.5 核验#2）
+    if(eq.cape>=0&&SPR.look&&SPR.look.cape[eq.cape])
+      g.drawImage(SPR.look.cape[eq.cape],0,0,16,16,0,0,bw,bh);     // 披风=底层
     g.drawImage(img,0,0);
-    if(eq.weapon>=0)g.drawImage(SPR.look.weapon[eq.weapon],dx,0);    // 武器=手侧覆盖
-    if(eq.hat>=0)g.drawImage(SPR.look.hat[eq.hat],dx,0);             // 头饰=头顶覆盖
-    e={R:c,L:flipSprite(c)};_lookCache.set(img,e);}
+    if(eq.weapon>=0&&SPR.look&&SPR.look.weapon[eq.weapon])
+      g.drawImage(SPR.look.weapon[eq.weapon],0,0,16,16,dx,0,bw,bh);// 武器=手侧覆盖
+    if(eq.hat>=0&&SPR.look&&SPR.look.hat[eq.hat])
+      g.drawImage(SPR.look.hat[eq.hat],0,0,16,16,dx,0,bw,bh);       // 头饰=头顶覆盖
+    e={R:c,L:flipSprite(c)};inner.set(innerKey,e);
+  }
   return faceL?e.L:e.R;
 }
 function _lookDirty(){
   _lookCache.clear();                                  // 骑士：合成缓存按「底帧」做键，穿脱后底帧没变 → 必须显式清
   if(typeof SPR!=='undefined'&&SPR.mageLooks)SPR.mageLooks={}; // 法师：键里已含档位，清掉只是省内存、顺带防脏
+}
+
+// v54：等比适配取帧——衣橱缩略图 / 背包预览 / 选角头像统一入口。
+// 按源帧真实宽高比缩放进目标框并居中：不拉伸、不压扁、不裁切；源帧 16×16 与 32×38 都兼容。
+function _fitFrame(img,bw,bh){
+  const iw=img.width||img.naturalWidth||16, ih=img.height||img.naturalHeight||16;
+  const s=Math.min(bw/iw,bh/ih);
+  return {dw:Math.max(1,Math.round(iw*s)),dh:Math.max(1,Math.round(ih*s)),iw:iw,ih:ih};
+}
+function _drawFit(img,bx,by,bw,bh){
+  if(!img)return false;
+  const f=_fitFrame(img,bw,bh);
+  ctx.drawImage(img,Math.round(bx+(bw-f.dw)/2),Math.round(by+(bh-f.dh)/2),f.dw,f.dh);
+  return true;
 }
 
 // v6 波2 §E/§7.4：图标稀有度叠色缓存（whiteOf 思路 source-atop；每 对(图标,稀有度色) 只合成一次）
@@ -5945,7 +5978,8 @@ function renderBag(tick){
   // v19.4：法师肖像也跟随换色皮肤（blue → skinIdle1 内部回落 mgIdle1 本命配色）
   // v19.5：法师肖像同样叠装备外观（mageIdle1 = 皮肤 + 装备三槽）
   const pv=(game.hero==='mage')?mageIdle1():heroLook(skinIdle1(progress.skin),'idle');
-  if(pv)ctx.drawImage(pv,44,24,48,48);
+  // v54：预览框 48×48，按源帧比例等比缩放居中（旧 drawImage(pv,44,24,48,48) 把 32×38 拉成方形 → 变形）
+  if(pv)_drawFit(pv,44,24,48,48);
   // 属性行（读 game.equip；攻击=基攻+装备加成，加成绿字；§7.2/工单 §C）
   const atkBase=(typeof BAL!=='undefined'&&BAL&&BAL.player&&BAL.player.atkBase)||1;
   const atkStr='攻击 '+(atkBase+eq.atk);
@@ -6043,7 +6077,7 @@ function renderBag(tick){
 
 // ---------- v7.7 衣橱面板（title/select 覆盖层；_panel 切角语言，布局 42,24,300,172） ----------
 // 6 列 × 3 行、格 40×36、pitch 46×38（几何常量 WD_* 与 computeHover 同源，见 _skinCellXY）：
-// 格内缩略 16×20 @ (格x+12, 格y+3) / 名字 7px y+25 / 已装备=金描边+四角亮块 / 光标=白描边 2px。
+// 格内缩略适配框 (格x+2, 格y+2, 36×22) 等比居中 / 名字 7px y+25 / 已装备=金描边+四角亮块 / 光标=白描边 2px。
 function _skinLock(cx,cy,col){ // 内部：锁形（照选关屏章锁画法：锁钩 arc + 锁体 fillRect，居中于 cx,cy）
   ctx.strokeStyle=col;ctx.lineWidth=1;
   ctx.beginPath();ctx.arc(cx,cy-2,3,Math.PI,0);ctx.stroke();
@@ -6064,11 +6098,9 @@ function renderWardrobe(tick){
     _panel(x,y,WD_CELL[0],WD_CELL[1],{cut:3,alpha:own?0.85:0.5});
     if(own){
       const th=skinIdle1(id);                 // v7.7：缩略图用该皮肤 idle1（未合入/缺键 → SPR.heroIdle1）
-      // v19.4：法师帧是 16×16，骑士是 16×20——按 16×20 拉伸会把法师压扁，故按角色换目标框并居中
-      if(th){
-        if(game.hero==='mage')ctx.drawImage(th,x+12,y+5,16,16);
-        else ctx.drawImage(th,x+12,y+3,16,20);
-      }
+      // v54：按源帧真实宽高比等比缩放进 36×22 格内框并居中——16×16 / 16×20 / 32×38 都不拉扁；
+      // 旧写法骑士压 16×20、法师压 16×16，32×38 AI 帧被纵向压扁。
+      if(th)_drawFit(th,x+2,y+2,WD_CELL[0]-4,22);
       drawCNText(SKIN_LIST[i].name||id,x+20,y+25,7,cur?'#f8d048':'#dfe4f4','center');
     }else{ // 未解锁：格面压暗 + 中央锁形 + 名字 ???
       ctx.fillStyle='rgba(4,8,20,0.55)';ctx.fillRect(x+2,y+2,WD_CELL[0]-4,WD_CELL[1]-4);

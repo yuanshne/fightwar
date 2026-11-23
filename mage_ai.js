@@ -26,7 +26,7 @@
   var loadedCount = 0;
   var ALL = 0;
   /* 翻转帧只烘焙一次，重压阶段直接复用，避免反复分配 canvas。 */
-  var idleL = null, runL = null, run0L = null, cast1L = null, cast2L = null;
+  var idleL = null, runL = null, run0L = null, cast0L = null, cast1L = null, cast2L = null;
 
   function make(w, h) {
     var c = document.createElement('canvas');
@@ -75,6 +75,16 @@
       set('mgDash', got.run0);
       set('mgDashL', run0L);
     }
+    /* 冲刺蓄力帧：无专用 AI 素材，复用 cast0（起手施法帧）充作蓄力；
+       落地压扁帧复用 idle。两键旧 art.js 程序化帧是 16×16，必须一并升到 32×38。 */
+    if (got.cast0) {
+      set('mgDashWind', got.cast0);
+      set('mgDashWindL', cast0L);
+    } else if (got.cast1) {
+      set('mgDashWind', got.cast1);
+      set('mgDashWindL', cast1L);
+    }
+    if (idle) set('mgSquash', idle);
     if (got.cast2) {
       set('mgAttack', got.cast2);
       set('mgAttackL', cast2L);
@@ -90,6 +100,9 @@
       apply();
       if (++tries >= 24) clearInterval(timer);
     }, 500);
+    /* 常驻看门狗：12s 重压窗口结束后仍每 3s 复位一次 mg* AI 帧，
+       防止迟到的 buildSprites / 他线 repaint 把顶层 mg* 顶回旧 16×16 程序化帧。 */
+    setInterval(apply, 3000);
   }
 
   function loadOne(key, name) {
@@ -111,10 +124,20 @@
     if (got.run1 && got.run2 && got.run3) {
       runL = [got.run0, got.run1, got.run2, got.run3].map(flip);
     }
+    if (got.cast0) cast0L = flip(got.cast0);
     if (got.cast1) cast1L = flip(got.cast1);
     if (got.cast2) cast2L = flip(got.cast2);
     apply();
     startRepress();
+    /* v54：把已解码的 32×38 底帧只读导出给 mage_skin_ai.js 染色层复用（不再重复解码；
+       缺键保持 null，染色层逐键兜底）。blue 路径、帧序与节奏一律不变。 */
+    try {
+      window.PQAI_MAGE_SRC = {
+        idle: got.idle || null,
+        run: [got.run0 || null, got.run1 || null, got.run2 || null, got.run3 || null],
+        cast: [got.cast0 || null, got.cast1 || null, got.cast2 || null]
+      };
+    } catch (e) { /* 只读导出失败不影响主流程 */ }
     if (loadedCount === ALL) window.PQAI_MAGE_READY = true;
   }
 

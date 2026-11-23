@@ -4873,15 +4873,22 @@ function _engUpdateSkills(dt) { // 内部：四技能 U/I/O/L（边沿消费 + C
       if (S.u <= 0 && !p.dead && _engSpendMana(M.u.mana)) {
         S.u = M.u.cd * game.cdMul; p.castT = 0.3;
         // v41：新星圆心=精灵躯干中心（可视顶下 19px），不再是旧碰撞盒中心/脚底
-        const cx = p.x + p.w / 2, cy = _engSpriteTop(p) + 19;
+        const cx = p.x + p.w / 2, cy = _engSpriteTop(p) + 19, feet = p.y + p.h;
         const seq = (game.novaSeq = (game.novaSeq || 0) + 1);
         for (let i = 0; i < M.u.n; i++) {
           const a = (i / M.u.n) * Math.PI * 2 - Math.PI / 2;   // 从正上方起算，八向均分
+          const sx = Math.cos(a), sy = Math.sin(a);
+          // v57：水平/斜下/正下方向冰锥判定盒向下落到脚底线（覆盖 10px 贴地矮怪）；
+          // 向上方向保持 7×7 原样。盒底压线不压瓦片（_engEps 口径），不会出生即撞地。
+          const low = sy > -0.2;
+          const sh = low ? 15 : M.u.h;
+          const syBox = low ? feet - sh : cy - M.u.h / 2 + sy * 5;
           _engPushShot({ kind: 'shard', novaSeq: seq, freeze: M.u.freeze,
-            x: cx - M.u.w / 2 + Math.cos(a) * 5, y: cy - M.u.h / 2 + Math.sin(a) * 5,
-            w: M.u.w, h: M.u.h, vx: Math.cos(a) * M.u.v, vy: Math.sin(a) * M.u.v, life: M.u.life,
+            x: cx - M.u.w / 2 + sx * 5, y: syBox,
+            w: M.u.w, h: sh, vx: sx * M.u.v, vy: sy * M.u.v, life: M.u.life,
             base: M.u.dmg, dmg: M.u.dmg, crit: 0, pierce: 0, hitList: [],
-            homeR: 0, homeDeg: 0, turn: 0, face: p.face, manaGain: 0 });
+            homeR: 0, homeDeg: 0, turn: 0, face: p.face, manaGain: 0,
+            grounded: 0, spikeLife: 0.45 });
         }
         game.sfxQueue.push('nova');
         _engShake(3, 0.06);
@@ -5737,6 +5744,51 @@ function _engShotHitEnemy(s, e) { // 内部（v19）：弹体命中敌人——�
   return s.pierce <= 0;
 }
 
+/* v57：霜爆新星冰锥碰地/碰墙 → 转短时冰刺（地刺）/冰爆，不再静默消失。
+   生命周期 spikeLife（0.45s）内静止存续，落点帧查敌人与 Boss；到期自动消散，不污染关卡。
+   去重与飞行冰锥同一套：e.novaSeq / boss.novaSeq 记名，同一次 novaSeq 对同一目标只结算一次。 */
+function _engShardLand(s, tx, ty, L) { // 内部：落地转换——下落分量为主贴地成刺，否则贴墙成爆
+  const ground = s.vy > 0.2;
+  s.grounded = 1; s.vx = 0; s.vy = 0;
+  s.life = s.spikeLife || 0.45; s.t = 0;
+  const T = _engTile;
+  if (ground) {
+    s.w = 20; s.h = 14;                               // 纵向覆盖 14px，够得着脚边贴地/半陷矮怪
+    s.x = s.x + s.w / 2 - 10;                         // 保持落点中心，盒子坐在实心瓦片顶面
+    s.y = ty * T - s.h;
+  } else {
+    s.w = 10; s.h = 12;
+    const hitRight = s.vx > 0;                        // 向右飞撞墙左脸 → 盒子贴墙外侧
+    s.x = hitRight ? tx * T - s.w : tx * T + T;
+    s.x = _engClamp(s.x, 0, Math.max(0, L.w * T - s.w));
+    s.y = s.y + s.h / 2 - 6;
+  }
+  // 落地可见表现：冰屑 + 冰环；残留冰锥本体由 renderShots 按 life 淡出
+  _engAddParts(s.x + s.w / 2, s.y + s.h / 2, 6, '#d8f4ff', 100, 220);
+  _engAddParts(s.x + s.w / 2, s.y + s.h / 2, 3, '#48a8e0', 70, 180);
+  _engFx(s.x + s.w / 2, s.y + s.h / 2, { ring: 1, r: 3, r1: 12, life: 0.28, life0: 0.28, color: '#a8e8ff' });
+}
+
+function _engShardHitTargets(s, L) { // 内部：落地冰刺帧查——Boss → 敌人，novaSeq 去重后走既有命中结算
+  const b = game.boss;
+  if (b && _engAabb(s, b)) {
+    if (b.novaSeq !== s.novaSeq) {                     // 同一次新星对 Boss 只结算一次
+      b.novaSeq = s.novaSeq;
+      const bdmg = s.dmg || s.base;
+      if (_engBossHurt(bdmg, !!s.isUlt)) {
+        _engAddUltCharge();
+        _engFloat(b.x + b.w / 2, b.y - 4, '' + b.lastDmg, '#ffffff', 0);
+        game.hitStop = _engHitStop; game.sfxQueue.push('hit');
+      }
+    }
+  }
+  for (const e of L.enemies) {
+    if (e.dead > 0 || s.hitList.indexOf(e) >= 0 || !_engAabb(s, e)) continue;
+    if (e.novaSeq === s.novaSeq) continue;             // 飞行冰锥已打过 → 地刺不再补第二份伤
+    _engShotHitEnemy(s, e);                            // 内部记 novaSeq / freezeT / 伤害 / 击杀
+  }
+}
+
 function _engMageMeteorHit(L, m) { // 内部（v19，spec §1.2/§2.7）：法师陨星砸敌人——按 m.dmg 结算，**不秒杀小怪**
   // 骑士星陨是「大招秒杀 + 清弹幕」，法师大招的等价价值是「6×N 点伤害」，所以这里只扣血。
   // v20.9：补交互——陨星落点同样砸得到 hazards（egg/totem/clone/mirror/web，core 走专用通道），
@@ -5879,6 +5931,10 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     if (s.born > 0) { s.born -= dt; continue; }
     s.life -= dt;
     if (s.life <= 0) { arr.splice(i, 1); continue; }   // 超时回收（射程 = v × life）
+    if (s.grounded) {                                   // v57：落地冰刺/冰爆——静止存续，帧查目标，到期消散
+      _engShardHitTargets(s, L);
+      continue;
+    }
     _engShotHome(s, L, dt);                            // 追踪：先转向再位移
     s.x += s.vx * dt; s.y += s.vy * dt;
     /* v19.3：冰锥不拖尾——一次新星 8 枚同时飞，再给拖尾会瞬间打满 fx 上限 60（BAL.guard.fx）。
@@ -5991,9 +6047,10 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
     /* ⑥ 瓦片：'B' 碎+金币+连击 / 'G' 碎+连击 / 其余实心（# I ( ) 开关砖 门 崩塌砖）→ 停 */
     _engRectTiles(L, s.x, s.y, s.w, s.h, function (tx, ty, ch) {
       if (dead) return;
+      const land = s.kind === 'shard' && !s.grounded;   // v57：冰锥碰任何实心/可碎瓦片都落地转换，不静默消失
       if (ch === 'q') {                                // v25：炸药桶——弹体引爆（含链爆）
         _engBarrelBlast(L, tx, ty);
-        dead = true;
+        if (land) _engShardLand(s, tx, ty, L); else dead = true;
       } else if (ch === 'B') {
         L.tiles[ty][tx] = '.';
         game.coins += BAL.econ.brick;
@@ -6002,20 +6059,16 @@ function _engUpdateShots(dt) { // 内部（v19）：法师弹体步进（updateW
         _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 10, '#c89858', 90, 300);
         _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 4, '#f8d020', 70, 200);
         game.sfxQueue.push('break');
-        dead = true;
+        if (land) _engShardLand(s, tx, ty, L); else dead = true;
       } else if (ch === 'G') {                          // 隐藏砖：碎后永久消失（无金币，计连击）
         L.tiles[ty][tx] = '.';
         _engShake(3, 0.05);
         _engAddParts(tx * _engTile + 8, ty * _engTile + 8, 12, '#9a8ad0', 90, 300);
         game.sfxQueue.push('break');
-        dead = true;
+        if (land) _engShardLand(s, tx, ty, L); else dead = true;
       } else if (L.solid(tx, ty, game.switchState)) {
-        if (s.kind === 'shard' && !s.hitWall) {        // v19.3：冰锥撞墙/砖 = 炸一小蓬冰屑（不是静默消失）
-          s.hitWall = 1;
-          _engAddParts(s.x + 3, s.y + 3, 4, '#d8f4ff', 100, 220);
-          _engAddParts(s.x + 3, s.y + 3, 2, '#48a8e0', 70, 180);
-        }
-        dead = true;
+        if (land) _engShardLand(s, tx, ty, L);
+        else if (!s.grounded) dead = true;
       }
     });
     if (dead) { arr.splice(i, 1); continue; }

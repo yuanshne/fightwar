@@ -104,10 +104,12 @@
     return true;
   }
 
-  /* ---------- AI 贴图接入（只读；未就绪返回 null，绘制静默跳过） ---------- */
+  /* ---------- AI 贴图接入（懒加载：首次取图时按需发起；未就绪返回 null，绘制静默跳过） ---------- */
   function aiImg(name) {
     var A = (typeof window !== 'undefined') ? window.PQAI_VFX : null;
-    var im = A ? A[name] : null;
+    if (!A) return null;
+    try { if (typeof A.ensure === 'function') A.ensure(name); } catch (e) { /* 静默 */ }
+    var im = (typeof A.get === 'function') ? A.get(name) : A[name];
     return (im && im.width > 0 && im.height > 0) ? im : null;
   }
   function aiDraw(ctx, img, x, y, size, alpha, rot, flipX) {

@@ -38,6 +38,8 @@
   }
   function tag(img,foot,baseW){img._aiEnemy=true;img._aiFoot=foot;img._aiBaseW=baseW;return img;}
   function firstFrame(v){return Array.isArray(v)?v[0]:v;}
+  // 就绪钩子：帧写入后通知启动就绪门即时复查（asset_gate.js 晚于本文件加载，守卫存在性）。
+  function gateNotify(){try{if(window.PQ_ASSET_GATE&&typeof window.PQ_ASSET_GATE.notify==='function')window.PQ_ASSET_GATE.notify();}catch(e){}}
 
   function heroFrames(){
     if(!hero||typeof SPR==='undefined')return null;
@@ -62,6 +64,7 @@
     aiBlue=Object.freeze(f);
     try{if(SPR.skins)SPR.skins.blue=aiBlue;}catch(e){}
     wrapSkin();
+    gateNotify();
   }
 
   // sprites_external.js 会重建 SPR.skins.blue；这里包一层，确保默认 blue 皮肤始终取 AI 帧。
@@ -115,6 +118,7 @@
       var e0=minionFrame(minionHuman,ef.width,ef.height,'#b45cff',0.24);
       SPR[ek]=[e0,shift(e0,-1)];
     }
+    gateNotify();
   }
 
   // 白剪影：仅对已绘制像素上色，保留原图 alpha（白闪用）。
@@ -568,10 +572,10 @@
     if(boss)window.PQAI_BOSS_DRAW=drawBoss;
   }
 
-  load('hero_small.png',function(im){hero=im;window.PQAI_HERO_READY=true;applyHero();});
-  load('minion_small.png',function(im){minionSmall=im;applyEnemies();});
-  load('minion_human.png',function(im){minionHuman=im;applyEnemies();});
-  load('boss.png',function(im){boss=im;buildBossAssets();window.PQAI_BOSS_DRAW=drawBoss;});
+  load('hero_small.png',function(im){hero=im;window.PQAI_HERO_READY=true;applyHero();gateNotify();});
+  load('minion_small.png',function(im){minionSmall=im;applyEnemies();gateNotify();});
+  load('minion_human.png',function(im){minionHuman=im;applyEnemies();gateNotify();});
+  load('boss.png',function(im){boss=im;buildBossAssets();window.PQAI_BOSS_DRAW=drawBoss;gateNotify();});
   // 三张角色素材到齐后置总就绪标志，sprites_external.js 会据此放弃 Kenney 覆盖。
   var markTimer=setInterval(function(){
     if(hero&&minionSmall&&minionHuman&&boss){window.PQAI_ART_READY=true;clearInterval(markTimer);}

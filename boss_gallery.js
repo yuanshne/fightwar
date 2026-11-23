@@ -10,7 +10,7 @@
   'use strict';
   if(typeof window==='undefined'||typeof document==='undefined')return;
   var BASE='assets/ai/bosses/boss_';
-  var VER='?v=53';
+  var VER='?v=54';
   var TOTAL=14;
   var TW=96,TH=110,TARGET_H=106;
   var left=TOTAL;

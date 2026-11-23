@@ -2,6 +2,11 @@ testshots/
 __pycache__/
 tools/_shots/
 
+# 修复前/后的本地基线快照（体积大，不入库）
+.snap_before/
+.snap_v57/
+.snap_*/
+
 # 本地验收截图 / TRAE 分享包（不入库）
 .screenshots/
 .trae-html-share-packages/
